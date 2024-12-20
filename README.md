@@ -22,6 +22,7 @@ npm run install
 ## 🚴 Usage
 
 ```
+npm run grpc-proxy
 npm run dev
 ```
 
