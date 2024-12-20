@@ -2,7 +2,7 @@
 name = "akave-wasm-sdk"
 version = "0.1.0"
 authors = ["Gilberto Conde <gilberto.conde@lightshift.xyz>"]
-edition = "2018"
+edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -11,7 +11,20 @@ crate-type = ["cdylib", "rlib"]
 default = ["console_error_panic_hook"]
 
 [dependencies]
+tonic = { version = "0.12", default-features = false, features = [
+  "prost",
+  "codegen",
+] }
+tonic-web-wasm-client = "0.6"
+prost = "0.13"
+prost-types = "0.13.4"
+prost-wkt = "0.6"
+prost-wkt-types = "0.6"
 wasm-bindgen = "0.2.84"
+wasm-bindgen-futures = "0.4.49"
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.4"
+
 
 # The `console_error_panic_hook` crate provides better debugging of panics by
 # logging them with `console.error`. This is great for development, but requires
@@ -20,8 +33,18 @@ wasm-bindgen = "0.2.84"
 console_error_panic_hook = { version = "0.1.7", optional = true }
 
 [dev-dependencies]
-wasm-bindgen-test = "0.3.34"
+tonic-web-wasm-client = "0.6"
 
 [profile.release]
 # Tell `rustc` to optimize for small code size.
 opt-level = "s"
+
+[build-dependencies]
+prost-build = "0.13"
+prost-wkt-build = "0.6"
+tonic-build = { version = "0.12", default-features = false, features = [
+  "prost",
+] }
+
+[build]
+target = "web"
