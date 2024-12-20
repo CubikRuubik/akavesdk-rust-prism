@@ -8,6 +8,8 @@ extern "C" {
 }
 
 #[wasm_bindgen]
-pub fn greet() {
-    alert("Hello, akave-wasm-sdk!");
+pub fn greet(name: &str) {
+    let mut final_str: String = "Hello, ".to_owned();
+    final_str.push_str(name);
+    alert(&final_str);
 }

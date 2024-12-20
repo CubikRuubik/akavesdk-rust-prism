@@ -1,14 +1,13 @@
 "use client";
-import { useEffect } from "react";
 import init, { greet } from "akave-wasm-sdk";
 
 const WasmTest = () => {
-  useEffect(() => {
-    init().then(() => {
-      greet();
-    });
-  }, []);
-  return null;
+  const handleOnWasmGreetClick = async () => {
+    await init();
+    greet("Gil");
+  };
+
+  return <button onClick={handleOnWasmGreetClick}>Run greet</button>;
 };
 
 export default WasmTest;
