@@ -10,7 +10,7 @@ pub mod ipc_node_api {
 }
 
 fn build_client() -> IpcNodeApiClient<Client> {
-    let base_url = "http://connect.akave.ai:5500".to_string();
+    let base_url = "http://localhost:3000".to_string();
     let wasm_client = Client::new(base_url);
 
     IpcNodeApiClient::new(wasm_client)
