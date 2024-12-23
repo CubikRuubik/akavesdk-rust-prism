@@ -5,11 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "wasm": "wasm-pack build ../akave-wasm-sdk --target web",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "grpc-proxy": "npx @grpc-web/proxy --target http://connect.akave.ai:5500 --listen 3000"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@rainbow-me/rainbowkit": "^2.2.1",
