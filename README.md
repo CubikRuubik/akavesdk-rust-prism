@@ -11,14 +11,6 @@
 - `wasm-pack`
 - `node`
 
-### 🛠️ Build
-
-```
-cd www
-npm run wasm
-npm run install
-```
-
 ## 🚴 Usage
 
 ```
@@ -26,18 +18,22 @@ npm run grpc-proxy
 npm run dev
 ```
 
+### 🛠️ Build (only needed after changes on wasm, the `dev` process makes the initial build)
+
+```
+npm run build:wasm
+```
+
 ### 🔬 Test in Headless Browsers with `wasm-pack test`
 
 ```
-cd akave-wasm-sdk
-wasm-pack test --headless --firefox
+npm run test
 ```
 
 ### 🎁 Publish to NPM with `wasm-pack publish`
 
 ```
-cd akave-wasm-sdk
-wasm-pack publish
+npm run publish
 ```
 
 ## 🔋 Batteries Included

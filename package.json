@@ -1,0 +1,29 @@
+{
+  "name": "monorepo-akave-sdk",
+  "version": "1.0.0",
+  "description": "Akave Wasm SDK",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm run test -w akave-wasm-sdk",
+    "dev": "npm run build:wasm && npm run dev:web",
+    "grpc-proxy": "npx @grpc-web/proxy --target http://connect.akave.ai:5500 --listen 3000",
+    "publish": "npm run publish -w akave-wasm-sdk",
+    "build:wasm": "npm run build -w akave-wasm-sdk",
+    "dev:web": "npm run dev -w frontend-akave-wasm-sdk"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lightshiftdev/akave-wasm-sdk.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/lightshiftdev/akave-wasm-sdk/issues"
+  },
+  "homepage": "https://github.com/lightshiftdev/akave-wasm-sdk#readme",
+  "main": "index.js"
+}

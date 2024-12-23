@@ -1,0 +1,23 @@
+{
+  "name": "akave-wasm-sdk",
+  "type": "module",
+  "collaborators": [
+    "Gilberto Conde <gilberto.conde@lightshift.xyz>"
+  ],
+  "version": "0.1.0",
+  "files": [
+    "pkg/akave_wasm_sdk_bg.wasm",
+    "pkg/akave_wasm_sdk.js",
+    "pkg/akave_wasm_sdk.d.ts"
+  ],
+  "main": "pkg/akave_wasm_sdk.js",
+  "types": "pkg/akave_wasm_sdk.d.ts",
+  "sideEffects": [
+    "./pkg/snippets/*"
+  ],
+  "scripts": {
+    "build": "wasm-pack build . --target web",
+    "test": "wasm-pack test --headless --firefox",
+    "publish": "wasm-pack publish"
+  }
+}

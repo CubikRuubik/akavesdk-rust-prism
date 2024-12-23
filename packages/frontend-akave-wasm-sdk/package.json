@@ -1,5 +1,5 @@
 {
-  "name": "akave-wasm-sdk-frontend",
+  "name": "frontend-akave-wasm-sdk",
   "private": true,
   "version": "0.0.1",
   "type": "module",
@@ -15,7 +15,7 @@
     "@rainbow-me/rainbowkit": "^2.2.1",
     "@tanstack/react-query": "^5.62.8",
     "@uidotdev/usehooks": "^2.4.1",
-    "akave-wasm-sdk": "../akave-wasm-sdk/pkg",
+    "akave-wasm-sdk": "^0.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router": "^7.0.2",
