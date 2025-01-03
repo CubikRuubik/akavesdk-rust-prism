@@ -1,7 +1,13 @@
 mod utils;
 
-use ipc_node_api::{ipc_node_api_client::IpcNodeApiClient, IpcBucketListRequest};
+use ipc_node_api::{
+    ipc_node_api_client::IpcNodeApiClient, IpcBucketListRequest, IpcBucketViewRequest,
+    IpcFileListRequest, IpcFileViewRequest,
+};
 use tonic_web_wasm_client::Client;
+
+use std::future::Future;
+use tonic::{Response, Status};
 
 use wasm_bindgen::prelude::*;
 
@@ -24,28 +30,70 @@ extern "C" {
     fn log(s: &str);
 }
 
-#[wasm_bindgen]
-pub fn greet(name: &str) {
-    let mut final_str: String = "Hello, ".to_owned();
-    final_str.push_str(name);
-    alert(&final_str);
-}
-
-#[wasm_bindgen]
-pub async fn list_buckets(address: &str) -> Result<JsValue, serde_wasm_bindgen::Error> {
-    log("TEST LOG!!!");
-    let mut client = build_client();
-    let response = client.bucket_list(IpcBucketListRequest {
-        address: address.to_owned(),
-    });
-    match response.await {
-        Ok(buckets_resp) => {
-            let buckets_list = buckets_resp.into_inner();
-            log(&buckets_list.clone().buckets.first().unwrap().name);
-            return serde_wasm_bindgen::to_value(&buckets_list);
+pub async fn resolve_response<T: serde::Serialize>(
+    fut: impl Future<Output = Result<Response<T>, Status>>,
+) -> Result<JsValue, serde_wasm_bindgen::Error> {
+    match fut.await {
+        Ok(resp) => {
+            let resp_content = resp.into_inner();
+            return serde_wasm_bindgen::to_value(&resp_content);
         }
         Err(status) => {
             return serde_wasm_bindgen::to_value(&status.message());
         }
     }
+}
+
+#[wasm_bindgen]
+pub async fn list_buckets(address: &str) -> Result<JsValue, serde_wasm_bindgen::Error> {
+    let mut client = build_client();
+    let response = client.bucket_list(IpcBucketListRequest {
+        address: address.to_owned(),
+    });
+
+    resolve_response(response).await
+}
+
+#[wasm_bindgen]
+pub async fn view_bucket(
+    address: &str,
+    bucket_name: &str,
+) -> Result<JsValue, serde_wasm_bindgen::Error> {
+    let mut client = build_client();
+    let response = client.bucket_view(IpcBucketViewRequest {
+        address: address.to_owned(),
+        bucket_name: bucket_name.to_owned(),
+    });
+
+    resolve_response(response).await
+}
+
+#[wasm_bindgen]
+pub async fn view_file_info(
+    address: &str,
+    bucket_name: &str,
+    file_name: &str,
+) -> Result<JsValue, serde_wasm_bindgen::Error> {
+    let mut client = build_client();
+    let response = client.file_view(IpcFileViewRequest {
+        address: address.to_owned(),
+        bucket_name: bucket_name.to_owned(),
+        file_name: file_name.to_owned(),
+    });
+
+    resolve_response(response).await
+}
+
+#[wasm_bindgen]
+pub async fn list_files(
+    address: &str,
+    bucket_name: &str,
+) -> Result<JsValue, serde_wasm_bindgen::Error> {
+    let mut client = build_client();
+    let response = client.file_list(IpcFileListRequest {
+        address: address.to_owned(),
+        bucket_name: bucket_name.to_owned(),
+    });
+
+    resolve_response(response).await
 }

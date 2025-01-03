@@ -1,0 +1,3 @@
+{
+  "rust-analyzer.linkedProjects": ["./packages/akave-wasm-sdk/Cargo.toml"]
+}
