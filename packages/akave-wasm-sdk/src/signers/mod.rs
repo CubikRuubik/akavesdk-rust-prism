@@ -1,1 +1,1 @@
-mod metamask;
+pub mod metamask;
