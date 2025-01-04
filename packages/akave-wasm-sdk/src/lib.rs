@@ -4,10 +4,7 @@ mod sdk;
 use sdk::AkaveSDK;
 
 #[cfg(target_arch = "wasm32")]
-use tonic_web_wasm_client::Client;
-
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::{convert::FromWasmAbi, prelude::*};
+use wasm_bindgen::prelude::*;
 
 pub mod ipc_node_api {
     tonic::include_proto!("ipcnodeapi");
