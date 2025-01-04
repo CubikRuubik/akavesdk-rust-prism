@@ -2,6 +2,7 @@ mod utils;
 mod sdk;
 
 use sdk::AkaveSDK;
+use std::error::Error;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -26,13 +27,20 @@ extern "C" {
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-pub async fn list_buckets(address: &str) -> Result<JsValue, serde_wasm_bindgen::Error> {
+pub async fn list_buckets(address: &str) -> Result<JsValue, JsError> {
     let mut client = build_sdk().await;
-    let response = client.list_buckets(
+    let response: Result<sdk::ipcnodeapi::IpcBucketListResponse, Box<dyn Error>> = client.list_buckets(
         address
-    ).await.unwrap();
-
-    Ok(serde_wasm_bindgen::to_value(&response)?)
+    ).await;
+    
+    match response {
+        Ok(bucket_list_response) => {
+            Ok(serde_wasm_bindgen::to_value(&bucket_list_response)?)
+        }
+        Err(e) => {
+            Err(JsError::new(e.to_string().as_str()))
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -40,13 +48,20 @@ pub async fn list_buckets(address: &str) -> Result<JsValue, serde_wasm_bindgen::
 pub async fn view_bucket(
     address: &str,
     bucket_name: &str,
-) -> Result<JsValue, serde_wasm_bindgen::Error> {
+) -> Result<JsValue, JsError> {
     let mut client = build_sdk().await;
     let response = client.view_bucket(
         address, bucket_name
-    ).await.unwrap();
+    ).await;
 
-    Ok(serde_wasm_bindgen::to_value(&response)?)
+    match response {
+        Ok(bucket_view_response) => {
+            Ok(serde_wasm_bindgen::to_value(&bucket_view_response)?)
+        }
+        Err(e) => {
+            Err(JsError::new(e.to_string().as_str()))
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -55,13 +70,20 @@ pub async fn view_file_info(
     address: &str,
     bucket_name: &str,
     file_name: &str,
-) -> Result<JsValue, serde_wasm_bindgen::Error> {
+) -> Result<JsValue, JsError> {
     let mut client = build_sdk().await;
     let response = client.view_file_info(
         address, bucket_name, file_name
-    ).await.unwrap();
+    ).await;
 
-    Ok(serde_wasm_bindgen::to_value(&response)?)
+    match response {
+        Ok(file_view_response) => {
+            Ok(serde_wasm_bindgen::to_value(&file_view_response)?)
+        }
+        Err(e) => {
+            Err(JsError::new(e.to_string().as_str()))
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -69,11 +91,18 @@ pub async fn view_file_info(
 pub async fn list_files(
     address: &str,
     bucket_name: &str,
-) -> Result<JsValue, serde_wasm_bindgen::Error> {
+) -> Result<JsValue, JsError> {
     let mut client = build_sdk().await;
     let response = client.list_files(
         address, bucket_name,
-    ).await.unwrap();
+    ).await;
 
-    Ok(serde_wasm_bindgen::to_value(&response)?)
+    match response {
+        Ok(file_list_response) => {
+            Ok(serde_wasm_bindgen::to_value(&file_list_response)?)
+        }
+        Err(e) => {
+            Err(JsError::new(e.to_string().as_str()))
+        }
+    }
 }
