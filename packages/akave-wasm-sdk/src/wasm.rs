@@ -5,6 +5,10 @@ use std::error::Error;
 
 use wasm_bindgen::prelude::*;
 
+
+// TODO: this should be initialized just once during lifetime.
+//         below actions should be exposed as member fns of the wasm interface.
+// TODO: on init, panic hook should be set to refine messaging between js & rust.
 async fn build_sdk() -> AkaveSDK {
     let base_url = "http://localhost:3000".to_string();
     AkaveSDK::new(&base_url).await.unwrap()
