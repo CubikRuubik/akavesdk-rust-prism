@@ -1,17 +1,12 @@
 mod utils;
-mod transport_client;
 mod sdk;
 
-use ipc_node_api::{
-    ipc_node_api_client::IpcNodeApiClient, IpcBucketListRequest, IpcBucketViewRequest,
-    IpcFileListRequest, IpcFileViewRequest,
-};
 use sdk::AkaveSDK;
+
+#[cfg(target_arch = "wasm32")]
 use tonic_web_wasm_client::Client;
 
-use std::future::Future;
-use tonic::{Response, Status};
-
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{convert::FromWasmAbi, prelude::*};
 
 pub mod ipc_node_api {
@@ -20,9 +15,10 @@ pub mod ipc_node_api {
 
 async fn build_sdk() -> AkaveSDK {
     let base_url = "http://localhost:3000".to_string();
-    AkaveSDK::new(&base_url, true).await.unwrap()
+    AkaveSDK::new(&base_url).await.unwrap()
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 extern "C" {
     fn alert(s: &str);
@@ -31,20 +27,7 @@ extern "C" {
     fn log(s: &str);
 }
 
-pub async fn resolve_response<T: serde::Serialize>(
-    fut: impl Future<Output = Result<Response<T>, Status>>,
-) -> Result<JsValue, serde_wasm_bindgen::Error> {
-    match fut.await {
-        Ok(resp) => {
-            let resp_content = resp.into_inner();
-            return serde_wasm_bindgen::to_value(&resp_content);
-        }
-        Err(status) => {
-            return serde_wasm_bindgen::to_value(&status.message());
-        }
-    }
-}
-
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async fn list_buckets(address: &str) -> Result<JsValue, serde_wasm_bindgen::Error> {
     let mut client = build_sdk().await;
@@ -55,6 +38,7 @@ pub async fn list_buckets(address: &str) -> Result<JsValue, serde_wasm_bindgen::
     Ok(serde_wasm_bindgen::to_value(&response)?)
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async fn view_bucket(
     address: &str,
@@ -68,6 +52,7 @@ pub async fn view_bucket(
     Ok(serde_wasm_bindgen::to_value(&response)?)
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async fn view_file_info(
     address: &str,
@@ -82,6 +67,7 @@ pub async fn view_file_info(
     Ok(serde_wasm_bindgen::to_value(&response)?)
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async fn list_files(
     address: &str,

@@ -1,44 +1,55 @@
-use tonic::transport::{Channel, ClientTlsConfig};
-use tonic_web_wasm_client::Client as GrpcWebClient;
-
 pub mod ipcnodeapi {
     tonic::include_proto!("ipcnodeapi");
 }
 
 use ipcnodeapi::{
-    ipc_node_api_client::IpcNodeApiClient, 
-    IpcBucketListRequest, 
-    IpcBucketViewRequest, 
-    IpcFileListRequest, 
+    ipc_node_api_client::IpcNodeApiClient,
+    IpcBucketListRequest,
+    IpcBucketViewRequest,
+    IpcFileListRequest,
     IpcFileViewRequest,
 };
-use ipcnodeapi::IpcFileListResponse;
-use ipcnodeapi::IpcBucketListResponse;
+use ipcnodeapi::{IpcFileListResponse, IpcBucketListResponse};
+
+
+/// Conditionally use grpc-web is target arch is wasm32.
+#[cfg(target_arch = "wasm32")]
+use tonic_web_wasm_client::Client as GrpcWebClient;
+/// Otherwise default to grpc.
+#[cfg(not(target_arch = "wasm32"))]
+use tonic::transport::{Channel, ClientTlsConfig};
 
 /// Represents the Akave SDK client
+/// Akave Rust SDK should support both WASM (gRPC-Web) and native gRPC
 pub struct AkaveSDK {
-    client: Transport,
+    client: IpcNodeApiClient<ClientTransport>,
 }
 
-enum Transport {
-    Grpc(IpcNodeApiClient<Channel>),
-    GrpcWeb(IpcNodeApiClient<GrpcWebClient>),
-}
+#[cfg(target_arch = "wasm32")]
+type ClientTransport = GrpcWebClient;
+
+#[cfg(not(target_arch = "wasm32"))]
+type ClientTransport = Channel;
 
 impl AkaveSDK {
     /// Creates a new AkaveSDK instance
-    pub async fn new(server_address: &str, web_compat: bool) -> Result<Self, Box<dyn std::error::Error>> {
-        let client = if web_compat {
+    pub async fn new(server_address: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        #[cfg(target_arch = "wasm32")]
+        {
             let grpc_web_client = GrpcWebClient::new(server_address.into());
-            Transport::GrpcWeb(IpcNodeApiClient::new(grpc_web_client))
-        } else {
+            let client = IpcNodeApiClient::new(grpc_web_client);
+            Ok(Self { client })
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
             let channel = Channel::from_shared(server_address.to_string())?
                 .tls_config(ClientTlsConfig::new())?
                 .connect()
                 .await?;
-            Transport::Grpc(IpcNodeApiClient::new(channel))
-        };
-        Ok(Self { client })
+            let client = IpcNodeApiClient::new(channel);
+            Ok(Self { client })
+        }
     }
 
     /// List all buckets
@@ -46,11 +57,7 @@ impl AkaveSDK {
         let request = IpcBucketListRequest {
             address: address.to_string(),
         };
-
-        match &mut self.client {
-            Transport::Grpc(client) => Ok(client.bucket_list(request).await?.into_inner()),
-            Transport::GrpcWeb(client) => Ok(client.bucket_list(request).await?.into_inner()),
-        }
+        Ok(self.client.bucket_list(request).await?.into_inner())
     }
 
     /// View a bucket
@@ -63,11 +70,7 @@ impl AkaveSDK {
             bucket_name: bucket_name.to_string(),
             address: address.to_string(),
         };
-
-        match &mut self.client {
-            Transport::Grpc(client) => Ok(client.bucket_view(request).await?.into_inner()),
-            Transport::GrpcWeb(client) => Ok(client.bucket_view(request).await?.into_inner()),
-        }
+        Ok(self.client.bucket_view(request).await?.into_inner())
     }
 
     /// List files in a bucket
@@ -80,11 +83,7 @@ impl AkaveSDK {
             bucket_name: bucket_name.to_string(),
             address: address.to_string(),
         };
-
-        match &mut self.client {
-            Transport::Grpc(client) => Ok(client.file_list(request).await?.into_inner()),
-            Transport::GrpcWeb(client) => Ok(client.file_list(request).await?.into_inner()),
-        }
+        Ok(self.client.file_list(request).await?.into_inner())
     }
 
     /// View file information
@@ -99,10 +98,6 @@ impl AkaveSDK {
             file_name: file_name.to_string(),
             address: address.to_string(),
         };
-
-        match &mut self.client {
-            Transport::Grpc(client) => Ok(client.file_view(request).await?.into_inner()),
-            Transport::GrpcWeb(client) => Ok(client.file_view(request).await?.into_inner()),
-        }
+        Ok(self.client.file_view(request).await?.into_inner())
     }
 }

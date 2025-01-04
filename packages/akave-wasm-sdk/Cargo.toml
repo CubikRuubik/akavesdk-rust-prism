@@ -5,45 +5,51 @@ authors = ["Gilberto Conde <gilberto.conde@lightshift.xyz>"]
 edition = "2021"
 
 [lib]
+# Support for both WebAssembly and native builds
 crate-type = ["cdylib", "rlib"]
 
 [features]
+# Enable optional debugging for panics
 default = ["console_error_panic_hook"]
 
 [dependencies]
-tonic = { version = "0.12", default-features = false, features = ["prost", "codegen", "transport", "tls"] }
-tonic-web-wasm-client = "0.6"
+# Dependencies shared by all targets
+serde = { version = "1.0", features = ["derive"] }
 prost = "0.13"
 prost-types = "0.13.4"
 prost-wkt = "0.6"
 prost-wkt-types = "0.6"
-wasm-bindgen = "0.2.84"
-wasm-bindgen-futures = "0.4.49"
-serde = { version = "1.0", features = ["derive"] }
-serde-wasm-bindgen = "0.4"
 
-
-# The `console_error_panic_hook` crate provides better debugging of panics by
-# logging them with `console.error`. This is great for development, but requires
-# all the `std::fmt` and `std::panicking` infrastructure, so isn't great for
-# code size when deploying.
+# Debugging utility
 console_error_panic_hook = { version = "0.1.7", optional = true }
-tokio = { version = "1.42.0", features = ["full"] }
 
 [dev-dependencies]
-tonic-web-wasm-client = "0.6"
 wasm-bindgen-test = "0.3.49"
 
 [profile.release]
-# Tell `rustc` to optimize for small code size.
+# Optimize for small binary size
 opt-level = "s"
 
 [build-dependencies]
 prost-build = "0.13"
 prost-wkt-build = "0.6"
-tonic-build = { version = "0.12", default-features = false, features = [
-  "prost",
-] }
+tonic-build = { version = "0.12", default-features = false, features = ["prost"] }
 
-[build]
-target = "web"
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# WASM-specific dependencies
+wasm-bindgen = "0.2.84"
+wasm-bindgen-futures = "0.4.49"
+serde-wasm-bindgen = "0.4"
+tonic-web-wasm-client = "0.6"
+tonic = { version = "0.12", default-features = false, features = ["prost", "codegen"] }
+web-sys = { version = "0.3", features = ["Response", "Window", "Request"] }
+js-sys = "0.3"
+
+# Optional debugging utility for WebAssembly
+console_error_panic_hook = { version = "0.1.7", optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Dependencies for native (non-WASM) builds
+tonic = { version = "0.12", default-features = false, features = ["prost", "codegen", "transport", "tls"] }
+tokio = { version = "1.42.0", features = ["full"] }
+getrandom = { version = "0.2.15", features = ["std"] }
