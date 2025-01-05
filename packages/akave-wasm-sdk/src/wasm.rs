@@ -1,6 +1,5 @@
 use crate::sdk::AkaveSDK;
 use crate::sdk::ipcnodeapi;
-use crate::signers::metamask;
 
 use std::error::Error;
 

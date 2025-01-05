@@ -1,1 +1,1 @@
-pub mod metamask;
+pub mod eip1193;
