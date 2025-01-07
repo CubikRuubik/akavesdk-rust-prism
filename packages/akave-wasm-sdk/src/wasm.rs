@@ -44,55 +44,62 @@ impl AkaveWebSDK {
         }
     }
 
-    pub async fn list_buckets(&mut self, address: &str) -> Result<JsValue, JsError> {
+    #[wasm_bindgen(js_name = "listBuckets")] // typescript convection is camelCase
+    pub async fn list_buckets(
+        &mut self,
+        address: &str,
+    ) -> Result<ipcnodeapi::IpcBucketListResponse, JsError> {
         let response: Result<ipcnodeapi::IpcBucketListResponse, Box<dyn Error>> =
             self.sdk.list_buckets(address).await;
 
         match response {
-            Ok(bucket_list_response) => Ok(serde_wasm_bindgen::to_value(&bucket_list_response)?),
+            Ok(bucket_list_response) => Ok(bucket_list_response),
             Err(e) => Err(JsError::new(e.to_string().as_str())),
         }
     }
 
+    #[wasm_bindgen(js_name = "viewBucket")] // typescript convection is camelCase
     pub async fn view_bucket(
         &mut self,
         address: &str,
         bucket_name: &str,
-    ) -> Result<JsValue, JsError> {
+    ) -> Result<ipcnodeapi::IpcBucketViewResponse, JsError> {
         let response = self.sdk.view_bucket(address, bucket_name).await;
 
         match response {
-            Ok(bucket_view_response) => Ok(serde_wasm_bindgen::to_value(&bucket_view_response)?),
+            Ok(bucket_view_response) => Ok(bucket_view_response),
             Err(e) => Err(JsError::new(e.to_string().as_str())),
         }
     }
 
+    #[wasm_bindgen(js_name = "viewFileInfo")] // typescript convection is camelCase
     pub async fn view_file_info(
         &mut self,
         address: &str,
         bucket_name: &str,
         file_name: &str,
-    ) -> Result<JsValue, JsError> {
+    ) -> Result<ipcnodeapi::IpcFileViewResponse, JsError> {
         let response = self
             .sdk
             .view_file_info(address, bucket_name, file_name)
             .await;
 
         match response {
-            Ok(file_view_response) => Ok(serde_wasm_bindgen::to_value(&file_view_response)?),
+            Ok(file_view_response) => Ok(file_view_response),
             Err(e) => Err(JsError::new(e.to_string().as_str())),
         }
     }
 
+    #[wasm_bindgen(js_name = "listFiles")] // typescript convection is camelCase
     pub async fn list_files(
         &mut self,
         address: &str,
         bucket_name: &str,
-    ) -> Result<JsValue, JsError> {
+    ) -> Result<ipcnodeapi::IpcFileListResponse, JsError> {
         let response = self.sdk.list_files(address, bucket_name).await;
 
         match response {
-            Ok(file_list_response) => Ok(serde_wasm_bindgen::to_value(&file_list_response)?),
+            Ok(file_list_response) => Ok(file_list_response),
             Err(e) => Err(JsError::new(e.to_string().as_str())),
         }
     }

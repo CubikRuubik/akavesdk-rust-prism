@@ -7,11 +7,11 @@ const WasmTest = () => {
   const handleOnWasmGreetClick = async () => {
     await init();
     const akaveWasmSdk = await AkaveWebSDK.new();
-    const bucketsResult = await akaveWasmSdk.list_buckets(address as string);
+    const bucketsResult = await akaveWasmSdk.listBuckets(address as string);
     console.log("list_buckets:");
     console.log(bucketsResult.buckets.map((b) => b.name));
     const bucketsInfoResult = bucketsResult.buckets.map((bInfoRes) =>
-      akaveWasmSdk.view_bucket(address as string, bInfoRes.name),
+      akaveWasmSdk.viewBucket(address as string, bInfoRes.name),
     );
     console.log("view_bucket: (in loop)");
     console.log((await Promise.all(bucketsInfoResult)).map((info) => info));
@@ -20,7 +20,7 @@ const WasmTest = () => {
     const files = (
       await Promise.all(
         bucketsResult.buckets.map((b) =>
-          akaveWasmSdk.list_files(address as string, b.name),
+          akaveWasmSdk.listFiles(address as string, b.name),
         ),
       )
     ).map((f) => f.list);
@@ -38,7 +38,7 @@ const WasmTest = () => {
         .filter((f) => Boolean(f.name))
         .map((f) => {
           console.log({ name: f.name });
-          return akaveWasmSdk.view_file_info(
+          return akaveWasmSdk.viewFileInfo(
             address as string,
             f.name,
             bucketsResult.buckets[i].name,
