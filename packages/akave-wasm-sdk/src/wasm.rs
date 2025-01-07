@@ -1,18 +1,12 @@
-use crate::sdk::AkaveSDK;
 use crate::sdk::ipcnodeapi;
+use crate::sdk::AkaveSDK;
 
 use std::error::Error;
+use std::sync::Once;
 
 use wasm_bindgen::prelude::*;
 
-
-// TODO: this should be initialized just once during lifetime.
-//         below actions should be exposed as member fns of the wasm interface.
-// TODO: on init, panic hook should be set to refine messaging between js & rust.
-async fn build_sdk() -> AkaveSDK {
-    let base_url = "http://localhost:3000".to_string();
-    AkaveSDK::new(&base_url).await.unwrap()
-}
+static INIT: Once = Once::new();
 
 #[wasm_bindgen]
 extern "C" {
@@ -23,79 +17,83 @@ extern "C" {
 }
 
 #[wasm_bindgen]
-pub async fn list_buckets(address: &str) -> Result<JsValue, JsError> {
-    let mut client = build_sdk().await;
-    let response: Result<ipcnodeapi::IpcBucketListResponse, Box<dyn Error>> = client.list_buckets(
-        address
-    ).await;
-    
-    match response {
-        Ok(bucket_list_response) => {
-            Ok(serde_wasm_bindgen::to_value(&bucket_list_response)?)
-        }
-        Err(e) => {
-            Err(JsError::new(e.to_string().as_str()))
-        }
-    }
+pub struct AkaveWebSDK {
+    sdk: AkaveSDK,
 }
 
 #[wasm_bindgen]
-pub async fn view_bucket(
-    address: &str,
-    bucket_name: &str,
-) -> Result<JsValue, JsError> {
-    let mut client = build_sdk().await;
-    let response = client.view_bucket(
-        address, bucket_name
-    ).await;
+impl AkaveWebSDK {
+    pub async fn new() -> Result<AkaveWebSDK, JsError> {
+        // Initialize panic hook only once
+        INIT.call_once(|| {
+            console_error_panic_hook::set_once();
+        });
+        Self::new_with_endpoint("http://localhost:3000").await
+    }
 
-    match response {
-        Ok(bucket_view_response) => {
-            Ok(serde_wasm_bindgen::to_value(&bucket_view_response)?)
-        }
-        Err(e) => {
-            Err(JsError::new(e.to_string().as_str()))
+    #[wasm_bindgen(constructor)]
+    pub async fn new_with_endpoint(endpoint: &str) -> Result<AkaveWebSDK, JsError> {
+        // Initialize panic hook only once
+        INIT.call_once(|| {
+            console_error_panic_hook::set_once();
+        });
+
+        match AkaveSDK::new(endpoint).await {
+            Ok(sdk) => Ok(AkaveWebSDK { sdk }),
+            Err(e) => Err(JsError::new(&format!("Failed to initialize SDK: {}", e))),
         }
     }
-}
 
-#[wasm_bindgen]
-pub async fn view_file_info(
-    address: &str,
-    bucket_name: &str,
-    file_name: &str,
-) -> Result<JsValue, JsError> {
-    let mut client = build_sdk().await;
-    let response = client.view_file_info(
-        address, bucket_name, file_name
-    ).await;
+    pub async fn list_buckets(&mut self, address: &str) -> Result<JsValue, JsError> {
+        let response: Result<ipcnodeapi::IpcBucketListResponse, Box<dyn Error>> =
+            self.sdk.list_buckets(address).await;
 
-    match response {
-        Ok(file_view_response) => {
-            Ok(serde_wasm_bindgen::to_value(&file_view_response)?)
-        }
-        Err(e) => {
-            Err(JsError::new(e.to_string().as_str()))
+        match response {
+            Ok(bucket_list_response) => Ok(serde_wasm_bindgen::to_value(&bucket_list_response)?),
+            Err(e) => Err(JsError::new(e.to_string().as_str())),
         }
     }
-}
 
-#[wasm_bindgen]
-pub async fn list_files(
-    address: &str,
-    bucket_name: &str,
-) -> Result<JsValue, JsError> {
-    let mut client = build_sdk().await;
-    let response = client.list_files(
-        address, bucket_name,
-    ).await;
+    pub async fn view_bucket(
+        &mut self,
+        address: &str,
+        bucket_name: &str,
+    ) -> Result<JsValue, JsError> {
+        let response = self.sdk.view_bucket(address, bucket_name).await;
 
-    match response {
-        Ok(file_list_response) => {
-            Ok(serde_wasm_bindgen::to_value(&file_list_response)?)
+        match response {
+            Ok(bucket_view_response) => Ok(serde_wasm_bindgen::to_value(&bucket_view_response)?),
+            Err(e) => Err(JsError::new(e.to_string().as_str())),
         }
-        Err(e) => {
-            Err(JsError::new(e.to_string().as_str()))
+    }
+
+    pub async fn view_file_info(
+        &mut self,
+        address: &str,
+        bucket_name: &str,
+        file_name: &str,
+    ) -> Result<JsValue, JsError> {
+        let response = self
+            .sdk
+            .view_file_info(address, bucket_name, file_name)
+            .await;
+
+        match response {
+            Ok(file_view_response) => Ok(serde_wasm_bindgen::to_value(&file_view_response)?),
+            Err(e) => Err(JsError::new(e.to_string().as_str())),
+        }
+    }
+
+    pub async fn list_files(
+        &mut self,
+        address: &str,
+        bucket_name: &str,
+    ) -> Result<JsValue, JsError> {
+        let response = self.sdk.list_files(address, bucket_name).await;
+
+        match response {
+            Ok(file_list_response) => Ok(serde_wasm_bindgen::to_value(&file_list_response)?),
+            Err(e) => Err(JsError::new(e.to_string().as_str())),
         }
     }
 }

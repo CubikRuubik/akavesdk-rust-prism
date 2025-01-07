@@ -1,5 +1,5 @@
 [package]
-name = "akave-wasm-sdk"
+name = "akave-wasm-sdk" # TODO: rename
 version = "0.1.0"
 authors = ["Gilberto Conde <gilberto.conde@lightshift.xyz>"]
 edition = "2021"
@@ -19,9 +19,6 @@ prost = "0.13"
 prost-types = "0.13.4"
 prost-wkt = "0.6"
 prost-wkt-types = "0.6"
-
-# Debugging utility
-console_error_panic_hook = { version = "0.1.7", optional = true }
 serde_json = "1.0.134"
 
 [dev-dependencies]
