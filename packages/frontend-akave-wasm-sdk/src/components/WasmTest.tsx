@@ -1,12 +1,13 @@
 "use client";
-import init, { list_buckets } from "akave-wasm-sdk";
+import init, { AkaveWebSDK } from "akave-wasm-sdk";
 import { useAccount } from "wagmi";
 
 const WasmTest = () => {
   const { address } = useAccount();
   const handleOnWasmGreetClick = async () => {
     await init();
-    const result = await list_buckets(address as string);
+    const akave_wasm_sdk = await AkaveWebSDK.new();
+    const result = await akave_wasm_sdk.list_buckets(address as string);
     console.log(result);
   };
 
