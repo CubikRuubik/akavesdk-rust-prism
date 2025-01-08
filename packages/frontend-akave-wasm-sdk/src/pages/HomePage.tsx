@@ -16,7 +16,6 @@ const Home = () => {
       if (address && isConnected) {
         const pathToGo = savedPath;
         setCurrentPath(null);
-        console.log("RETURNING HERE", pathToGo);
         navigate(pathToGo ? pathToGo : "/documents");
       }
     }, 500);
