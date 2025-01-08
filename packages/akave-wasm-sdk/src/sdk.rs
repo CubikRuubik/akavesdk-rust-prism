@@ -2,22 +2,26 @@ pub mod ipcnodeapi {
     tonic::include_proto!("ipcnodeapi");
 }
 
+use ipcnodeapi::ipc_file_upload_create_request::IpcBlock;
 use ipcnodeapi::{
-    ipc_node_api_client::IpcNodeApiClient,
-    IpcBucketListRequest,
-    IpcBucketViewRequest,
-    IpcFileListRequest,
-    IpcFileViewRequest,
+    ipc_node_api_client::IpcNodeApiClient, IpcBucketListRequest, IpcBucketViewRequest,
+    IpcFileListRequest, IpcFileViewRequest,
 };
-use ipcnodeapi::{IpcFileListResponse, IpcBucketListResponse};
+use ipcnodeapi::{
+    IpcBucketCreateRequest, IpcBucketCreateResponse, IpcBucketDeleteRequest,
+    IpcBucketDeleteResponse, IpcBucketListResponse, IpcBucketViewResponse, IpcFileBlockData,
+    IpcFileDeleteRequest, IpcFileDeleteResponse, IpcFileDownloadBlockRequest,
+    IpcFileDownloadCreateRequest, IpcFileDownloadCreateResponse, IpcFileListResponse,
+    IpcFileUploadCreateRequest, IpcFileUploadCreateResponse, IpcFileViewResponse,
+};
 
-
-/// Conditionally use grpc-web is target arch is wasm32.
-#[cfg(target_arch = "wasm32")]
-use tonic_web_wasm_client::Client as GrpcWebClient;
 /// Otherwise default to grpc.
 #[cfg(not(target_arch = "wasm32"))]
 use tonic::transport::{Channel, ClientTlsConfig};
+use tonic::Streaming;
+/// Conditionally use grpc-web is target arch is wasm32.
+#[cfg(target_arch = "wasm32")]
+use tonic_web_wasm_client::Client as GrpcWebClient;
 
 /// Represents the Akave SDK client
 /// Akave Rust SDK should support both WASM (gRPC-Web) and native gRPC
@@ -53,7 +57,10 @@ impl AkaveSDK {
     }
 
     /// List all buckets
-    pub async fn list_buckets(&mut self, address: &str) -> Result<IpcBucketListResponse, Box<dyn std::error::Error>> {
+    pub async fn list_buckets(
+        &mut self,
+        address: &str,
+    ) -> Result<IpcBucketListResponse, Box<dyn std::error::Error>> {
         let request = IpcBucketListRequest {
             address: address.to_string(),
         };
@@ -65,7 +72,7 @@ impl AkaveSDK {
         &mut self,
         address: &str,
         bucket_name: &str,
-    ) -> Result<ipcnodeapi::IpcBucketViewResponse, Box<dyn std::error::Error>> {
+    ) -> Result<IpcBucketViewResponse, Box<dyn std::error::Error>> {
         let request = IpcBucketViewRequest {
             bucket_name: bucket_name.to_string(),
             address: address.to_string(),
@@ -92,12 +99,112 @@ impl AkaveSDK {
         address: &str,
         bucket_name: &str,
         file_name: &str,
-    ) -> Result<ipcnodeapi::IpcFileViewResponse, Box<dyn std::error::Error>> {
+    ) -> Result<IpcFileViewResponse, Box<dyn std::error::Error>> {
         let request = IpcFileViewRequest {
             bucket_name: bucket_name.to_string(),
             file_name: file_name.to_string(),
             address: address.to_string(),
         };
         Ok(self.client.file_view(request).await?.into_inner())
+    }
+
+    // Create a new bucket
+    pub async fn create_bucket(
+        &mut self,
+        bucket_name: &str,
+    ) -> Result<IpcBucketCreateResponse, Box<dyn std::error::Error>> {
+        let request = IpcBucketCreateRequest {
+            name: bucket_name.to_string(),
+        };
+
+        Ok(self.client.bucket_create(request).await?.into_inner())
+    }
+
+    // Delete an existing bucket
+    pub async fn delete_bucket(
+        &mut self,
+    ) -> Result<IpcBucketDeleteResponse, Box<dyn std::error::Error>> {
+        // TODO: Check if bucket is empty
+        let request = IpcBucketDeleteRequest {}; // TODO: Something's missing here
+
+        Ok(self.client.bucket_delete(request).await?.into_inner())
+    }
+
+    // Delete an existing file
+    pub async fn delete_file(
+        &mut self,
+        bucket_id: Vec<u8>,
+        transaction: Vec<u8>,
+        file_name: &str,
+    ) -> Result<IpcFileDeleteResponse, Box<dyn std::error::Error>> {
+        let request = IpcFileDeleteRequest {
+            bucket_id: bucket_id,
+            transaction,
+            name: file_name.to_string(),
+        };
+
+        Ok(self.client.file_delete(request).await?.into_inner())
+    }
+
+    pub async fn upload_file_create(
+        &mut self,
+        blocks: Vec<IpcBlock>,
+        root_cid: &str,
+        size: i64,
+    ) -> Result<IpcFileUploadCreateResponse, Box<dyn std::error::Error>> {
+        let request = IpcFileUploadCreateRequest {
+            blocks,
+            root_cid: root_cid.to_string(),
+            size,
+        };
+
+        Ok(self.client.file_upload_create(request).await?.into_inner())
+    }
+
+    pub async fn upload_file_block(&mut self, cid: &str, data: Vec<u8>)
+    /* -> Result<IpcFileUploadBlockResponse, Box<dyn std::error::Error>>  */
+    {
+        let request = IpcFileBlockData {
+            cid: cid.to_string(),
+            data,
+        };
+
+        // FIXME: How to send streams?
+    }
+
+    pub async fn download_file_create(
+        &mut self,
+        address: &str,
+        bucket_name: &str,
+        file_name: &str,
+    ) -> Result<IpcFileDownloadCreateResponse, Box<dyn std::error::Error>> {
+        let request = IpcFileDownloadCreateRequest {
+            address: address.to_string(),
+            bucket_name: bucket_name.to_string(),
+            file_name: file_name.to_string(),
+        };
+
+        Ok(self
+            .client
+            .file_download_create(request)
+            .await?
+            .into_inner())
+    }
+
+    pub async fn download_file_block(
+        &mut self,
+        block_cid: &str,
+    ) -> Result<Streaming<IpcFileBlockData>, Box<dyn std::error::Error>> {
+        let request = IpcFileDownloadBlockRequest {
+            block_cid: block_cid.to_string(),
+        };
+
+        Ok(self
+            .client
+            .file_download_block(request)
+            .await
+            .unwrap()
+            .into_inner())
+        // TODO: build the file from this stream
     }
 }

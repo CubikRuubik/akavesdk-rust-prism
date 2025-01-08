@@ -8,21 +8,24 @@ import HomePage from "./pages/HomePage";
 import DocumentsPage from "./pages/DocumentsPage";
 import DocumentPage from "./pages/DocumentPage";
 import AuthGuardLayout from "./layouts/AuthGuardLayout";
+import AkaveProvider from "./providers/AkaveProvider";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <WalletProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route element={<AppLayout />}>
-            <Route index element={<HomePage />} />
-            <Route path="documents" element={<AuthGuardLayout />}>
-              <Route index element={<DocumentsPage />} />
-              <Route path=":docId" element={<DocumentPage />} />
+      <AkaveProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route element={<AppLayout />}>
+              <Route index element={<HomePage />} />
+              <Route path="documents" element={<AuthGuardLayout />}>
+                <Route index element={<DocumentsPage />} />
+                <Route path=":docId" element={<DocumentPage />} />
+              </Route>
             </Route>
-          </Route>
-        </Routes>
-      </BrowserRouter>
+          </Routes>
+        </BrowserRouter>
+      </AkaveProvider>
     </WalletProvider>
   </StrictMode>,
 );

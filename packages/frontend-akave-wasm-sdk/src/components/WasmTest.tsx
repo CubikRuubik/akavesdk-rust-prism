@@ -1,60 +1,112 @@
 "use client";
-import init, { AkaveWebSDK } from "akave-wasm-sdk";
 import { useAccount } from "wagmi";
+import {
+  useAkaveListBuckets,
+  useAkaveListFiles,
+  useAkaveViewBucket,
+} from "../hooks/akave";
+
+const BUCKET_NAME = "DOC_SENDER" as const;
 
 const WasmTest = () => {
   const { address } = useAccount();
-  const handleOnWasmGreetClick = async () => {
-    await init();
-    const akaveWasmSdk = await AkaveWebSDK.new();
-    const bucketsResult = await akaveWasmSdk.listBuckets(address as string);
-    console.log("list_buckets:");
-    console.log(bucketsResult.buckets.map((b) => b.name));
-    const bucketsInfoResult = bucketsResult.buckets.map((bInfoRes) =>
-      akaveWasmSdk.viewBucket(address as string, bInfoRes.name),
-    );
-    console.log("view_bucket: (in loop)");
-    console.log((await Promise.all(bucketsInfoResult)).map((info) => info));
 
-    console.log("list_files: (in loop / bucket)");
-    const files = (
-      await Promise.all(
-        bucketsResult.buckets.map((b) =>
-          akaveWasmSdk.listFiles(address as string, b.name),
-        ),
-      )
-    ).map((f) => f.list);
-    console.log(
-      files
-        .map(
-          (fb, i) =>
-            `${bucketsResult.buckets[i].name}:\n${fb.map((f) => f.rootCid).reduce((prev, curr) => prev + "\n" + curr, "")}`,
-        )
-        .reduce((prev, curr) => prev + "\n" + curr, ""),
-    );
-    console.log("view_file_info: (in loop)");
-    const fileList = files.map((fs, i) =>
-      fs
-        .filter((f) => Boolean(f.name))
-        .map((f) => {
-          console.log({ name: f.name });
-          return akaveWasmSdk.viewFileInfo(
-            address as string,
-            f.name,
-            bucketsResult.buckets[i].name,
-          );
-        }),
-    );
-    console.log(
-      fileList
-        .map(async (fb, i) => {
-          const nfb = await Promise.all(fb);
-          return `${bucketsResult.buckets[i].name}:\n${nfb.map((f) => f).reduce((prev, curr) => prev + "\n" + curr, "")}`;
-        })
-        .reduce((prev, curr) => prev + "\n" + curr, ""),
-    );
-  };
-  return <button onClick={handleOnWasmGreetClick}>Run greet</button>;
+  const {
+    data: bucketsList,
+    isFetched: isBucketsListFetched,
+    isError: isBucketsListError,
+    error: bucketsListError,
+    isLoading: isBucketsListLoading,
+  } = useAkaveListBuckets({
+    address: address as string,
+  });
+
+  const {
+    data: bucket,
+    isFetched: isViewBucketFetched,
+    isError: isViewBucketError,
+    error: viewBucketError,
+    isLoading: isViewBucketLoading,
+  } = useAkaveViewBucket(
+    {
+      address: address as string,
+      bucketName: BUCKET_NAME,
+    },
+    !isBucketsListLoading,
+  );
+
+  const {
+    data: files,
+    isFetched: isListFilesFetched,
+    isError: isListFilesError,
+    error: listFilesError,
+  } = useAkaveListFiles(
+    {
+      address: address as string,
+      bucketName: BUCKET_NAME,
+    },
+    !isBucketsListLoading && !isViewBucketLoading,
+  );
+
+  return (
+    <div className="flex flex-col gap-4">
+      {isBucketsListFetched && !isBucketsListError && (
+        <div className="flex flex-col gap-4 border-2 border-sky-100 p-4">
+          <h2>Buckets:</h2>
+          {bucketsList?.buckets.map((buc) => (
+            <div key={buc.id}>
+              <h3>{buc.name}</h3>
+              <p>{buc.createdAt}</p>
+              <p>{buc.id}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {isViewBucketFetched && !isViewBucketError && (
+        <div className="border-2 border-sky-100 p-4">
+          <h2>Bucket: {bucket?.name}</h2>
+          <p>{bucket?.createdAt}</p>
+          <p>{bucket?.id}</p>
+        </div>
+      )}
+
+      {isListFilesFetched && !isListFilesError && (
+        <div className="flex flex-col gap-4 border-2 border-sky-100 p-4">
+          <h2>files in {BUCKET_NAME}:</h2>
+          {files?.list.map((buc) => (
+            <div key={buc.rootCid + buc.name}>
+              <h3>{buc.name}</h3>
+              <p>{buc.createdAt}</p>
+              <p>{buc.rootCid}</p>
+              <p>{Math.round(buc.size / 1024)} KB</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {bucketsListError && (
+        <div className="border-2 border-red-400 p-4">
+          <h2>{bucketsListError.name}</h2>
+          <p>{bucketsListError.message}</p>
+        </div>
+      )}
+
+      {viewBucketError && (
+        <div className="border-2 border-red-400 p-4">
+          <h2>{viewBucketError.name}</h2>
+          <p>{viewBucketError.message}</p>
+        </div>
+      )}
+
+      {listFilesError && (
+        <div className="border-2 border-red-400 p-4">
+          <h2>{listFilesError.name}</h2>
+          <p>{listFilesError.message}</p>
+        </div>
+      )}
+    </div>
+  );
 };
 
 export default WasmTest;
