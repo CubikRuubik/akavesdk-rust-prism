@@ -152,6 +152,15 @@ impl AkaveSDK {
         root_cid: &str,
         size: i64,
     ) -> Result<IpcFileUploadCreateResponse, Box<dyn std::error::Error>> {
+        // FIXME: This method should receive the file,
+        // break it down and create an object ready to be uploaded
+        // upload_file_create(bucket_name, file).
+        // encrypt the file
+        // split the file (dag? merkel?)
+        // Call the grpc (IpcFileUploadCreateRequest)
+        // Prepare a FileUpload object with all of this to be
+        // used in a (to be made) Upload function
+
         let request = IpcFileUploadCreateRequest {
             blocks,
             root_cid: root_cid.to_string(),
@@ -161,9 +170,8 @@ impl AkaveSDK {
         Ok(self.client.file_upload_create(request).await?.into_inner())
     }
 
-    pub async fn upload_file_block(&mut self, cid: &str, data: Vec<u8>)
-    /* -> Result<IpcFileUploadBlockResponse, Box<dyn std::error::Error>>  */
-    {
+    async fn upload_file_block(&mut self, cid: &str, data: Vec<u8>) {
+        // FIXME: To be used in the Upload function mentioned in upload_file_create
         let request = IpcFileBlockData {
             cid: cid.to_string(),
             data,
