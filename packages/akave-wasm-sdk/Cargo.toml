@@ -54,16 +54,10 @@ tonic = { version = "0.12", default-features = false, features = [
   "codegen",
 ] }
 web-sys = { version = "0.3", features = [
-  "Response",
   "Window",
   "Request",
   "console",
-  "File", 
-  "FileReader",
-  "Document", 
-  "HtmlInputElement", 
-  "FileList",
-  "Blob",
+  "File",
 ] }
 js-sys = "0.3"
 web3 = { version = "0.19.0", default-features = false, features = [

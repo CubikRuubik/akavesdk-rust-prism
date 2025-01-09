@@ -12,8 +12,12 @@ use ipcnodeapi::{
     IpcBucketDeleteResponse, IpcBucketListResponse, IpcBucketViewResponse, IpcFileBlockData,
     IpcFileDeleteRequest, IpcFileDeleteResponse, IpcFileDownloadBlockRequest,
     IpcFileDownloadCreateRequest, IpcFileDownloadCreateResponse, IpcFileListResponse,
-    IpcFileUploadCreateRequest, IpcFileUploadCreateResponse, IpcFileViewResponse, IpcFileUploadBlockResponse,
+    IpcFileUploadBlockResponse, IpcFileUploadCreateRequest, IpcFileUploadCreateResponse,
+    IpcFileViewResponse,
 };
+
+use crate::utils::dag::DagBuilder;
+use crate::utils::file_reader::{create_reader, FileReader};
 
 /// Otherwise default to grpc.
 #[cfg(not(target_arch = "wasm32"))]
@@ -22,10 +26,8 @@ use tonic::Streaming;
 /// Conditionally use grpc-web is target arch is wasm32.
 #[cfg(target_arch = "wasm32")]
 use tonic_web_wasm_client::Client as GrpcWebClient;
-use web3::futures;
 
-use crate::utils::{self, dag};
-use crate::utils::file_reader::FileReader;
+
 
 /// Represents the Akave SDK client
 /// Akave Rust SDK should support both WASM (gRPC-Web) and native gRPC
@@ -174,25 +176,23 @@ impl AkaveSDK {
         Ok(self.client.file_upload_create(request).await?.into_inner())
     }
 
-
     // TODO: this is the most vanilla version of file upload
     //          USE WITH CAUTION
-    pub async fn uploadFileBasic(
+    pub async fn upload_file_basic(
         &mut self,
         file_path: &str,
     ) -> Result<IpcFileUploadBlockResponse, Box<dyn std::error::Error>> {
-
-        let file_reader = utils::file_reader::create_reader();
+        let file_reader = create_reader();
 
         // TODO: enable stream reads
         let file_blob: Vec<u8> = file_reader.read_file(file_path).await?;
 
         // TODO: Improve dag construction mechanics
-        let (dag, root_cid) = utils::dag::DagBuilder::create_dag(&file_blob)?;
+        let (dag, root_cid) = DagBuilder::create_dag(&file_blob)?;
 
         // TODO: Improve conversion between dag//IpcBlock//IpcBlockData
-        let blocks = utils::dag::DagBuilder::to_ipc_blocks(&dag);
-    
+        let blocks = DagBuilder::to_ipc_blocks(&dag);
+
         let request = IpcFileUploadCreateRequest {
             blocks,
             root_cid: root_cid.to_string(),
@@ -203,13 +203,17 @@ impl AkaveSDK {
         let _ = self.client.file_upload_create(request).await?.into_inner();
 
         // TODO: a block is copied 3 times in an upload, fix
-        let block_data = utils::dag::DagBuilder::to_ipc_block_data(&dag);
+        let block_data = DagBuilder::to_ipc_block_data(&dag);
 
         // TODO: check this is the correct way to stream a file
         let block_stream = futures::stream::iter(block_data);
-        
+
         // TODO: should not return response, should check and return an SDK friendly value
-        Ok(self.client.file_upload_block(block_stream).await?.into_inner())
+        Ok(self
+            .client
+            .file_upload_block(block_stream)
+            .await?
+            .into_inner())
     }
 
     async fn upload_file_block(&mut self, cid: &str, data: Vec<u8>) {

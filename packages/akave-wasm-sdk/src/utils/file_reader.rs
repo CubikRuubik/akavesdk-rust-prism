@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use js_sys::Uint8Array;
-use std::{error::Error, fmt::format};
-use std::io::Read;
+use std::error::Error;
 use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
@@ -26,8 +25,9 @@ impl FileReader for WasmFileReader {
     async fn read_file(&self, path: &str) -> Result<Vec<u8>, Box<dyn Error>> {
         // Check for global 'fs' support
         let global = js_sys::global();
-        let has_fs = js_sys::Reflect::has(&global, &JsValue::from_str("fs"))
-            .map_err(|_| "Error checking for 'fs' in the JavaScript environment. Ensure Node.js is being used.")?;
+        let has_fs = js_sys::Reflect::has(&global, &JsValue::from_str("fs")).map_err(|_| {
+            "Error checking for 'fs' in the JavaScript environment. Ensure Node.js is being used."
+        })?;
 
         if !has_fs {
             return Err("'fs' package is not available in the JavaScript environment".into());
@@ -36,9 +36,12 @@ impl FileReader for WasmFileReader {
         // Call JavaScript's `fs.read_file`
         let promise = read_file_js(path);
 
-        let js_value = JsFuture::from(promise)
-            .await
-            .map_err(|err| format!("JavaScript error: {:?}", err.as_string().unwrap_or("Unknown error".to_string())))?;
+        let js_value = JsFuture::from(promise).await.map_err(|err| {
+            format!(
+                "JavaScript error: {:?}",
+                err.as_string().unwrap_or("Unknown error".to_string())
+            )
+        })?;
 
         let uint8_array = Uint8Array::new(&js_value);
         let mut data = vec![0; uint8_array.length() as usize];
@@ -67,7 +70,7 @@ pub fn create_reader() -> impl FileReader + Send + Sync {
     {
         WasmFileReader
     }
-    
+
     #[cfg(not(target_arch = "wasm32"))]
     {
         NativeFileReader

@@ -1,5 +1,5 @@
-use sha2::{Sha256, Digest};
 use crate::sdk::ipcnodeapi::{ipc_file_upload_create_request::IpcBlock, IpcFileBlockData};
+use sha2::{Digest, Sha256};
 
 const BLOCK_SIZE: usize = 1024 * 1024; // 1MB blocks
 
@@ -49,7 +49,8 @@ impl DagBuilder {
     }
 
     pub fn to_ipc_blocks(nodes: &[DagNode]) -> Vec<IpcBlock> {
-        nodes.iter()
+        nodes
+            .iter()
             .map(|node| IpcBlock {
                 cid: node.hash.clone(),
                 size: node.data.len() as i64,
@@ -58,7 +59,8 @@ impl DagBuilder {
     }
 
     pub fn to_ipc_block_data(nodes: &[DagNode]) -> Vec<IpcFileBlockData> {
-        nodes.iter()
+        nodes
+            .iter()
             .map(|node| IpcFileBlockData {
                 data: node.data.clone(),
                 cid: node.hash.clone(),
