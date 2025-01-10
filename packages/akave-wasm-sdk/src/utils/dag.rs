@@ -1,7 +1,7 @@
 use crate::sdk::ipcnodeapi::{ipc_file_upload_create_request::IpcBlock, IpcFileBlockData};
 use sha2::{Digest, Sha256};
 
-const BLOCK_SIZE: usize = 1024 * 1024; // 1MB blocks
+use super::file_chunker::FileChunker;
 
 #[derive(Debug)]
 pub struct DagNode {
@@ -13,14 +13,16 @@ pub struct DagNode {
 pub struct DagBuilder;
 
 impl DagBuilder {
-    pub fn create_dag(data: &[u8]) -> Result<(Vec<DagNode>, String), Box<dyn std::error::Error>> {
+    pub fn create_dag(
+        data: FileChunker,
+    ) -> Result<(Vec<DagNode>, String), Box<dyn std::error::Error>> {
         let mut blocks = Vec::new();
         let mut links = Vec::new();
 
         // Split data into blocks and hash them
-        for chunk in data.chunks(BLOCK_SIZE) {
+        data.into_iter().for_each(|chunk| {
             let mut hasher = Sha256::new();
-            hasher.update(chunk);
+            hasher.update(&chunk);
             let hash = format!("sha256-{}", hex::encode(hasher.finalize())); // TODO: refine id generation
 
             blocks.push(DagNode {
@@ -29,7 +31,7 @@ impl DagBuilder {
                 links: vec![],
             });
             links.push(hash);
-        }
+        });
 
         // Create root node
         let mut root_hasher = Sha256::new();

@@ -1,6 +1,10 @@
 pub mod ipcnodeapi {
     tonic::include_proto!("ipcnodeapi");
 }
+#[cfg(not(target_arch = "wasm32"))]
+use std::fs::File;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_file_reader::WebSysFile as File;
 
 use ipcnodeapi::ipc_file_upload_create_request::IpcBlock;
 use ipcnodeapi::{
@@ -17,7 +21,7 @@ use ipcnodeapi::{
 };
 
 use crate::utils::dag::DagBuilder;
-use crate::utils::file_reader::{create_reader, FileReader};
+use crate::utils::file_chunker::FileChunker;
 
 /// Otherwise default to grpc.
 #[cfg(not(target_arch = "wasm32"))]
@@ -26,8 +30,6 @@ use tonic::Streaming;
 /// Conditionally use grpc-web is target arch is wasm32.
 #[cfg(target_arch = "wasm32")]
 use tonic_web_wasm_client::Client as GrpcWebClient;
-
-
 
 /// Represents the Akave SDK client
 /// Akave Rust SDK should support both WASM (gRPC-Web) and native gRPC
@@ -180,15 +182,15 @@ impl AkaveSDK {
     //          USE WITH CAUTION
     pub async fn upload_file_basic(
         &mut self,
-        file_path: &str,
+        address: &str,
+        bucket_name: &str,
+        file: File,
     ) -> Result<IpcFileUploadBlockResponse, Box<dyn std::error::Error>> {
-        let file_reader = create_reader();
-
-        // TODO: enable stream reads
-        let file_blob: Vec<u8> = file_reader.read_file(file_path).await?;
+        let file_size = file.size() as i64;
+        let chunker = FileChunker::new(file, None);
 
         // TODO: Improve dag construction mechanics
-        let (dag, root_cid) = DagBuilder::create_dag(&file_blob)?;
+        let (dag, root_cid) = DagBuilder::create_dag(chunker)?;
 
         // TODO: Improve conversion between dag//IpcBlock//IpcBlockData
         let blocks = DagBuilder::to_ipc_blocks(&dag);
@@ -196,7 +198,7 @@ impl AkaveSDK {
         let request = IpcFileUploadCreateRequest {
             blocks,
             root_cid: root_cid.to_string(),
-            size: file_blob.len() as i64, // TODO: funny, should double check
+            size: file_size as i64, // TODO: funny, should double check
         };
 
         // Create the upload alloc
@@ -208,22 +210,16 @@ impl AkaveSDK {
         // TODO: check this is the correct way to stream a file
         let block_stream = futures::stream::iter(block_data);
 
+        // TODO: update on the blockchain: Solidity -> function addFile(bytes cid, bytes32 bucketId, string name, uint256 size, bytes[] cids, uint256[] sizes) returns(bytes32, bytes32[])
+        // wait for transaction
+        // call self.client.FileUploadCreate with the blocks cids and sizes
+
         // TODO: should not return response, should check and return an SDK friendly value
         Ok(self
             .client
             .file_upload_block(block_stream)
             .await?
             .into_inner())
-    }
-
-    async fn upload_file_block(&mut self, cid: &str, data: Vec<u8>) {
-        // FIXME: To be used in the Upload function mentioned in upload_file_create
-        let request = IpcFileBlockData {
-            cid: cid.to_string(),
-            data,
-        };
-
-        // FIXME: How to send streams?
     }
 
     pub async fn download_file_create(
