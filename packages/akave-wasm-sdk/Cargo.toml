@@ -1,5 +1,5 @@
 [package]
-name = "akave-wasm-sdk" # TODO: rename
+name = "akave-wasm-sdk"                                      # TODO: rename
 version = "0.1.0"
 authors = ["Gilberto Conde <gilberto.conde@lightshift.xyz>"]
 edition = "2021"

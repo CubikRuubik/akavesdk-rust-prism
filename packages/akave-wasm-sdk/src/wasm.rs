@@ -147,9 +147,12 @@ impl AkaveWebSDK {
     }
 
     #[wasm_bindgen(js_name = "uploadFile")] // typescript convection is camelCase
-    pub async fn upload_file(&mut self, address: &str, bucket_name: &str, file: File)
-    /* -> Result<ipcnodeapi::IpcFileUploadBlockResponse, JsError> */
-    {
+    pub async fn upload_file(
+        &mut self,
+        address: &str,
+        bucket_name: &str,
+        file: File,
+    ) -> Result<ipcnodeapi::IpcFileUploadBlockResponse, JsError> {
         let wf = WebSysFile::new(file);
 
         let response = self.sdk.upload_file_basic(address, bucket_name, wf).await;
@@ -157,10 +160,10 @@ impl AkaveWebSDK {
         // upload_file_basic
         // TODO: this needs a blockchain transaction
         // let response = self.sdk.upload_file_create(blocks, root_cid, size).await;
-        /* match response {
-            Ok(up_file_create_response) => Ok(up_file_create_response),
+        match response {
+            Ok(upload_response) => Ok(upload_response),
             Err(e) => Err(JsError::new(e.to_string().as_str())),
-        } */
+        }
     }
 
     /* #[wasm_bindgen(js_name = "uploadFileCreate")] // typescript convection is camelCase
