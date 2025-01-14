@@ -5,11 +5,42 @@ import {
   useAkaveListFiles,
   useAkaveViewBucket,
 } from "../hooks/akave";
+import { useState } from "react";
+
+import Worker from "./../workers/worker.ts?worker";
+import { Address } from "viem";
+
+const akaveWorker = new Worker({ name: "akave-wasm-sdk" });
 
 const BUCKET_NAME = "DOC_SENDER" as const;
 
 const WasmTest = () => {
+  const [selectedFileList, setSelectedFileList] = useState<File | null>();
+
   const { address } = useAccount();
+
+  const handleOnSelectedFileInputChange = (
+    ev: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    if (ev.target.files?.[0]) {
+      setSelectedFileList(ev.target.files[0]);
+    }
+  };
+
+  const handleOnUploadButtonClick = () => {
+    if (selectedFileList) {
+      akaveWorker.postMessage({
+        fn: "uploadFile",
+        data: [address, BUCKET_NAME, selectedFileList],
+      });
+      akaveWorker.onmessage = function (e) {
+        console.log("Got message from worker: ", e.data);
+      };
+      //console.log(testFn(file));
+    }
+  };
+
+  // uploadFile
 
   const {
     data: bucketsList,
@@ -18,7 +49,7 @@ const WasmTest = () => {
     error: bucketsListError,
     isLoading: isBucketsListLoading,
   } = useAkaveListBuckets({
-    address: address as string,
+    address: address as Address,
   });
 
   const {
@@ -29,7 +60,7 @@ const WasmTest = () => {
     isLoading: isViewBucketLoading,
   } = useAkaveViewBucket(
     {
-      address: address as string,
+      address: address as Address,
       bucketName: BUCKET_NAME,
     },
     !isBucketsListLoading,
@@ -42,7 +73,7 @@ const WasmTest = () => {
     error: listFilesError,
   } = useAkaveListFiles(
     {
-      address: address as string,
+      address: address as Address,
       bucketName: BUCKET_NAME,
     },
     !isBucketsListLoading && !isViewBucketLoading,
@@ -50,6 +81,9 @@ const WasmTest = () => {
 
   return (
     <div className="flex flex-col gap-4">
+      <input type="file" onChange={handleOnSelectedFileInputChange} />
+      <button onClick={handleOnUploadButtonClick}>Upload File</button>
+
       {isBucketsListFetched && !isBucketsListError && (
         <div className="flex flex-col gap-4 border-2 border-sky-100 p-4">
           <h2>Buckets:</h2>

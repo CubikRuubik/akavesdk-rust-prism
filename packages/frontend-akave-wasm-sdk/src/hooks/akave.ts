@@ -1,9 +1,27 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useContext } from "react";
 import { AkaveContext } from "../providers/AkaveProvider/context";
+import { Address } from "viem";
+
+type TestFn = {
+  address: Address;
+  bucketName: string;
+};
+
+export const useUploadFile = ({ address, bucketName }: TestFn) => {
+  const { sdk: akaveSdkCtx } = useContext(AkaveContext);
+  return useMutation({
+    mutationFn: (filePath: string) => {
+      if (!akaveSdkCtx) {
+        throw new Error("Akave SDK context not initialized.");
+      }
+      return akaveSdkCtx.uploadFile(address, bucketName, filePath);
+    },
+  });
+};
 
 type AkaveListBuckets = {
-  address: string;
+  address: Address;
 };
 
 export const useAkaveListBuckets = (
@@ -19,7 +37,7 @@ export const useAkaveListBuckets = (
 };
 
 type AkaveViewBucket = {
-  address: string;
+  address: Address;
   bucketName: string;
 };
 
@@ -36,7 +54,7 @@ export const useAkaveViewBucket = (
 };
 
 type AkaveViewFileInfo = {
-  address: string;
+  address: Address;
   bucketName: string;
   fileName: string;
 };
@@ -54,7 +72,7 @@ export const useAkaveViewFileInfo = (
 };
 
 type AkaveListFiles = {
-  address: string;
+  address: Address;
   bucketName: string;
 };
 

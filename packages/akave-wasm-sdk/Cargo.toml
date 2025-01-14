@@ -1,5 +1,5 @@
 [package]
-name = "akave-wasm-sdk" # TODO: rename
+name = "akave-wasm-sdk"                                      # TODO: rename
 version = "0.1.0"
 authors = ["Gilberto Conde <gilberto.conde@lightshift.xyz>"]
 edition = "2021"
@@ -20,6 +20,10 @@ prost-types = "0.13.4"
 prost-wkt = "0.6"
 prost-wkt-types = "0.6"
 serde_json = "1.0.134"
+hex = "0.4.3"
+sha2 = "0.10.8"
+async-trait = "0.1.85"
+futures = "0.3.31"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.49"
@@ -50,10 +54,10 @@ tonic = { version = "0.12", default-features = false, features = [
   "codegen",
 ] }
 web-sys = { version = "0.3", features = [
-  "Response",
   "Window",
   "Request",
   "console",
+  "File",
 ] }
 js-sys = "0.3"
 web3 = { version = "0.19.0", default-features = false, features = [
@@ -61,6 +65,8 @@ web3 = { version = "0.19.0", default-features = false, features = [
   "eip-1193",
 ] }
 tsify-next = { version = "0.5.4", default-features = false, features = ["js"] }
+wasm-bindgen-file-reader = "1"
+
 
 # Optional debugging utility for WebAssembly
 console_error_panic_hook = { version = "0.1.7", optional = true }
