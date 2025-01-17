@@ -190,33 +190,33 @@ impl AkaveSDK {
         let chunker = FileChunker::new(file, None);
 
         // TODO: Improve dag construction mechanics
-        let dag = DagBuilder::new(chunker);
+        let mut dag = DagBuilder::new(chunker);
 
         let mut blocks = vec![];
         let mut blocks_data = vec![];
-        let mut root_cid = None;
 
         // TODO: This could be more compact (collect implementation?)
-        dag.into_iter().for_each(|(block, block_data, nodes_hash)| {
-            // TODO: Improve conversion between dag//IpcBlock//IpcBlockData
+
+        while let Some((block, block_data)) = dag.next() {
             blocks.push(block);
             blocks_data.push(block_data);
-            root_cid = Some(nodes_hash);
-        });
+        }
+
+        let root_cid = dag.root_cid();
 
         // insert root block
         // TODO: find a better way to do this
         blocks.insert(
             0,
             IpcBlock {
-                cid: root_cid.clone().unwrap_or_default(),
+                cid: root_cid.clone(),
                 size: 0,
             },
         );
 
         let request = IpcFileUploadCreateRequest {
             blocks,
-            root_cid: root_cid.unwrap_or_default(),
+            root_cid: root_cid,
             size: file_size as i64, // TODO: funny, should double check
         };
 

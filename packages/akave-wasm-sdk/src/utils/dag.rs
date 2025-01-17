@@ -9,7 +9,7 @@ pub struct DagBuilder {
 }
 
 impl Iterator for DagBuilder {
-    type Item = (IpcBlock, IpcFileBlockData, String);
+    type Item = (IpcBlock, IpcFileBlockData);
 
     fn count(self) -> usize
     where
@@ -25,10 +25,6 @@ impl Iterator for DagBuilder {
         hasher.update(&chunk);
         let hash = format!("sha256-{}", hex::encode(hasher.finalize()));
         self.root_hasher.update(&hash);
-        let root_cid = format!(
-            "sha256-{}",
-            hex::encode(Sha256::digest(self.root_hasher.clone().finalize()))
-        );
 
         let ipc_block = IpcBlock {
             cid: hash.clone(),
@@ -39,7 +35,7 @@ impl Iterator for DagBuilder {
             cid: hash,
         };
 
-        Some((ipc_block, block_data, root_cid))
+        Some((ipc_block, block_data))
     }
 }
 
@@ -49,5 +45,12 @@ impl DagBuilder {
             chunker,
             root_hasher: Sha256::new(),
         }
+    }
+
+    pub fn root_cid(&self) -> String {
+        format!(
+            "sha256-{}",
+            hex::encode(Sha256::digest(self.root_hasher.clone().finalize()))
+        )
     }
 }
