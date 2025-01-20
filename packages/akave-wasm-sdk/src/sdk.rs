@@ -202,7 +202,7 @@ impl AkaveSDK {
             blocks_data.push(block_data);
         }
 
-        let root_cid = dag.root_cid();
+        let root_cid = dag.root_cid()?;
 
         // insert root block
         // TODO: find a better way to do this

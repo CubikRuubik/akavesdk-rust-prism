@@ -1,11 +1,14 @@
+use std::iter::Peekable;
+
 use crate::sdk::ipcnodeapi::{ipc_file_upload_create_request::IpcBlock, IpcFileBlockData};
 use sha2::{Digest, Sha256};
 
 use super::file_chunker::FileChunker;
 
 pub struct DagBuilder {
-    pub chunker: FileChunker,
-    pub root_hasher: Sha256,
+    pub chunker: Peekable<FileChunker>,
+    root_hasher: Sha256,
+    pub root_cid: Option<String>,
 }
 
 impl Iterator for DagBuilder {
@@ -24,6 +27,7 @@ impl Iterator for DagBuilder {
         let mut hasher = Sha256::new();
         hasher.update(&chunk);
         let hash = format!("sha256-{}", hex::encode(hasher.finalize()));
+        // TODO: this need to be properly tested
         self.root_hasher.update(&hash);
 
         let ipc_block = IpcBlock {
@@ -35,6 +39,13 @@ impl Iterator for DagBuilder {
             cid: hash,
         };
 
+        if self.chunker.peek().is_none() {
+            self.root_cid = Some(format!(
+                "sha256-{}",
+                hex::encode(Sha256::digest(self.root_hasher.clone().finalize()))
+            ))
+        }
+
         Some((ipc_block, block_data))
     }
 }
@@ -42,15 +53,16 @@ impl Iterator for DagBuilder {
 impl DagBuilder {
     pub fn new(chunker: FileChunker) -> Self {
         Self {
-            chunker,
+            chunker: chunker.peekable(),
             root_hasher: Sha256::new(),
+            root_cid: None,
         }
     }
 
-    pub fn root_cid(&self) -> String {
-        format!(
-            "sha256-{}",
-            hex::encode(Sha256::digest(self.root_hasher.clone().finalize()))
-        )
+    pub fn root_cid(&self) -> Result<String, Box<dyn std::error::Error>> {
+        match &self.root_cid {
+            Some(cid) => Ok(cid.to_string()),
+            None => Err("chunker need to be fully iterated to build the root_cid".into()),
+        }
     }
 }
