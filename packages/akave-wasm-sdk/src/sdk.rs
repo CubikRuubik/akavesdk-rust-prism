@@ -15,9 +15,8 @@ use ipcnodeapi::{
     IpcBucketCreateRequest, IpcBucketCreateResponse, IpcBucketDeleteRequest,
     IpcBucketDeleteResponse, IpcBucketListResponse, IpcBucketViewResponse, IpcFileBlockData,
     IpcFileDeleteRequest, IpcFileDeleteResponse, IpcFileDownloadBlockRequest,
-    IpcFileDownloadCreateRequest, IpcFileDownloadCreateResponse, IpcFileListResponse,
-    IpcFileUploadBlockResponse, IpcFileUploadCreateRequest, IpcFileUploadCreateResponse,
-    IpcFileViewResponse,
+    IpcFileDownloadCreateRequest, IpcFileListResponse, IpcFileUploadBlockResponse,
+    IpcFileUploadCreateRequest, IpcFileViewResponse,
 };
 
 use crate::utils::dag::DagBuilder;
@@ -146,36 +145,12 @@ impl AkaveSDK {
         file_name: &str,
     ) -> Result<IpcFileDeleteResponse, Box<dyn std::error::Error>> {
         let request = IpcFileDeleteRequest {
-            bucket_id: bucket_id,
+            bucket_id,
             transaction,
             name: file_name.to_string(),
         };
 
         Ok(self.client.file_delete(request).await?.into_inner())
-    }
-
-    pub async fn upload_file_create(
-        &mut self,
-        blocks: Vec<IpcBlock>,
-        root_cid: &str,
-        size: i64,
-    ) -> Result<IpcFileUploadCreateResponse, Box<dyn std::error::Error>> {
-        // FIXME: This method should receive the file,
-        // break it down and create an object ready to be uploaded
-        // upload_file_create(bucket_name, file).
-        // encrypt the file
-        // split the file (dag? merkel?)
-        // Call the grpc (IpcFileUploadCreateRequest)
-        // Prepare a FileUpload object with all of this to be
-        // used in a (to be made) Upload function
-
-        let request = IpcFileUploadCreateRequest {
-            blocks,
-            root_cid: root_cid.to_string(),
-            size,
-        };
-
-        Ok(self.client.file_upload_create(request).await?.into_inner())
     }
 
     // TODO: this is the most vanilla version of file upload
@@ -238,26 +213,7 @@ impl AkaveSDK {
             .into_inner())
     }
 
-    pub async fn download_file_create(
-        &mut self,
-        address: &str,
-        bucket_name: &str,
-        file_name: &str,
-    ) -> Result<IpcFileDownloadCreateResponse, Box<dyn std::error::Error>> {
-        let request = IpcFileDownloadCreateRequest {
-            address: address.to_string(),
-            bucket_name: bucket_name.to_string(),
-            file_name: file_name.to_string(),
-        };
-
-        Ok(self
-            .client
-            .file_download_create(request)
-            .await?
-            .into_inner())
-    }
-
-    pub async fn download_file_block(
+    async fn download_file_block(
         &mut self,
         block_cid: &str,
     ) -> Result<Streaming<IpcFileBlockData>, Box<dyn std::error::Error>> {
@@ -272,5 +228,38 @@ impl AkaveSDK {
             .unwrap()
             .into_inner())
         // TODO: build the file from this stream
+    }
+
+    pub async fn download_file(
+        &mut self,
+        address: &str,
+        bucket_name: &str,
+        file_name: &str,
+        key: &str,
+    ) -> Vec<u8> {
+        let request = IpcFileDownloadCreateRequest {
+            address: address.to_string(),
+            bucket_name: bucket_name.to_string(),
+            file_name: file_name.to_string(),
+        };
+        let file_download = self
+            .client
+            .file_download_create(request)
+            .await
+            .unwrap()
+            .into_inner();
+
+        let blocks_download = file_download.blocks;
+
+        let mut file_data: Vec<u8> = vec![];
+        let mut file_iter = blocks_download.iter();
+        while let Some(block) = file_iter.next() {
+            let mut a = self.download_file_block(&block.cid).await.unwrap();
+            let message = a.message().await.unwrap().expect("Error receiving stream");
+            let mut data = message.data;
+
+            file_data.append(&mut data);
+        }
+        file_data
     }
 }
