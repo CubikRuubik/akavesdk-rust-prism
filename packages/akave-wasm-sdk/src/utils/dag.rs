@@ -1,72 +1,68 @@
+use std::iter::Peekable;
+
 use crate::sdk::ipcnodeapi::{ipc_file_upload_create_request::IpcBlock, IpcFileBlockData};
 use sha2::{Digest, Sha256};
 
 use super::file_chunker::FileChunker;
 
-#[derive(Debug)]
-pub struct DagNode {
-    pub data: Vec<u8>,
-    pub hash: String,
-    pub links: Vec<String>,
+pub struct DagBuilder {
+    pub chunker: Peekable<FileChunker>,
+    root_hasher: Sha256,
+    pub root_cid: Option<String>,
 }
 
-pub struct DagBuilder;
+impl Iterator for DagBuilder {
+    type Item = (IpcBlock, IpcFileBlockData);
+
+    fn count(self) -> usize
+    where
+        Self: Sized,
+    {
+        return self.chunker.count();
+    }
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let chunk = self.chunker.next()?;
+
+        let mut hasher = Sha256::new();
+        hasher.update(&chunk);
+        let hash = format!("sha256-{}", hex::encode(hasher.finalize()));
+        // TODO: this need to be properly tested
+        self.root_hasher.update(&hash);
+
+        let ipc_block = IpcBlock {
+            cid: hash.clone(),
+            size: chunk.len() as i64,
+        };
+        let block_data = IpcFileBlockData {
+            data: chunk.into_vec(),
+            cid: hash,
+        };
+
+        if self.chunker.peek().is_none() {
+            self.root_cid = Some(format!(
+                "sha256-{}",
+                hex::encode(Sha256::digest(self.root_hasher.clone().finalize()))
+            ))
+        }
+
+        Some((ipc_block, block_data))
+    }
+}
 
 impl DagBuilder {
-    pub fn create_dag(
-        data: FileChunker,
-    ) -> Result<(Vec<DagNode>, String), Box<dyn std::error::Error>> {
-        let mut blocks = Vec::new();
-        let mut links = Vec::new();
-
-        // Split data into blocks and hash them
-        data.into_iter().for_each(|chunk| {
-            let mut hasher = Sha256::new();
-            hasher.update(&chunk);
-            let hash = format!("sha256-{}", hex::encode(hasher.finalize())); // TODO: refine id generation
-
-            blocks.push(DagNode {
-                data: chunk.to_vec(),
-                hash: hash.clone(),
-                links: vec![],
-            });
-            links.push(hash);
-        });
-
-        // Create root node
-        let mut root_hasher = Sha256::new();
-        for link in &links {
-            root_hasher.update(link);
+    pub fn new(chunker: FileChunker) -> Self {
+        Self {
+            chunker: chunker.peekable(),
+            root_hasher: Sha256::new(),
+            root_cid: None,
         }
-        let root_hash = format!("sha256-{}", hex::encode(root_hasher.finalize()));
-
-        // Add root node
-        blocks.push(DagNode {
-            data: Vec::new(), // Root node contains no data, only links
-            hash: root_hash.clone(),
-            links,
-        });
-
-        Ok((blocks, root_hash))
     }
 
-    pub fn to_ipc_blocks(nodes: &[DagNode]) -> Vec<IpcBlock> {
-        nodes
-            .iter()
-            .map(|node| IpcBlock {
-                cid: node.hash.clone(),
-                size: node.data.len() as i64,
-            })
-            .collect()
-    }
-
-    pub fn to_ipc_block_data(nodes: &[DagNode]) -> Vec<IpcFileBlockData> {
-        nodes
-            .iter()
-            .map(|node| IpcFileBlockData {
-                data: node.data.clone(),
-                cid: node.hash.clone(),
-            })
-            .collect()
+    pub fn root_cid(&self) -> Result<String, Box<dyn std::error::Error>> {
+        match &self.root_cid {
+            Some(cid) => Ok(cid.to_string()),
+            None => Err("chunker need to be fully iterated to build the root_cid".into()),
+        }
     }
 }

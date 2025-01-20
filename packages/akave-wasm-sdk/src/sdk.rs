@@ -190,25 +190,41 @@ impl AkaveSDK {
         let chunker = FileChunker::new(file, None);
 
         // TODO: Improve dag construction mechanics
-        let (dag, root_cid) = DagBuilder::create_dag(chunker)?;
+        let mut dag = DagBuilder::new(chunker);
 
-        // TODO: Improve conversion between dag//IpcBlock//IpcBlockData
-        let blocks = DagBuilder::to_ipc_blocks(&dag);
+        let mut blocks = vec![];
+        let mut blocks_data = vec![];
+
+        // TODO: This could be more compact (collect implementation?)
+
+        while let Some((block, block_data)) = dag.next() {
+            blocks.push(block);
+            blocks_data.push(block_data);
+        }
+
+        let root_cid = dag.root_cid()?;
+
+        // insert root block
+        // TODO: find a better way to do this
+        blocks.insert(
+            0,
+            IpcBlock {
+                cid: root_cid.clone(),
+                size: 0,
+            },
+        );
 
         let request = IpcFileUploadCreateRequest {
             blocks,
-            root_cid: root_cid.to_string(),
+            root_cid: root_cid,
             size: file_size as i64, // TODO: funny, should double check
         };
 
         // Create the upload alloc
         let _ = self.client.file_upload_create(request).await?.into_inner();
 
-        // TODO: a block is copied 3 times in an upload, fix
-        let block_data = DagBuilder::to_ipc_block_data(&dag);
-
         // TODO: check this is the correct way to stream a file
-        let block_stream = futures::stream::iter(block_data);
+        let block_stream = futures::stream::iter(blocks_data);
 
         // TODO: update on the blockchain: Solidity -> function addFile(bytes cid, bytes32 bucketId, string name, uint256 size, bytes[] cids, uint256[] sizes) returns(bytes32, bytes32[])
         // wait for transaction
