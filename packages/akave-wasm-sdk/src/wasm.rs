@@ -203,17 +203,17 @@ impl AkaveWebSDK {
     #[wasm_bindgen(js_name = "downloadFile")] // typescript convection is camelCase
     pub async fn download_file(
         &mut self,
-        file_download: ipcnodeapi::IpcFileDownloadCreateResponse,
-    ) {
-        let cid = file_download.blocks.first().unwrap().cid.clone();
-        // TODO: A lot, recostruct the file, decrypt, etc..
-        // FIXME: Although there's this call in the grpc, in akave code they dont use it to create a bucket?
-        let response = self.sdk.download_file_block(&cid).await;
-        let resp = match response {
-            Ok(bucket_delete_response) => Ok(bucket_delete_response),
-            Err(e) => Err(JsError::new(e.to_string().as_str())),
-        };
+        address: &str,
+        bucket_name: &str,
+        file_name: &str,
+        key: &str,
+    ) -> Result<File, JsValue> {
+        let data = self
+            .sdk
+            .download_file(address, bucket_name, file_name, key)
+            .await;
+        let js_data = JsValue::from(data);
+        let file = web_sys::File::new_with_u8_array_sequence(&js_data, file_name);
+        return file;
     }
-
-    // download_file_block
 }
