@@ -9,7 +9,14 @@ pub trait FileSize {
 #[cfg(not(target_arch = "wasm32"))]
 impl FileSize for File {
     fn size(&self) -> u64 {
-        self.metadata().unwrap().len() as u64
+        if self.sync_all().is_err() {
+            return 0;
+        }
+        let meta = self.metadata();
+        match meta {
+            Ok(meta) => meta.len() as u64,
+            Err(_) => 0,
+        }
     }
 }
 
