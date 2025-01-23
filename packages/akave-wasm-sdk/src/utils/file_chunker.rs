@@ -1,7 +1,11 @@
+use crate::utils::file_size::FileSize;
 use derivative::Derivative;
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
+use std::{
+    cmp,
+    io::{Read, Seek, SeekFrom},
+};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_file_reader::WebSysFile as File;
 
@@ -54,14 +58,10 @@ impl Iterator for FileChunker {
         self.file
             .seek(SeekFrom::Start(self.last_pos))
             .expect("failed to seek to offset");
-        self.last_pos += self.chunk_size;
 
-        let buf_size = if self.last_pos > file_size {
-            self.last_pos - file_size
-        } else {
-            self.chunk_size
-        };
+        let buf_size = cmp::min(self.chunk_size, file_size - self.last_pos);
 
+        self.last_pos += buf_size;
         let array: Vec<u8> = vec![0; buf_size.try_into().unwrap()];
         let mut chunk_data = array.into_boxed_slice();
         self.file

@@ -21,6 +21,7 @@ use ipcnodeapi::{
 
 use crate::utils::dag::DagBuilder;
 use crate::utils::file_chunker::FileChunker;
+use crate::utils::file_size::FileSize;
 
 /// Otherwise default to grpc.
 #[cfg(not(target_arch = "wasm32"))]

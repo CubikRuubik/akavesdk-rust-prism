@@ -81,8 +81,15 @@ const WasmTest = () => {
 
   return (
     <div className="flex flex-col gap-4">
-      <input type="file" onChange={handleOnSelectedFileInputChange} />
-      <button onClick={handleOnUploadButtonClick}>Upload File</button>
+      <div>
+        <input type="file" onChange={handleOnSelectedFileInputChange} />
+        <button
+          className="border-2 px-4 py-2"
+          onClick={handleOnUploadButtonClick}
+        >
+          Upload File
+        </button>
+      </div>
 
       {isBucketsListFetched && !isBucketsListError && (
         <div className="flex flex-col gap-4 border-2 border-sky-100 p-4">
