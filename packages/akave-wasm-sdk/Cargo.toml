@@ -15,6 +15,10 @@ std = []
 vendored-protoc = ["protobuf-src"]
 vendored-protox = ["protox"]
 
+[profile.release]
+# Optimize for small binary size
+opt-level = "s"
+
 # -----------------------------------------
 #         GENERAL DEPENDENCIES            |
 # -----------------------------------------
@@ -35,11 +39,7 @@ derivative = "2.2.0"
 chrono = { version = "0.4.27", default-features = false, features = ["serde"] }
 
 [dev-dependencies]
-wasm-bindgen-test = "0.3.49"
-
-[profile.release]
-# Optimize for small binary size
-opt-level = "s"
+pretty_assertions = "1"
 
 [build-dependencies]
 prost = "0.13"
@@ -85,6 +85,9 @@ tsify-next = { version = "0.5.4", default-features = false, features = ["js"] }
 wasm-bindgen-file-reader = "1"
 # Optional debugging utility for WebAssembly
 console_error_panic_hook = { version = "0.1.7", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3.49"
 
 [target.'cfg(target_arch = "wasm32")'.build-dependencies]
 tsify-next = { version = "0.5.4", default-features = false, features = ["js"] }

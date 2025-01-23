@@ -264,3 +264,43 @@ impl AkaveSDK {
         file_data
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use crate::sdk::AkaveSDK;
+    use pretty_assertions::{assert_eq, assert_ne, assert_str_eq};
+    use std::future::Future; // crate for test-only use. Cannot be used in non-test code.
+
+    const ADDRESS: &str = "0x7975eD6b732D1A4748516F66216EE703f4856759";
+    const BUCKET_TO_TEST: &str = "TEST_BUCKET";
+
+    fn get_sdk() -> impl Future<Output = Result<AkaveSDK, Box<(dyn std::error::Error + 'static)>>> {
+        AkaveSDK::new("http://connect.akave.ai:5500")
+    }
+
+    #[tokio::test]
+    async fn test_list_buckets() {
+        let mut sdk = get_sdk().await.unwrap();
+        let buckets = sdk.list_buckets(ADDRESS).await.unwrap();
+        let len = buckets.buckets.len();
+        assert_ne!(len, 0, "there's buckets in this account");
+    }
+
+    #[tokio::test]
+    async fn test_view_bucket() {
+        let mut sdk = get_sdk().await.unwrap();
+        let bucket = sdk.view_bucket(ADDRESS, BUCKET_TO_TEST).await.unwrap();
+
+        assert_str_eq!(
+            bucket.name,
+            BUCKET_TO_TEST,
+            "there's bucket and it's called {}",
+            BUCKET_TO_TEST
+        )
+    }
+
+    #[tokio::test]
+    async fn test_simple_upload() {
+        let sdk = get_sdk().await;
+    }
+}

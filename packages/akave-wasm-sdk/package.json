@@ -19,6 +19,7 @@
     "build": "wasm-pack build . --target web",
     "build:prod": "wasm-pack build . --target web --release",
     "test": "wasm-pack test --headless --firefox",
+    "test:native": "cargo test -- --nocapture",
     "publish": "wasm-pack publish"
   }
 }
