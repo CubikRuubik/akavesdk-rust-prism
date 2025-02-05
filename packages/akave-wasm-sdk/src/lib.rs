@@ -8,5 +8,5 @@ mod wasm;
 mod panic_handler;
 
 #[cfg(target_arch = "wasm32")]
-mod signers;
+mod blockchain_providers;
 
