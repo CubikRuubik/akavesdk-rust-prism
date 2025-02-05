@@ -108,6 +108,8 @@ tonic = { version = "0.12", default-features = false, features = [
 ] }
 tokio = { version = "1.42.0", features = ["full"] }
 getrandom = { version = "0.2.15", features = ["std"] }
+alloy = { version = "0.9.2", features = ["full"] }
+web3 = { version = "0.19.0" }
 
 #[target.'cfg(not(target_arch = "wasm32"))'.build_dependencies]
 
