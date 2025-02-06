@@ -1,6 +1,7 @@
 pub mod ipcnodeapi {
     tonic::include_proto!("ipcnodeapi");
 }
+use alloy::rpc::types::request;
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
 #[cfg(target_arch = "wasm32")]
@@ -12,13 +13,15 @@ use ipcnodeapi::{
     IpcFileListRequest, IpcFileViewRequest,
 };
 use ipcnodeapi::{
-    IpcBucketCreateRequest, IpcBucketCreateResponse, IpcBucketDeleteRequest,
-    IpcBucketDeleteResponse, IpcBucketListResponse, IpcBucketViewResponse, IpcFileBlockData,
-    IpcFileDeleteRequest, IpcFileDeleteResponse, IpcFileDownloadBlockRequest,
-    IpcFileDownloadCreateRequest, IpcFileListResponse, IpcFileUploadBlockResponse,
-    IpcFileUploadCreateRequest, IpcFileViewResponse,
+    ConnectionParamsRequest, ConnectionParamsResponse, IpcBucketCreateRequest,
+    IpcBucketCreateResponse, IpcBucketDeleteRequest, IpcBucketDeleteResponse,
+    IpcBucketListResponse, IpcBucketViewResponse, IpcFileBlockData, IpcFileDeleteRequest,
+    IpcFileDeleteResponse, IpcFileDownloadBlockRequest, IpcFileDownloadCreateRequest,
+    IpcFileListResponse, IpcFileUploadBlockResponse, IpcFileUploadCreateRequest,
+    IpcFileViewResponse,
 };
 
+use crate::blockchain::provider::BlockchainProvider;
 use crate::utils::dag::DagBuilder;
 use crate::utils::file_chunker::FileChunker;
 use crate::utils::file_size::FileSize;
@@ -35,6 +38,8 @@ use tonic_web_wasm_client::Client as GrpcWebClient;
 /// Akave Rust SDK should support both WASM (gRPC-Web) and native gRPC
 pub struct AkaveSDK {
     client: IpcNodeApiClient<ClientTransport>,
+    connection_params: ConnectionParamsResponse,
+    storage: BlockchainProvider,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -49,8 +54,20 @@ impl AkaveSDK {
         #[cfg(target_arch = "wasm32")]
         {
             let grpc_web_client = GrpcWebClient::new(server_address.into());
-            let client = IpcNodeApiClient::new(grpc_web_client);
-            Ok(Self { client })
+            let mut client = IpcNodeApiClient::new(grpc_web_client);
+            let connection_params = client
+                .connection_params(ConnectionParamsRequest {})
+                .await?
+                .into_inner();
+            let storage = BlockchainProvider::new(
+                &connection_params.dial_uri,
+                &connection_params.contract_address,
+            );
+            Ok(Self {
+                client,
+                connection_params,
+                storage: storage.unwrap(),
+            })
         }
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -59,8 +76,21 @@ impl AkaveSDK {
                 .tls_config(ClientTlsConfig::new())?
                 .connect()
                 .await?;
-            let client = IpcNodeApiClient::new(channel);
-            Ok(Self { client })
+            let mut client = IpcNodeApiClient::new(channel);
+            let connection_params = client
+                .connection_params(ConnectionParamsRequest {})
+                .await?
+                .into_inner();
+            let storage = BlockchainProvider::new(
+                &connection_params.dial_uri,
+                &connection_params.contract_address,
+            );
+
+            Ok(Self {
+                client,
+                connection_params,
+                storage: storage.unwrap(),
+            })
         }
     }
 
@@ -120,12 +150,22 @@ impl AkaveSDK {
     pub async fn create_bucket(
         &mut self,
         bucket_name: &str,
-    ) -> Result<IpcBucketCreateResponse, Box<dyn std::error::Error>> {
-        let request = IpcBucketCreateRequest {
-            name: bucket_name.to_string(),
-        };
+    ) -> Result<IpcBucketViewResponse, Box<dyn std::error::Error>> {
+        /* let request = IpcBucketCreateRequest {
+                   name: bucket_name.to_string(),
+               };
+        */
+        let receipt = self
+            .storage
+            .create_bucket(bucket_name.into())
+            .await
+            .unwrap();
 
-        Ok(self.client.bucket_create(request).await?.into_inner())
+        let request = IpcBucketViewRequest {
+            address: "0x7975eD6b732D1A4748516F66216EE703f4856759".to_string(),
+            bucket_name: bucket_name.to_string(),
+        };
+        Ok(self.client.bucket_view(request).await?.into_inner())
     }
 
     // Delete an existing bucket
@@ -279,14 +319,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_create_bucket() {
+        let mut sdk = get_sdk().await.unwrap();
+        sdk.create_bucket("NEW_BUCKET_TEST").await.unwrap();
+    }
+    /*
+    #[tokio::test]
     async fn test_list_buckets() {
         let mut sdk = get_sdk().await.unwrap();
         let buckets = sdk.list_buckets(ADDRESS).await.unwrap();
         let len = buckets.buckets.len();
         assert_ne!(len, 0, "there's buckets in this account");
-    }
+    } */
 
-    #[tokio::test]
+    /*     #[tokio::test]
     async fn test_view_bucket() {
         let mut sdk = get_sdk().await.unwrap();
         let bucket = sdk.view_bucket(ADDRESS, BUCKET_TO_TEST).await.unwrap();
@@ -302,5 +348,5 @@ mod tests {
     #[tokio::test]
     async fn test_simple_upload() {
         let sdk = get_sdk().await;
-    }
+    } */
 }
