@@ -6,6 +6,7 @@ use alloy::rpc::types::request;
 use std::fs::File;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_file_reader::WebSysFile as File;
+use web3::types::{TransactionReceipt, H256};
 
 use ipcnodeapi::ipc_file_upload_create_request::IpcBlock;
 use ipcnodeapi::{
@@ -161,11 +162,18 @@ impl AkaveSDK {
             .await
             .unwrap();
 
+        self.storage.get_bucket_by_name(bucket_name.into()).await?;
+
+        // Ok(receipt);
+
+        /* let address = self.storage.get_address().await;
+
         let request = IpcBucketViewRequest {
-            address: "0x7975eD6b732D1A4748516F66216EE703f4856759".to_string(),
+            address: address?.to_string(),
             bucket_name: bucket_name.to_string(),
         };
-        Ok(self.client.bucket_view(request).await?.into_inner())
+        Ok(self.client.bucket_view(request).await?.into_inner()) */
+        todo!()
     }
 
     // Delete an existing bucket
@@ -321,10 +329,13 @@ mod tests {
     #[tokio::test]
     async fn test_create_bucket() {
         let mut sdk = get_sdk().await.unwrap();
-        sdk.create_bucket("NEW_BUCKET_TEST").await.unwrap();
+        let bucket_resp = sdk.create_bucket("NEW_BUCKET_TEST_1").await.unwrap();
+
+        println!("{}", bucket_resp.name);
+        assert_eq!(1, 1)
     }
-    /*
-    #[tokio::test]
+
+    /* #[tokio::test]
     async fn test_list_buckets() {
         let mut sdk = get_sdk().await.unwrap();
         let buckets = sdk.list_buckets(ADDRESS).await.unwrap();
