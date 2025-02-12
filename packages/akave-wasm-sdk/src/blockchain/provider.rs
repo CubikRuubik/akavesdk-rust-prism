@@ -1,17 +1,13 @@
+use core::sync;
 use std::str::FromStr;
 
-use alloy_sol_types::sol_data::Array;
-use serde::Serialize;
 use web3::{
-    contract::{
-        tokens::{Detokenize, Tokenize},
-        Contract, Options,
-    },
-    error::TransportError,
-    ethabi::{FixedBytes, Token, TupleParam, Uint},
+    api::Eth,
+    contract::{tokens::Tokenize, Contract, Options},
+    error::{self, TransportError},
     signing::{Key, SecretKey, SecretKeyRef},
-    types::{Address, BytesArray, H160, H256, U256},
-    Error, Web3,
+    types::{H160, H256, U256, U64},
+    Error, Transport, Web3,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -20,12 +16,16 @@ use web3::transports::eip_1193::{Eip1193, Provider};
 #[cfg(not(target_arch = "wasm32"))]
 use web3::transports::http::Http;
 
+use super::response_types::BucketResponse;
+
 #[cfg(target_arch = "wasm32")]
 type ProviderType = Eip1193;
 #[cfg(not(target_arch = "wasm32"))]
 type ProviderType = Http;
 
 const CREATE_BUCKET: &str = "createBucket";
+const DELETE_BUCKET: &str = "deleteBucket";
+const GET_BUCKET_BY_NAME: &str = "getBucketByName";
 
 pub struct BlockchainProvider {
     pub web3_provider: Web3<ProviderType>,
@@ -101,6 +101,14 @@ impl BlockchainProvider {
         }
     }
 
+    async fn _transaction_receipt_block_number_check<T: Transport>(
+        eth: Eth<T>,
+        hash: H256,
+    ) -> error::Result<Option<U64>> {
+        let receipt = eth.transaction_receipt(hash).await?;
+        Ok(receipt.and_then(|receipt| receipt.block_number))
+    }
+
     async fn call_contract(
         &self,
         function_name: &str,
@@ -114,10 +122,16 @@ impl BlockchainProvider {
         match self.key {
             Some(key) => {
                 let key_ref = SecretKeyRef::new(&key);
-                Ok(self
+
+                let hash = self
                     .akave
                     .signed_call(function_name, params, txopts, key_ref)
-                    .await?)
+                    .await?;
+
+                // cant wait for transaction confirmation for some reason
+                std::thread::sleep(std::time::Duration::from_secs(5));
+
+                Ok(hash)
             }
             None => {
                 let address = self.web3_provider.eth().accounts().await?[0];
@@ -136,15 +150,36 @@ impl BlockchainProvider {
         self.call_contract(CREATE_BUCKET, (bucket_name,)).await
     }
 
+    pub async fn delete_bucket(
+        &self,
+        bucket_id: Vec<u8>,
+        bucket_name: String,
+    ) -> Result<DeleteBucketResponse, Box<dyn std::error::Error>> {
+        let address = self.get_address().await?;
+
+        let result: DeleteBucketResponse = self
+            .akave
+            .query(
+                DELETE_BUCKET,
+                (bucket_id, bucket_name),
+                address,
+                Options::default(),
+                None,
+            )
+            .await
+            .unwrap();
+        Ok(result)
+    }
+
     pub async fn get_bucket_by_name(
         &self,
         bucket_name: String,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<BucketResponse, Box<dyn std::error::Error>> {
         let address = self.get_address().await?;
         let result: BucketResponse = self
             .akave
             .query(
-                "getBucketByName",
+                GET_BUCKET_BY_NAME,
                 (bucket_name,),
                 address,
                 Options::default(),
@@ -152,10 +187,7 @@ impl BlockchainProvider {
             )
             .await
             .unwrap();
-
-        println!("{}", result.name);
-
-        todo!()
+        Ok(result)
     }
 
     async fn sign_message(&self, str: String) -> Result<String, Error> {
@@ -169,49 +201,5 @@ impl BlockchainProvider {
             .sign(str.into(), accounts[0], "".into())
             .await?;
         Ok(signed.to_string().into())
-    }
-}
-
-#[derive(Debug)]
-pub struct BucketResponse {
-    pub id: [u8; 32],
-    pub name: String,
-    pub created_at: U256,
-    pub owner: Address,
-    pub files: Vec<[u8; 32]>,
-}
-impl Detokenize for BucketResponse {
-    fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
-        if let [Token::Tuple(tokens)] = tokens.as_slice() {
-            if let [Token::FixedBytes(id), Token::String(name), Token::Uint(created_at), Token::Address(owner), Token::Array(files)] =
-                tokens.as_slice()
-            {
-                let mut id_bytes = [0u8; 32];
-                id_bytes.copy_from_slice(id);
-                let files = files
-                    .iter()
-                    .map(|token| {
-                        if let Token::FixedBytes(bytes) = token {
-                            let mut file_bytes = [0u8; 32];
-                            file_bytes.copy_from_slice(bytes);
-                            Ok(file_bytes)
-                        } else {
-                            Err(web3::contract::Error::InterfaceUnsupported)
-                        }
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(BucketResponse {
-                    id: id_bytes,
-                    name: name.clone(),
-                    created_at: *created_at,
-                    owner: *owner,
-                    files,
-                })
-            } else {
-                Err(web3::contract::Error::InterfaceUnsupported)
-            }
-        } else {
-            Err(web3::contract::Error::InterfaceUnsupported)
-        }
     }
 }

@@ -7,20 +7,25 @@ import "google/protobuf/timestamp.proto";
 package ipcnodeapi;
 
 service IPCNodeAPI {
-  rpc ConnectionParams (ConnectionParamsRequest) returns (ConnectionParamsResponse) {}
+  rpc ConnectionParams(ConnectionParamsRequest)
+      returns (ConnectionParamsResponse) {}
   // Bucket APIs.
-  rpc BucketCreate (IPCBucketCreateRequest) returns (IPCBucketCreateResponse) {}
-  rpc BucketView (IPCBucketViewRequest) returns (IPCBucketViewResponse) {}
-  rpc BucketList (IPCBucketListRequest) returns (IPCBucketListResponse) {}
-  rpc BucketDelete (IPCBucketDeleteRequest) returns (IPCBucketDeleteResponse) {}
+  rpc BucketCreate(IPCBucketCreateRequest) returns (IPCBucketCreateResponse) {}
+  rpc BucketView(IPCBucketViewRequest) returns (IPCBucketViewResponse) {}
+  rpc BucketList(IPCBucketListRequest) returns (IPCBucketListResponse) {}
+  rpc BucketDelete(IPCBucketDeleteRequest) returns (IPCBucketDeleteResponse) {}
   // File APIs.
-  rpc FileUploadCreate (IPCFileUploadCreateRequest) returns (IPCFileUploadCreateResponse) {}
-  rpc FileUploadBlock (stream IPCFileBlockData) returns (IPCFileUploadBlockResponse) {}
-  rpc FileView (IPCFileViewRequest) returns (IPCFileViewResponse) {}
-  rpc FileDownloadCreate (IPCFileDownloadCreateRequest) returns (IPCFileDownloadCreateResponse) {}
-  rpc FileDownloadBlock (IPCFileDownloadBlockRequest) returns (stream IPCFileBlockData) {}
-  rpc FileList (IPCFileListRequest) returns (IPCFileListResponse) {}
-  rpc FileDelete (IPCFileDeleteRequest) returns (IPCFileDeleteResponse) {}
+  rpc FileUploadCreate(IPCFileUploadCreateRequest)
+      returns (IPCFileUploadCreateResponse) {}
+  rpc FileUploadBlock(stream IPCFileBlockData)
+      returns (IPCFileUploadBlockResponse) {}
+  rpc FileView(IPCFileViewRequest) returns (IPCFileViewResponse) {}
+  rpc FileDownloadCreate(IPCFileDownloadCreateRequest)
+      returns (IPCFileDownloadCreateResponse) {}
+  rpc FileDownloadBlock(IPCFileDownloadBlockRequest)
+      returns (stream IPCFileBlockData) {}
+  rpc FileList(IPCFileListRequest) returns (IPCFileListResponse) {}
+  rpc FileDelete(IPCFileDeleteRequest) returns (IPCFileDeleteResponse) {}
 }
 
 message ConnectionParamsRequest {}
@@ -30,9 +35,7 @@ message ConnectionParamsResponse {
   string contract_address = 2;
 }
 
-message IPCBucketCreateRequest {
-  string name = 1;
-}
+message IPCBucketCreateRequest { string name = 1; }
 
 message IPCBucketCreateResponse {
   string id = 1;
@@ -50,17 +53,14 @@ message IPCBucketViewResponse {
   google.protobuf.Timestamp created_at = 3;
 }
 
-message IPCBucketListRequest {
-  string address = 1;
-}
+message IPCBucketListRequest { string address = 1; }
 
 message IPCBucketListResponse {
   repeated IPCBucket buckets = 1;
 
   message IPCBucket {
-    string id = 1;
-    string name = 2;
-    google.protobuf.Timestamp created_at = 3;
+    string name = 1;
+    google.protobuf.Timestamp created_at = 2;
   }
 }
 
@@ -91,9 +91,7 @@ message IPCFileUploadCreateResponse {
   }
 }
 
-message IPCFileBlockDataRequest {
-  repeated bytes transaction = 1;
-}
+message IPCFileBlockDataRequest { repeated bytes transaction = 1; }
 
 message IPCFileBlockData {
   bytes data = 1;
@@ -134,9 +132,7 @@ message IPCFileDownloadCreateResponse {
   }
 }
 
-message IPCFileDownloadBlockRequest {
-  string block_cid = 1;
-}
+message IPCFileDownloadBlockRequest { string block_cid = 1; }
 
 message IPCFileListRequest {
   string bucket_name = 1;
@@ -154,10 +150,10 @@ message IPCFileListResponse {
   }
 }
 
-message IPCFileDeleteRequest{
+message IPCFileDeleteRequest {
   bytes transaction = 1;
   bytes bucket_id = 2;
   string name = 3;
 }
 
-message IPCFileDeleteResponse{}
+message IPCFileDeleteResponse {}

@@ -2,6 +2,8 @@ pub mod ipcnodeapi {
     tonic::include_proto!("ipcnodeapi");
 }
 use alloy::rpc::types::request;
+use prost::bytes;
+use sha2::digest::typenum::uint;
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
 #[cfg(target_arch = "wasm32")]
@@ -23,6 +25,7 @@ use ipcnodeapi::{
 };
 
 use crate::blockchain::provider::BlockchainProvider;
+use crate::blockchain::response_types::BucketResponse;
 use crate::utils::dag::DagBuilder;
 use crate::utils::file_chunker::FileChunker;
 use crate::utils::file_size::FileSize;
@@ -151,39 +154,24 @@ impl AkaveSDK {
     pub async fn create_bucket(
         &mut self,
         bucket_name: &str,
-    ) -> Result<IpcBucketViewResponse, Box<dyn std::error::Error>> {
-        /* let request = IpcBucketCreateRequest {
-                   name: bucket_name.to_string(),
-               };
-        */
-        let receipt = self
-            .storage
-            .create_bucket(bucket_name.into())
-            .await
-            .unwrap();
-
-        self.storage.get_bucket_by_name(bucket_name.into()).await?;
-
-        // Ok(receipt);
-
-        /* let address = self.storage.get_address().await;
-
-        let request = IpcBucketViewRequest {
-            address: address?.to_string(),
-            bucket_name: bucket_name.to_string(),
-        };
-        Ok(self.client.bucket_view(request).await?.into_inner()) */
-        todo!()
+    ) -> Result<BucketResponse, Box<dyn std::error::Error>> {
+        self.storage.create_bucket(bucket_name.into()).await?;
+        self.storage.get_bucket_by_name(bucket_name.into()).await
     }
 
     // Delete an existing bucket
     pub async fn delete_bucket(
         &mut self,
-    ) -> Result<IpcBucketDeleteResponse, Box<dyn std::error::Error>> {
+        address: &str,
+        bucket_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // TODO: Check if bucket is empty
-        let request = IpcBucketDeleteRequest {}; // TODO: Something's missing here
-
-        Ok(self.client.bucket_delete(request).await?.into_inner())
+        let bucket = self.view_bucket(address, bucket_name).await?;
+        let bucket_id = hex::decode(bucket.id)?;
+        self.storage
+            .delete_bucket(bucket_id, bucket_name.into())
+            .await?;
+        Ok(())
     }
 
     // Delete an existing file
@@ -320,19 +308,53 @@ mod tests {
     use std::future::Future; // crate for test-only use. Cannot be used in non-test code.
 
     const ADDRESS: &str = "0x7975eD6b732D1A4748516F66216EE703f4856759";
-    const BUCKET_TO_TEST: &str = "TEST_BUCKET";
+    const BUCKET_TO_TEST: &str = "TEST_BUCKET_v2";
 
     fn get_sdk() -> impl Future<Output = Result<AkaveSDK, Box<(dyn std::error::Error + 'static)>>> {
         AkaveSDK::new("http://connect.akave.ai:5500")
     }
 
-    #[tokio::test]
     async fn test_create_bucket() {
+        println!("Test 1: create bucket {}", BUCKET_TO_TEST);
         let mut sdk = get_sdk().await.unwrap();
-        let bucket_resp = sdk.create_bucket("NEW_BUCKET_TEST_1").await.unwrap();
+        let bucket_resp = sdk.create_bucket(BUCKET_TO_TEST).await.unwrap();
+        // println!("{}", bucket_resp.name);
+        assert_eq!(bucket_resp.name, BUCKET_TO_TEST);
+    }
 
-        println!("{}", bucket_resp.name);
-        assert_eq!(1, 1)
+    async fn test_list_buckets() {
+        println!("Test 2: List all buckets");
+        let mut sdk = get_sdk().await.unwrap();
+        let buckets = sdk.list_buckets(ADDRESS).await.unwrap();
+        let len = buckets.buckets.len();
+        assert_ne!(len, 0, "there's buckets in this account");
+    }
+
+    async fn test_view_bucket() {
+        println!("Test 3: Get {} bucket info", BUCKET_TO_TEST);
+        let mut sdk = get_sdk().await.unwrap();
+        let bucket = sdk.view_bucket(ADDRESS, BUCKET_TO_TEST).await.unwrap();
+        assert_eq!(bucket.name, BUCKET_TO_TEST);
+    }
+
+    async fn test_delete_bucket() {
+        println!("Test 4: Delete {} bucket", BUCKET_TO_TEST);
+        let mut sdk = get_sdk().await.unwrap();
+        let _ = sdk.delete_bucket(ADDRESS, BUCKET_TO_TEST).await;
+        let bucket = sdk.view_bucket(ADDRESS, BUCKET_TO_TEST).await.unwrap();
+        assert_ne!(
+            bucket.name, BUCKET_TO_TEST,
+            "There's still a bucket called {}",
+            BUCKET_TO_TEST
+        );
+    }
+
+    #[tokio::test]
+    async fn test_all() {
+        test_create_bucket().await;
+        test_list_buckets().await;
+        test_view_bucket().await;
+        test_delete_bucket().await;
     }
 
     /* #[tokio::test]
