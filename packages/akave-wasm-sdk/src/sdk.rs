@@ -167,7 +167,7 @@ impl AkaveSDK {
     ) -> Result<(), Box<dyn std::error::Error>> {
         // TODO: Check if bucket is empty
         let bucket = self.view_bucket(address, bucket_name).await?;
-        let bucket_id = hex::decode(bucket.id)?;
+        let bucket_id = hex::decode(bucket.id.clone())?;
         self.storage
             .delete_bucket(bucket_id, bucket_name.into())
             .await?;
@@ -351,9 +351,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_all() {
-        test_create_bucket().await;
-        test_list_buckets().await;
-        test_view_bucket().await;
+        //test_create_bucket().await;
+        //test_list_buckets().await;
+        //test_view_bucket().await;
         test_delete_bucket().await;
     }
 

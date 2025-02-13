@@ -154,21 +154,11 @@ impl BlockchainProvider {
         &self,
         bucket_id: Vec<u8>,
         bucket_name: String,
-    ) -> Result<DeleteBucketResponse, Box<dyn std::error::Error>> {
-        let address = self.get_address().await?;
+    ) -> Result<H256, Box<dyn std::error::Error>> {
+        /* let id: &[u8] = &bucket_id[..]; */
+        let id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
 
-        let result: DeleteBucketResponse = self
-            .akave
-            .query(
-                DELETE_BUCKET,
-                (bucket_id, bucket_name),
-                address,
-                Options::default(),
-                None,
-            )
-            .await
-            .unwrap();
-        Ok(result)
+        self.call_contract(DELETE_BUCKET, (id, bucket_name)).await
     }
 
     pub async fn get_bucket_by_name(

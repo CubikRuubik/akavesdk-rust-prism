@@ -16,9 +16,6 @@ pub struct BucketResponse {
     pub files: Vec<[u8; 32]>,
 }
 
-// #[derive(Detokenize)]
-/* pub struct ContractResponse {}
-
 impl Detokenize for BucketResponse {
     fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
         if let [Token::Tuple(tokens)] = tokens.as_slice() {
@@ -54,4 +51,3 @@ impl Detokenize for BucketResponse {
         }
     }
 }
- */
