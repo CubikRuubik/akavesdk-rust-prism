@@ -354,7 +354,7 @@ mod tests {
         //test_create_bucket().await;
         //test_list_buckets().await;
         //test_view_bucket().await;
-        test_delete_bucket().await;
+        // test_delete_bucket().await;
     }
 
     /* #[tokio::test]
