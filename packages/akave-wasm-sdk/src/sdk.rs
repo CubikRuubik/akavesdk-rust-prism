@@ -303,7 +303,10 @@ impl AkaveSDK {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use crate::sdk::AkaveSDK;
+    use crate::{
+        sdk::AkaveSDK,
+        utils::encryption::{decrypt, derive_key, encrypt},
+    };
     use pretty_assertions::{assert_eq, assert_ne, assert_str_eq};
     use std::future::Future; // crate for test-only use. Cannot be used in non-test code.
 
@@ -349,12 +352,26 @@ mod tests {
         );
     }
 
+    async fn test_encryption() {
+        let data = "This is a phrase to test!! This is a phrase to test!! This is a phrase to test!! This is a phrase to test!! This is a phrase to test!! This is a phrase to test!!This is a phrase to test!!This is a phrase to test!!This is a phrase to test!!This is a phrase to test!! This is a phrase to test!! This is a phrase to test!! This is a phrase to test!!This is a phrase to test!!This is a phrase to test!!This is a phrase to test!! This is a phrase to test!!";
+        let password = "TestPassword";
+        let index: u64 = 1;
+        let info = vec![BUCKET_TO_TEST, "file_name"].join("/");
+        let key = derive_key(password.as_bytes(), info.as_bytes()).unwrap();
+        let encrypted = encrypt(&key, data.as_bytes(), &index.to_be_bytes()).unwrap();
+        let decrypted = decrypt(&key, &encrypted, &index.to_be_bytes()).unwrap();
+        let decrypted_string = String::from_utf8(decrypted).unwrap();
+
+        println!("DECRYPTED: {}", decrypted_string);
+    }
+
     #[tokio::test]
     async fn test_all() {
         //test_create_bucket().await;
         //test_list_buckets().await;
         //test_view_bucket().await;
-        test_delete_bucket().await;
+        // test_delete_bucket().await;
+        test_encryption().await;
     }
 
     /* #[tokio::test]
