@@ -16,7 +16,7 @@ pub const KEY_LEN: usize = 32;
 pub const GCM_NONCE_SIZE: usize = 12;
 
 pub struct Encryption {
-    key: [u8; KEY_LEN],
+    key: Option<[u8; KEY_LEN]>,
 }
 
 impl Encryption {
@@ -25,17 +25,30 @@ impl Encryption {
         Ok(Self { key })
     }
 
+    pub fn len(&self) -> usize {
+        match self.key {
+            Some(size) => size.len(),
+            None => 0,
+        }
+    }
+
     // call in the sdk with
     // let info = vec![bucket_name, file_name].join("/");
     // and key as private key?
-    fn derive_key(key: &[u8], info: &[u8]) -> Result<[u8; KEY_LEN], Box<dyn std::error::Error>> {
+    fn derive_key(
+        key: &[u8],
+        info: &[u8],
+    ) -> Result<Option<[u8; KEY_LEN]>, Box<dyn std::error::Error>> {
         // let password_byte = key.as_bytes();
+        if key.len() == 0 {
+            return Ok(None);
+        }
 
         let hk: Hkdf<Sha256> = Hkdf::<Sha256>::new(None, key);
         let mut derived = [0u8; KEY_LEN];
         let res: Result<(), InvalidLength> = hk.expand(info, &mut derived);
         match res {
-            Ok(_) => Ok(derived),
+            Ok(_) => Ok(Some(derived)),
             Err(_) => Err(format!("{} is a valid length for Sha256 to output", KEY_LEN).into()),
         }
     }
@@ -44,10 +57,15 @@ impl Encryption {
         &self,
         data: &[u8],
     ) -> Result<AesGcm<Aes256, U12>, Box<dyn std::error::Error>> {
-        let key = Encryption::derive_key(&self.key, data)?;
-        let new_k: &GenericArray<u8, U32> = Key::<Aes256Gcm>::from_slice(&key);
-        let gcm: AesGcm<Aes256, U12> = Aes256Gcm::new(&new_k);
-        Ok(gcm)
+        match self.key {
+            Some(some_key) => {
+                let key = Encryption::derive_key(&some_key, data)?;
+                let new_k: &GenericArray<u8, U32> = Key::<Aes256Gcm>::from_slice(&some_key);
+                let gcm: AesGcm<Aes256, U12> = Aes256Gcm::new(&new_k);
+                Ok(gcm)
+            }
+            None => Err("There's no saved key")?,
+        }
     }
 
     pub fn encrypt(&self, data: &[u8], info: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
@@ -57,7 +75,7 @@ impl Encryption {
         buffer.extend_from_slice(data);
 
         match gcm.encrypt_in_place(&nonce, b"", &mut buffer) {
-            Ok(_) => Ok([nonce.as_slice(), &buffer].concat()),
+            Ok(_) => Ok([&buffer, nonce.as_slice()].concat()),
             Err(_) => Err("Error encrypting data".into()),
         }
     }
@@ -65,14 +83,16 @@ impl Encryption {
     pub fn decrypt(&self, data: &[u8], info: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let mut gcm = self.make_gcm_cipher(info)?;
 
-        let (nonce, encrypted_data) = data.split_at(GCM_NONCE_SIZE);
-        let mut buffer: Vec<u8> = Vec::new();
-        buffer.extend_from_slice(encrypted_data);
+        if let Some((encrypted_data, nonce)) = data.split_last_chunk::<GCM_NONCE_SIZE>() {
+            let mut buffer: Vec<u8> = Vec::new();
+            buffer.extend_from_slice(encrypted_data);
 
-        match gcm.decrypt_in_place(nonce.into(), b"", &mut buffer) {
-            Ok(_) => Ok(buffer),
-            Err(_) => Err("Error decrypting data".into()),
+            return match gcm.decrypt_in_place(nonce.into(), b"", &mut buffer) {
+                Ok(_) => Ok(buffer),
+                Err(_) => Err("Error decrypting data".into()),
+            };
         }
+        Err("Error decrypting data".into())
     }
 }
 
