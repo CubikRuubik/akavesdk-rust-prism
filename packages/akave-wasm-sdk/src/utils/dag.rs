@@ -1,18 +1,22 @@
 use std::iter::Peekable;
 
-use crate::sdk::ipcnodeapi::{ipc_file_upload_create_request::IpcBlock, IpcFileBlockData};
 use sha2::{Digest, Sha256};
 
-use super::file_chunker::FileChunker;
+use super::splitter::Splitter;
 
 pub struct DagBuilder {
-    pub chunker: Peekable<FileChunker>,
+    pub chunker: Peekable<Splitter>,
     root_hasher: Sha256,
     pub root_cid: Option<String>,
 }
 
+pub struct FileBlockUpload {
+    pub cid: String,
+    pub data: Vec<u8>,
+}
+
 impl Iterator for DagBuilder {
-    type Item = (IpcBlock, IpcFileBlockData);
+    type Item = FileBlockUpload;
 
     fn count(self) -> usize
     where
@@ -29,13 +33,9 @@ impl Iterator for DagBuilder {
         // TODO: this need to be properly tested
         self.root_hasher.update(&hash);
 
-        let ipc_block = IpcBlock {
+        let ipc_block = FileBlockUpload {
             cid: hash.clone(),
-            size: chunk.len() as i64,
-        };
-        let block_data = IpcFileBlockData {
             data: chunk.into_vec(),
-            cid: hash,
         };
 
         if self.chunker.peek().is_none() {
@@ -44,12 +44,12 @@ impl Iterator for DagBuilder {
             )))
         }
 
-        Some((ipc_block, block_data))
+        Some(ipc_block)
     }
 }
 
 impl DagBuilder {
-    pub fn new(chunker: FileChunker) -> Self {
+    pub fn new(chunker: Splitter) -> Self {
         Self {
             chunker: chunker.peekable(),
             root_hasher: Sha256::new(),

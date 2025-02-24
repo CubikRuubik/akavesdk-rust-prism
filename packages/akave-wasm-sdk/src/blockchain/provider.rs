@@ -1,12 +1,13 @@
-use core::sync;
-use std::str::FromStr;
+use std::{str::FromStr, time::Duration};
 
+use alloy::consensus::Receipt;
+use futures::StreamExt;
 use web3::{
-    api::Eth,
+    api::{Eth, EthFilter, Namespace},
     contract::{tokens::Tokenize, Contract, Options},
     error::{self, TransportError},
     signing::{Key, SecretKey, SecretKeyRef},
-    types::{H160, H256, U256, U64},
+    types::{BlockNumber, FilterBuilder, TransactionReceipt, H160, H256, U256, U64},
     Error, Transport, Web3,
 };
 
@@ -26,15 +27,33 @@ type ProviderType = Http;
 const CREATE_BUCKET: &str = "createBucket";
 const DELETE_BUCKET: &str = "deleteBucket";
 const GET_BUCKET_BY_NAME: &str = "getBucketByName";
+const CREATE_FILE: &str = "createFile";
+const ADD_FILE_CHUNK: &str = "addFileChunk";
 
 pub struct BlockchainProvider {
     pub web3_provider: Web3<ProviderType>,
     pub akave: Contract<ProviderType>,
     key: Option<SecretKey>,
+    poll_interval: Duration,
+    confirmations: usize,
 }
 
 impl BlockchainProvider {
-    pub fn new(rpc_url: &str, contract_address: &str) -> Result<BlockchainProvider, Error> {
+    pub fn new(
+        rpc_url: &str,
+        contract_address: &str,
+        poll_interval: Option<Duration>,
+        confirmations: Option<usize>,
+    ) -> Result<BlockchainProvider, Error> {
+        let poll_interval_opt = match poll_interval {
+            Some(value) => value,
+            None => Duration::from_millis(100),
+        };
+
+        let confirmations_opt = match confirmations {
+            Some(value) => value,
+            None => 1,
+        };
         #[cfg(target_arch = "wasm32")]
         {
             let provider = Provider::default();
@@ -53,6 +72,8 @@ impl BlockchainProvider {
                             web3_provider,
                             akave,
                             key: None,
+                            poll_interval: poll_interval_opt,
+                            confirmations: confirmations_opt,
                         })
                     }
                     None => Err(Error::Transport(TransportError::Message(format!(
@@ -85,6 +106,8 @@ impl BlockchainProvider {
                         web3_provider,
                         akave,
                         key: Some(key),
+                        poll_interval: poll_interval_opt,
+                        confirmations: confirmations_opt,
                     })
                 }
                 Err(_) => Err(Error::Transport(TransportError::Message(format!(
@@ -94,19 +117,58 @@ impl BlockchainProvider {
         }
     }
 
-    pub async fn get_address(&self) -> Result<H160, Box<dyn std::error::Error>> {
-        match self.key {
-            Some(key) => Ok(SecretKeyRef::new(&key).address()),
-            None => Ok(self.web3_provider.eth().accounts().await?[0]),
-        }
-    }
+    async fn call_contract_with_confirmations(
+        &self,
+        function_name: &str,
+        params: impl Tokenize,
+    ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
+        let eth = self.web3_provider.eth();
 
-    async fn _transaction_receipt_block_number_check<T: Transport>(
-        eth: Eth<T>,
-        hash: H256,
-    ) -> error::Result<Option<U64>> {
-        let receipt = eth.transaction_receipt(hash).await?;
-        Ok(receipt.and_then(|receipt| receipt.block_number))
+        let filter_stream = self
+            .web3_provider
+            .eth_filter()
+            .create_blocks_filter()
+            .await?
+            .stream(self.poll_interval)
+            .skip(self.confirmations - 1);
+
+        tokio::pin!(filter_stream);
+
+        let hash = self.call_contract(function_name, params).await?;
+
+        while let Some(result_log) = filter_stream.next().await {
+            println!("log received.");
+            let log: H256 = match result_log {
+                Ok(log) => log,
+                Err(e) => {
+                    println!("{}", e);
+                    continue;
+                }
+            };
+            println!("log: {}", log);
+            println!("current block number: {}", eth.block_number().await?);
+
+            let receipt = eth.transaction_receipt(hash).await?;
+            let check = receipt.and_then(|receipt| receipt.block_number);
+
+            match check {
+                Some(confirmation_block_number) => {
+                    let block_number = eth.block_number().await?;
+                    println!("tx: {}, bs: {}", confirmation_block_number, block_number);
+                    if confirmation_block_number.low_u64() + (self.confirmations - 1) as u64
+                        <= block_number.low_u64()
+                    {
+                        break;
+                    }
+                }
+                None => {} // TODO: Add some sort of timeout?
+            }
+        }
+
+        match eth.transaction_receipt(hash).await? {
+            Some(receipt_option) => Ok(receipt_option),
+            None => Err("Error getting tx receipt")?,
+        }
     }
 
     async fn call_contract(
@@ -128,9 +190,6 @@ impl BlockchainProvider {
                     .signed_call(function_name, params, txopts, key_ref)
                     .await?;
 
-                // cant wait for transaction confirmation for some reason
-                std::thread::sleep(std::time::Duration::from_secs(5));
-
                 Ok(hash)
             }
             None => {
@@ -143,22 +202,58 @@ impl BlockchainProvider {
         }
     }
 
+    pub async fn get_address(&self) -> Result<H160, Box<dyn std::error::Error>> {
+        match self.key {
+            Some(key) => Ok(SecretKeyRef::new(&key).address()),
+            None => Ok(self.web3_provider.eth().accounts().await?[0]),
+        }
+    }
+
+    pub async fn add_file_chunk(
+        &self,
+        root_cid: Vec<u8>,
+        bucket_id: Vec<u8>,
+        file_name: String,
+        size: i64,
+        cids: Vec<Vec<u8>>,
+        sizes: Vec<i64>,
+        index: i64,
+    ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
+        let r_cid: [u8; 32] = root_cid.try_into().expect("root_cid error");
+        let id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
+        self.call_contract_with_confirmations(ADD_FILE_CHUNK, (r_cid, id, file_name, size))
+            .await
+    }
+
+    // Create a new file
+    pub async fn create_file(
+        &self,
+        bucket_id: Vec<u8>,
+        file_name: String,
+    ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
+        let id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
+        self.call_contract_with_confirmations(CREATE_FILE, (id, file_name))
+            .await
+    }
+
     pub async fn create_bucket(
         &self,
         bucket_name: String,
-    ) -> Result<H256, Box<dyn std::error::Error>> {
-        self.call_contract(CREATE_BUCKET, (bucket_name,)).await
+    ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
+        self.call_contract_with_confirmations(CREATE_BUCKET, (bucket_name,))
+            .await
     }
 
     pub async fn delete_bucket(
         &self,
         bucket_id: Vec<u8>,
         bucket_name: String,
-    ) -> Result<H256, Box<dyn std::error::Error>> {
+    ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
         /* let id: &[u8] = &bucket_id[..]; */
         let id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
 
-        self.call_contract(DELETE_BUCKET, (id, bucket_name)).await
+        self.call_contract_with_confirmations(DELETE_BUCKET, (id, bucket_name))
+            .await
     }
 
     pub async fn get_bucket_by_name(

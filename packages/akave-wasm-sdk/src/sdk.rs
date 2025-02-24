@@ -1,34 +1,28 @@
 pub mod ipcnodeapi {
     tonic::include_proto!("ipcnodeapi");
 }
-use alloy::rpc::types::request;
-use prost::bytes;
-use sha2::digest::typenum::uint;
+
+use ipcnodeapi::ipc_chunk::Block;
+use prost::Message;
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
+use std::time::Duration;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_file_reader::WebSysFile as File;
-use web3::types::{TransactionReceipt, H256};
 
-use ipcnodeapi::ipc_file_upload_create_request::IpcBlock;
 use ipcnodeapi::{
-    ipc_node_api_client::IpcNodeApiClient, IpcBucketListRequest, IpcBucketViewRequest,
-    IpcFileListRequest, IpcFileViewRequest,
-};
-use ipcnodeapi::{
-    ConnectionParamsRequest, ConnectionParamsResponse, IpcBucketCreateRequest,
-    IpcBucketCreateResponse, IpcBucketDeleteRequest, IpcBucketDeleteResponse,
-    IpcBucketListResponse, IpcBucketViewResponse, IpcFileBlockData, IpcFileDeleteRequest,
-    IpcFileDeleteResponse, IpcFileDownloadBlockRequest, IpcFileDownloadCreateRequest,
-    IpcFileListResponse, IpcFileUploadBlockResponse, IpcFileUploadCreateRequest,
-    IpcFileViewResponse,
+    ipc_file_download_create_response::Chunk, ipc_node_api_client::IpcNodeApiClient,
+    ConnectionParamsRequest, IpcBucketListRequest, IpcBucketListResponse, IpcBucketViewRequest,
+    IpcBucketViewResponse, IpcChunk, IpcFileBlockData, IpcFileDeleteRequest, IpcFileDeleteResponse,
+    IpcFileDownloadBlockRequest, IpcFileDownloadCreateRequest, IpcFileListRequest,
+    IpcFileListResponse, IpcFileUploadChunkCreateRequest, IpcFileViewRequest, IpcFileViewResponse,
 };
 
 use crate::blockchain::provider::BlockchainProvider;
 use crate::blockchain::response_types::BucketResponse;
-use crate::utils::dag::DagBuilder;
-use crate::utils::file_chunker::FileChunker;
-use crate::utils::file_size::FileSize;
+use crate::utils::dag::{DagBuilder, FileBlockUpload};
+use crate::utils::encryption::Encryption;
+use crate::utils::splitter::Splitter;
 
 /// Otherwise default to grpc.
 #[cfg(not(target_arch = "wasm32"))]
@@ -38,13 +32,14 @@ use tonic::Streaming;
 #[cfg(target_arch = "wasm32")]
 use tonic_web_wasm_client::Client as GrpcWebClient;
 
+const ENCRYPTION_OVERHEAD: usize = 32;
+const BLOCK_SIZE: usize = (1.0 * 1e6) as usize;
+const MIN_BUCKET_NAME_LENGTH: usize = 3;
+const MIN_FILE_SIZE: usize = 127;
+const MAX_BLOCK_SIZE: usize = 32;
+
 /// Represents the Akave SDK client
 /// Akave Rust SDK should support both WASM (gRPC-Web) and native gRPC
-pub struct AkaveSDK {
-    client: IpcNodeApiClient<ClientTransport>,
-    connection_params: ConnectionParamsResponse,
-    storage: BlockchainProvider,
-}
 
 #[cfg(target_arch = "wasm32")]
 type ClientTransport = GrpcWebClient;
@@ -52,12 +47,17 @@ type ClientTransport = GrpcWebClient;
 #[cfg(not(target_arch = "wasm32"))]
 type ClientTransport = Channel;
 
-impl AkaveSDK {
+pub struct AkaveIpcSDK {
+    client: IpcNodeApiClient<ClientTransport>,
+    storage: BlockchainProvider,
+}
+
+impl AkaveIpcSDK {
     /// Creates a new AkaveSDK instance
     pub async fn new(server_address: &str) -> Result<Self, Box<dyn std::error::Error>> {
         #[cfg(target_arch = "wasm32")]
         {
-            let grpc_web_client = GrpcWebClient::new(server_address.into());
+            let grpc_web_client = ClientTransport::new(server_address.into());
             let mut client = IpcNodeApiClient::new(grpc_web_client);
             let connection_params = client
                 .connection_params(ConnectionParamsRequest {})
@@ -66,18 +66,20 @@ impl AkaveSDK {
             let storage = BlockchainProvider::new(
                 &connection_params.dial_uri,
                 &connection_params.contract_address,
+                None,
+                None,
             );
             Ok(Self {
                 client,
-                connection_params,
                 storage: storage.unwrap(),
             })
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
+            let tls_config = ClientTlsConfig::new().with_native_roots();
             let channel = Channel::from_shared(server_address.to_string())?
-                .tls_config(ClientTlsConfig::new())?
+                .tls_config(tls_config)?
                 .connect()
                 .await?;
             let mut client = IpcNodeApiClient::new(channel);
@@ -88,11 +90,12 @@ impl AkaveSDK {
             let storage = BlockchainProvider::new(
                 &connection_params.dial_uri,
                 &connection_params.contract_address,
+                None,
+                None,
             );
 
             Ok(Self {
                 client,
-                connection_params,
                 storage: storage.unwrap(),
             })
         }
@@ -116,7 +119,7 @@ impl AkaveSDK {
         bucket_name: &str,
     ) -> Result<IpcBucketViewResponse, Box<dyn std::error::Error>> {
         let request = IpcBucketViewRequest {
-            bucket_name: bucket_name.to_string(),
+            name: bucket_name.to_string(),
             address: address.to_string(),
         };
         Ok(self.client.bucket_view(request).await?.into_inner())
@@ -155,6 +158,12 @@ impl AkaveSDK {
         &mut self,
         bucket_name: &str,
     ) -> Result<BucketResponse, Box<dyn std::error::Error>> {
+        if bucket_name.len() < MIN_BUCKET_NAME_LENGTH {
+            return Err(format!(
+                "Bucket name must have at least {} characters",
+                MIN_BUCKET_NAME_LENGTH
+            ))?;
+        }
         self.storage.create_bucket(bucket_name.into()).await?;
         self.storage.get_bucket_by_name(bucket_name.into()).await
     }
@@ -177,29 +186,130 @@ impl AkaveSDK {
     // Delete an existing file
     pub async fn delete_file(
         &mut self,
-        bucket_id: Vec<u8>,
         transaction: Vec<u8>,
+        bucket_name: &str,
         file_name: &str,
     ) -> Result<IpcFileDeleteResponse, Box<dyn std::error::Error>> {
         let request = IpcFileDeleteRequest {
-            bucket_id,
             transaction,
+            bucket_name: bucket_name.as_bytes().to_vec(),
             name: file_name.to_string(),
         };
 
         Ok(self.client.file_delete(request).await?.into_inner())
     }
 
-    // TODO: this is the most vanilla version of file upload
-    //          USE WITH CAUTION
-    pub async fn upload_file_basic(
+    async fn create_file_upload(
+        &self,
+        bucket_id: Vec<u8>,
+        file_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let tx = self
+            .storage
+            .create_file(bucket_id, file_name.to_string())
+            .await?;
+
+        /* if tx.is_none() {
+            return Err("Transaction timeout")?;
+        } */
+        Ok(())
+    }
+
+    pub async fn upload_file(
+        &mut self,
+        bucket_name: &str,
+        file_name: &str,
+        file: File,
+        passwd: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if !bucket_name.is_empty() {
+            return Err("Empty bucket name")?;
+        }
+
+        let bucket = self
+            .storage
+            .get_bucket_by_name(bucket_name.to_string())
+            .await?;
+
+        let info = vec![bucket_name, file_name].join("/");
+        let encryption = Encryption::new(passwd.as_bytes(), info.as_bytes())?;
+        let key_size = encryption.len();
+
+        let chunker = Splitter::new(file, BLOCK_SIZE as u64, Some(encryption));
+        let mut dag = DagBuilder::new(chunker);
+
+        let mut file_upload_block = vec![];
+        let mut enum_blocks = dag.into_iter().enumerate();
+        while let Some((idx, block)) = enum_blocks.next() {
+            let size = block.data.len();
+
+            let block_size = BLOCK_SIZE; // Update this if erasure code: data.len() / (erasure_code.data_blocks + erasure_code.parity_blocks)
+                                         // TODO: apply erasure code here: erasureCode.Encode(data)
+
+            let req = IpcFileUploadChunkCreateRequest {
+                chunk: Some(IpcChunk {
+                    cid: block.cid.clone(),
+                    index: idx as i64,
+                    size: size as i64,
+                    blocks: vec![Block {
+                        cid: block.cid.clone(),
+                        size: size as i64,
+                    }],
+                }),
+                bucket_id: bucket.id.to_vec(),
+                file_name: file_name.to_string(),
+            };
+
+            let resp = self
+                .client
+                .file_upload_chunk_create(req)
+                .await?
+                .into_inner();
+
+            if resp.blocks.len() != 1 {
+                return Err(format!(
+                    "received unexpected amount of blocks {}, expected {}",
+                    resp.blocks.len(),
+                    1
+                ))?;
+            }
+
+            let mut resp_blocks = resp.blocks.iter().enumerate();
+            while let Some((index, uploaded_block)) = resp_blocks.next() {
+                if block.cid != uploaded_block.cid {
+                    return Err(format!("block CID mismatch at position {}", index))?;
+                }
+                file_upload_block.push(uploaded_block.clone());
+            }
+
+            /* let resp = self
+            .storage
+            .add_file_chunk(
+                root_cid.encode_to_vec(),
+                bucket.id.to_vec(),
+                file_name.to_string(),
+                size as i64,
+                vec![block.cid.clone().encode_to_vec()],
+                vec![size as i64],
+                idx as i64,
+            )
+            .await?; */
+        }
+
+        todo!()
+    }
+
+    /*     pub async fn old_upload_file(
         &mut self,
         address: &str,
         bucket_name: &str,
+        file_name: &str,
         file: File,
     ) -> Result<IpcFileUploadBlockResponse, Box<dyn std::error::Error>> {
         let file_size = file.size() as i64;
         let chunker = FileChunker::new(file, None);
+
+        let bucket_info = self.view_bucket(address, bucket_name).await?;
 
         // TODO: Improve dag construction mechanics
         let mut dag = DagBuilder::new(chunker);
@@ -218,44 +328,62 @@ impl AkaveSDK {
 
         // insert root block
         // TODO: find a better way to do this
+
         blocks.insert(
             0,
-            IpcBlock {
+            IpcFileBlockData {
                 cid: root_cid.clone(),
-                size: 0,
+                data: [].to_vec(),
+                index: 0,
+                chunk: None,
+                bucket_id: bucket_info.id.as_bytes().to_vec(), // not tu sure about this
+                file_name: file_name.to_string(),
             },
         );
 
-        let request = IpcFileUploadCreateRequest {
-            blocks,
-            root_cid: root_cid,
-            size: file_size as i64, // TODO: funny, should double check
-        };
+        /* let request = IpcFileUploadChunkCreateRequest {
+            chunk: todo!(),
+            bucket_id: todo!(),
+            file_name: todo!(),
+        }; */
 
         // Create the upload alloc
-        let _ = self.client.file_upload_create(request).await?.into_inner();
+        /* let _ = self
+        .client
+        .file_upload_chunk_create(request)
+        .await?
+        .into_inner(); */
 
         // TODO: check this is the correct way to stream a file
-        let block_stream = futures::stream::iter(blocks_data);
+
+        // let block_stream = futures::stream::iter(blocks_data);
 
         // TODO: update on the blockchain: Solidity -> function addFile(bytes cid, bytes32 bucketId, string name, uint256 size, bytes[] cids, uint256[] sizes) returns(bytes32, bytes32[])
         // wait for transaction
         // call self.client.FileUploadCreate with the blocks cids and sizes
 
         // TODO: should not return response, should check and return an SDK friendly value
-        Ok(self
-            .client
-            .file_upload_block(block_stream)
-            .await?
-            .into_inner())
-    }
+        /* Ok(self
+        .client
+        .file_upload_block(block_stream)
+        .await?
+        .into_inner()) */
+        todo!()
+    } */
 
     async fn download_file_block(
         &mut self,
-        block_cid: &str,
+        block_cid: String,
+        chunk: &Chunk,
     ) -> Result<Streaming<IpcFileBlockData>, Box<dyn std::error::Error>> {
         let request = IpcFileDownloadBlockRequest {
-            block_cid: block_cid.to_string(),
+            block_cid,
+            chunk_cid: chunk.cid.clone(),
+            chunk_index: todo!(),
+            block_index: todo!(),
+            bucket_name: todo!(),
+            file_name: todo!(),
+            address: todo!(),
         };
 
         Ok(self
@@ -273,7 +401,7 @@ impl AkaveSDK {
         bucket_name: &str,
         file_name: &str,
         key: &str,
-    ) -> Vec<u8> {
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let request = IpcFileDownloadCreateRequest {
             address: address.to_string(),
             bucket_name: bucket_name.to_string(),
@@ -286,39 +414,46 @@ impl AkaveSDK {
             .unwrap()
             .into_inner();
 
-        let blocks_download = file_download.blocks;
+        let blocks_download = file_download.chunks;
 
         let mut file_data: Vec<u8> = vec![];
         let mut file_iter = blocks_download.iter();
+        let block_cid = blocks_download.first().unwrap().cid.clone();
         while let Some(block) = file_iter.next() {
-            let mut a = self.download_file_block(&block.cid).await.unwrap();
-            let message = a.message().await.unwrap().expect("Error receiving stream");
+            let mut stream = self
+                .download_file_block(block_cid.clone(), &block)
+                .await
+                .unwrap();
+            let message = stream
+                .message()
+                .await
+                .unwrap()
+                .expect("Error receiving stream");
             let mut data = message.data;
 
             file_data.append(&mut data);
         }
-        file_data
+        Ok(file_data)
     }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use crate::sdk::AkaveSDK;
+    use crate::sdk::AkaveIpcSDK;
     use pretty_assertions::{assert_eq, assert_ne, assert_str_eq};
     use std::future::Future; // crate for test-only use. Cannot be used in non-test code.
 
     const ADDRESS: &str = "0x7975eD6b732D1A4748516F66216EE703f4856759";
-    const BUCKET_TO_TEST: &str = "TEST_BUCKET_v2";
+    const BUCKET_TO_TEST: &str = "TEST_BUCKET_v5";
 
-    fn get_sdk() -> impl Future<Output = Result<AkaveSDK, Box<(dyn std::error::Error + 'static)>>> {
-        AkaveSDK::new("http://connect.akave.ai:5500")
+    async fn get_sdk() -> Result<AkaveIpcSDK, Box<(dyn std::error::Error + 'static)>> {
+        AkaveIpcSDK::new("http://connect.akave.ai:5500").await
     }
 
     async fn test_create_bucket() {
         println!("Test 1: create bucket {}", BUCKET_TO_TEST);
         let mut sdk = get_sdk().await.unwrap();
         let bucket_resp = sdk.create_bucket(BUCKET_TO_TEST).await.unwrap();
-        // println!("{}", bucket_resp.name);
         assert_eq!(bucket_resp.name, BUCKET_TO_TEST);
     }
 
@@ -351,9 +486,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_all() {
-        //test_create_bucket().await;
-        //test_list_buckets().await;
-        //test_view_bucket().await;
+        test_create_bucket().await;
+        // test_list_buckets().await;
+        // test_view_bucket().await;
         // test_delete_bucket().await;
     }
 

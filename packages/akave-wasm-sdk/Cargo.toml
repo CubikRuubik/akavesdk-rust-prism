@@ -109,6 +109,7 @@ tonic = { version = "0.12", default-features = false, features = [
   "codegen",
   "transport",
   "tls",
+  "tls-roots",
 ] }
 tokio = { version = "1.42.0", features = ["full"] }
 getrandom = { version = "0.2.15", features = ["std"] }

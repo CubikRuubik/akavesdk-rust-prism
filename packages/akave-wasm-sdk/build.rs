@@ -24,7 +24,7 @@ fn build(dir: &Path, proto: &str, target_arch: String) {
     let out = dir.join(proto);
     create_dir_all(&out).unwrap();
     let source = format!("proto/{proto}.proto");
-    let descriptor_file = out.join("descriptors.bin");
+    let descriptor_file = out.join("ipcnodeapi_descriptors.bin");
 
     #[cfg(feature = "vendored-protox")]
     {
@@ -41,9 +41,11 @@ fn build(dir: &Path, proto: &str, target_arch: String) {
             )
             .type_attribute(".", "#[serde(rename_all = \"camelCase\")]")
             .type_attribute(".", "#[tsify(into_wasm_abi, from_wasm_abi)]")
-            .field_attribute("created_at", "#[tsify(type = \"String\")]"),
+            .field_attribute("created_at", "#[tsify(type = \"String\")]")
+            .type_attribute("routeguide.Point", "#[derive(Hash)]"),
         false => tonic_build::configure()
-            .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]"),
+            .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
+            .type_attribute("routeguide.Point", "#[derive(Hash)]"),
     };
 
     conf.extern_path(".google.protobuf", "::prost_wkt_types")
@@ -51,6 +53,7 @@ fn build(dir: &Path, proto: &str, target_arch: String) {
         .compile_well_known_types(true)
         .build_server(false)
         .build_client(true)
+        .client_mod_attribute("attrs", "#[cfg(feature = \"client\")]")
         .compile_protos(&[source], &["proto/".to_string()])
         .unwrap();
 

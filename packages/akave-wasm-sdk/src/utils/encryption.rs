@@ -15,6 +15,7 @@ use sha2::{
 pub const KEY_LEN: usize = 32;
 pub const GCM_NONCE_SIZE: usize = 12;
 
+#[derive(Debug)]
 pub struct Encryption {
     key: Option<[u8; KEY_LEN]>,
 }
@@ -55,27 +56,37 @@ impl Encryption {
 
     fn make_gcm_cipher(
         &self,
-        data: &[u8],
+        info: &[u8],
     ) -> Result<AesGcm<Aes256, U12>, Box<dyn std::error::Error>> {
         match self.key {
             Some(some_key) => {
-                let key = Encryption::derive_key(&some_key, data)?;
-                let new_k: &GenericArray<u8, U32> = Key::<Aes256Gcm>::from_slice(&some_key);
-                let gcm: AesGcm<Aes256, U12> = Aes256Gcm::new(&new_k);
-                Ok(gcm)
+                let key = Encryption::derive_key(&some_key, info)?;
+                match key {
+                    Some(option_key) => {
+                        let new_k: &GenericArray<u8, U32> =
+                            Key::<Aes256Gcm>::from_slice(&option_key);
+                        let gcm: AesGcm<Aes256, U12> = Aes256Gcm::new(&new_k);
+                        Ok(gcm)
+                    }
+                    None => Err("Failed deriving key")?,
+                }
             }
             None => Err("There's no saved key")?,
         }
     }
 
-    pub fn encrypt(&self, data: &[u8], info: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    pub fn encrypt(
+        &self,
+        data: &[u8],
+        info: &[u8],
+    ) -> Result<Box<[u8]>, Box<dyn std::error::Error>> {
         let mut gcm = self.make_gcm_cipher(info)?;
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
         let mut buffer: Vec<u8> = Vec::new();
         buffer.extend_from_slice(data);
 
         match gcm.encrypt_in_place(&nonce, b"", &mut buffer) {
-            Ok(_) => Ok([&buffer, nonce.as_slice()].concat()),
+            Ok(_) => Ok([&buffer, nonce.as_slice()].concat().into_boxed_slice()),
             Err(_) => Err("Error encrypting data".into()),
         }
     }
