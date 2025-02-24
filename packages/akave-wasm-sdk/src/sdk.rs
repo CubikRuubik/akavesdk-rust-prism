@@ -9,6 +9,7 @@ use std::fs::File;
 use std::time::Duration;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_file_reader::WebSysFile as File;
+use web3::types::TransactionReceipt;
 
 use ipcnodeapi::{
     ipc_file_download_create_response::Chunk, ipc_node_api_client::IpcNodeApiClient,
@@ -36,7 +37,7 @@ const ENCRYPTION_OVERHEAD: usize = 32;
 const BLOCK_SIZE: usize = (1.0 * 1e6) as usize;
 const MIN_BUCKET_NAME_LENGTH: usize = 3;
 const MIN_FILE_SIZE: usize = 127;
-const MAX_BLOCK_SIZE: usize = 32;
+const MAX_BLOCKS_IN_CHUNK: usize = 32;
 
 /// Represents the Akave SDK client
 /// Akave Rust SDK should support both WASM (gRPC-Web) and native gRPC
@@ -46,6 +47,17 @@ type ClientTransport = GrpcWebClient;
 
 #[cfg(not(target_arch = "wasm32"))]
 type ClientTransport = Channel;
+
+struct IpcFileChunkUpload {
+    index: usize,
+    chunk_cid: String,
+    actual_size: usize,
+    raw_data_size: usize,
+    proto_node_size: usize,
+    blocks: Vec<FileBlockUpload>,
+    bucket_id: [u8; 32],
+    file_name: String,
+}
 
 pub struct AkaveIpcSDK {
     client: IpcNodeApiClient<ClientTransport>,
@@ -199,22 +211,6 @@ impl AkaveIpcSDK {
         Ok(self.client.file_delete(request).await?.into_inner())
     }
 
-    async fn create_file_upload(
-        &self,
-        bucket_id: Vec<u8>,
-        file_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let tx = self
-            .storage
-            .create_file(bucket_id, file_name.to_string())
-            .await?;
-
-        /* if tx.is_none() {
-            return Err("Transaction timeout")?;
-        } */
-        Ok(())
-    }
-
     pub async fn upload_file(
         &mut self,
         bucket_name: &str,
@@ -235,68 +231,138 @@ impl AkaveIpcSDK {
         let encryption = Encryption::new(passwd.as_bytes(), info.as_bytes())?;
         let key_size = encryption.len();
 
-        let chunker = Splitter::new(file, BLOCK_SIZE as u64, Some(encryption));
-        let mut dag = DagBuilder::new(chunker);
+        // TODO: if erasure code this value is different
+        let chunk_size = (BLOCK_SIZE * MAX_BLOCKS_IN_CHUNK) as u64;
 
-        let mut file_upload_block = vec![];
-        let mut enum_blocks = dag.into_iter().enumerate();
-        while let Some((idx, block)) = enum_blocks.next() {
-            let size = block.data.len();
+        let chunker = Splitter::new(file, chunk_size, Some(encryption));
 
-            let block_size = BLOCK_SIZE; // Update this if erasure code: data.len() / (erasure_code.data_blocks + erasure_code.parity_blocks)
-                                         // TODO: apply erasure code here: erasureCode.Encode(data)
+        if chunker.size() == 0 {
+            return Err("Empty file".into());
+        }
 
-            let req = IpcFileUploadChunkCreateRequest {
-                chunk: Some(IpcChunk {
-                    cid: block.cid.clone(),
-                    index: idx as i64,
-                    size: size as i64,
-                    blocks: vec![Block {
-                        cid: block.cid.clone(),
-                        size: size as i64,
-                    }],
-                }),
-                bucket_id: bucket.id.to_vec(),
-                file_name: file_name.to_string(),
-            };
+        let mut enum_blocks = chunker.into_iter().enumerate();
 
-            let resp = self
-                .client
-                .file_upload_chunk_create(req)
-                .await?
-                .into_inner();
-
-            if resp.blocks.len() != 1 {
-                return Err(format!(
-                    "received unexpected amount of blocks {}, expected {}",
-                    resp.blocks.len(),
-                    1
-                ))?;
-            }
-
-            let mut resp_blocks = resp.blocks.iter().enumerate();
-            while let Some((index, uploaded_block)) = resp_blocks.next() {
-                if block.cid != uploaded_block.cid {
-                    return Err(format!("block CID mismatch at position {}", index))?;
-                }
-                file_upload_block.push(uploaded_block.clone());
-            }
-
-            /* let resp = self
-            .storage
-            .add_file_chunk(
-                root_cid.encode_to_vec(),
-                bucket.id.to_vec(),
-                file_name.to_string(),
-                size as i64,
-                vec![block.cid.clone().encode_to_vec()],
-                vec![size as i64],
-                idx as i64,
-            )
-            .await?; */
+        while let Some((idx, Ok(block))) = enum_blocks.next() {
+            let (chunk_upload, receipt) = self
+                .create_chunk_upload(idx, block.to_vec(), bucket.id, file_name)
+                .await?;
         }
 
         todo!()
+    }
+
+    async fn create_chunk_upload(
+        &mut self,
+        index: usize,
+        data: Vec<u8>,
+        bucket_id: [u8; 32],
+        file_name: &str,
+    ) -> Result<(IpcFileChunkUpload, TransactionReceipt), Box<dyn std::error::Error>> {
+        let size = data.len();
+
+        // TODO: if erasure code this value is different
+        let block_size = BLOCK_SIZE;
+
+        let mut dag = DagBuilder::new(data, block_size);
+
+        let mut blocks = vec![];
+
+        while let Some(block) = dag.next() {
+            blocks.push(block);
+        }
+
+        let chunk_cid = dag.root_cid()?;
+
+        let (cids, sizes, proto_chunk) =
+            self.to_ipc_proto_chunks(chunk_cid.clone(), index, size, &blocks);
+
+        let req = IpcFileUploadChunkCreateRequest {
+            chunk: Some(proto_chunk),
+            bucket_id: bucket_id.to_vec(),
+            file_name: file_name.to_string(),
+        };
+
+        let res = self
+            .client
+            .file_upload_chunk_create(req)
+            .await?
+            .into_inner();
+
+        let to_up_size = dag.count();
+        let up_size = res.blocks.len();
+        if up_size != to_up_size {
+            return Err(format!(
+                "received unexpected amount of blocks {}, expected {}",
+                up_size, to_up_size
+            ))?;
+        }
+
+        let mut res_iter = res.blocks.into_iter().enumerate();
+        while let Some((idx, res_block)) = res_iter.next() {
+            blocks[idx].node_address = res_block.node_address;
+            blocks[idx].node_id = res_block.node_id;
+            blocks[idx].permit = res_block.permit;
+        }
+
+        let tx = self
+            .storage
+            .add_file_chunk(
+                chunk_cid.as_bytes().to_vec(),
+                bucket_id.to_vec(),
+                file_name.to_string(),
+                size as i64,
+                cids.iter().map(|cid| cid.as_bytes().to_vec()).collect(),
+                sizes.clone(),
+                index as i64,
+            )
+            .await?;
+
+        Ok((
+            IpcFileChunkUpload {
+                index,
+                chunk_cid,
+                actual_size: size,
+                raw_data_size: size,   // TODO: WRONG!!
+                proto_node_size: size, // TODO: WRONG!!
+                blocks,
+                bucket_id,
+                file_name: file_name.to_string(),
+            },
+            tx,
+        ))
+    }
+
+    fn to_ipc_proto_chunks(
+        &self,
+        chunk_cid: String,
+        index: usize,
+        size: usize,
+        blocks: &Vec<FileBlockUpload>,
+    ) -> (Vec<String>, Vec<i64>, IpcChunk) {
+        let mut chunk_blocks = vec![];
+        let mut cids = vec![];
+        let mut sizes = vec![];
+        blocks.iter().for_each(|block| {
+            let size = block.data.len() as i64;
+            let cid = block.cid.clone();
+            chunk_blocks.push(Block {
+                cid: cid.clone(),
+                size,
+            });
+            cids.push(cid);
+            sizes.push(size);
+        });
+
+        (
+            cids,
+            sizes,
+            IpcChunk {
+                cid: chunk_cid,
+                index: index as i64,
+                size: size as i64,
+                blocks: chunk_blocks,
+            },
+        )
     }
 
     /*     pub async fn old_upload_file(

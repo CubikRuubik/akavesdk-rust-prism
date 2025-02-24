@@ -30,6 +30,10 @@ impl Splitter {
             encryption,
         };
     }
+
+    pub fn size(&self) -> usize {
+        return u64::div_ceil(self.file.size(), self.chunk_size) as usize;
+    }
 }
 
 impl Iterator for Splitter {
