@@ -3,10 +3,10 @@ pub mod ipcnodeapi {
 }
 
 use ipcnodeapi::ipc_chunk::Block;
-use prost::Message;
+use sha2::{Digest, Sha256};
+
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
-use std::time::Duration;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_file_reader::WebSysFile as File;
 use web3::types::TransactionReceipt;
@@ -49,14 +49,14 @@ type ClientTransport = GrpcWebClient;
 type ClientTransport = Channel;
 
 struct IpcFileChunkUpload {
-    index: usize,
-    chunk_cid: String,
-    actual_size: usize,
-    raw_data_size: usize,
-    proto_node_size: usize,
-    blocks: Vec<FileBlockUpload>,
-    bucket_id: [u8; 32],
-    file_name: String,
+    pub index: usize,
+    pub chunk_cid: String,
+    pub actual_size: usize,
+    pub raw_data_size: usize,
+    pub proto_node_size: usize,
+    pub blocks: Vec<FileBlockUpload>,
+    pub bucket_id: [u8; 32],
+    pub file_name: String,
 }
 
 pub struct AkaveIpcSDK {
@@ -229,9 +229,8 @@ impl AkaveIpcSDK {
 
         let info = vec![bucket_name, file_name].join("/");
         let encryption = Encryption::new(passwd.as_bytes(), info.as_bytes())?;
-        let key_size = encryption.len();
 
-        // TODO: if erasure code this value is different
+        // TODO: if erasure code this value is differents different
         let chunk_size = (BLOCK_SIZE * MAX_BLOCKS_IN_CHUNK) as u64;
 
         let chunker = Splitter::new(file, chunk_size, Some(encryption));
@@ -242,11 +241,36 @@ impl AkaveIpcSDK {
 
         let mut enum_blocks = chunker.into_iter().enumerate();
 
+        let mut root_hasher = Sha256::new();
+        let mut file_size: usize = 0;
         while let Some((idx, Ok(block))) = enum_blocks.next() {
-            let (chunk_upload, receipt) = self
+            let (chunk_upload, receipt, proto_chunk) = self
                 .create_chunk_upload(idx, block.to_vec(), bucket.id, file_name)
                 .await?;
+
+            root_hasher.update(chunk_upload.chunk_cid.clone());
+
+            file_size += chunk_upload.actual_size;
+
+            self.upload_chunk(
+                chunk_upload,
+                bucket.id.to_vec(),
+                file_name.to_string(),
+                proto_chunk,
+            )
+            .await?;
         }
+
+        let root_cid = hex::encode(Sha256::digest(root_hasher.finalize()));
+
+        self.storage
+            .commit_file(
+                bucket.id.to_vec(),
+                file_name.to_string(),
+                file_size as i64,
+                root_cid.as_bytes().to_vec(),
+            )
+            .await?;
 
         todo!()
     }
@@ -257,7 +281,8 @@ impl AkaveIpcSDK {
         data: Vec<u8>,
         bucket_id: [u8; 32],
         file_name: &str,
-    ) -> Result<(IpcFileChunkUpload, TransactionReceipt), Box<dyn std::error::Error>> {
+    ) -> Result<(IpcFileChunkUpload, TransactionReceipt, IpcChunk), Box<dyn std::error::Error>>
+    {
         let size = data.len();
 
         // TODO: if erasure code this value is different
@@ -277,7 +302,7 @@ impl AkaveIpcSDK {
             self.to_ipc_proto_chunks(chunk_cid.clone(), index, size, &blocks);
 
         let req = IpcFileUploadChunkCreateRequest {
-            chunk: Some(proto_chunk),
+            chunk: Some(proto_chunk.clone()),
             bucket_id: bucket_id.to_vec(),
             file_name: file_name.to_string(),
         };
@@ -329,6 +354,7 @@ impl AkaveIpcSDK {
                 file_name: file_name.to_string(),
             },
             tx,
+            proto_chunk,
         ))
     }
 
@@ -436,6 +462,42 @@ impl AkaveIpcSDK {
         .into_inner()) */
         todo!()
     } */
+
+    async fn upload_chunk(
+        &mut self,
+        chunk: IpcFileChunkUpload,
+        bucket_id: Vec<u8>,
+        file_name: String,
+        proto_chunk: IpcChunk,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let blocks = chunk.blocks.into_iter();
+
+        let mut blocks_upload = vec![];
+        let mut iter_blocks = blocks.into_iter().enumerate();
+        let boxed_chunk = Box::new(proto_chunk);
+        while let Some((idx, block)) = iter_blocks.next() {
+            blocks_upload.push(IpcFileBlockData {
+                bucket_id: bucket_id.clone(),
+                data: block.data,
+                cid: block.cid,
+                chunk: Some(*boxed_chunk.to_owned()),
+                file_name: file_name.clone(),
+                index: idx as i64,
+            });
+        }
+        let block_stream = futures::stream::iter(blocks_upload);
+        let resp = self
+            .client
+            .file_upload_block(block_stream)
+            .await?
+            .into_inner();
+
+        /* while let Some(block) = blocks.next() {
+            self.client.
+        } */
+
+        Ok(())
+    }
 
     async fn download_file_block(
         &mut self,
@@ -550,9 +612,15 @@ mod tests {
         );
     }
 
+    async fn test_upload_file() {}
+
+    async fn test_view_uploaded_file() {}
+
     #[tokio::test]
     async fn test_all() {
         test_create_bucket().await;
+        test_upload_file().await;
+        test_view_uploaded_file().await;
         // test_list_buckets().await;
         // test_view_bucket().await;
         // test_delete_bucket().await;
