@@ -218,7 +218,7 @@ impl AkaveIpcSDK {
         file: File,
         passwd: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if !bucket_name.is_empty() {
+        if bucket_name.is_empty() {
             return Err("Empty bucket name")?;
         }
 
@@ -230,7 +230,7 @@ impl AkaveIpcSDK {
         let info = vec![bucket_name, file_name].join("/");
         let encryption = Encryption::new(passwd.as_bytes(), info.as_bytes())?;
 
-        // TODO: if erasure code this value is differents different
+        // TODO: if erasure code this value is different
         let chunk_size = (BLOCK_SIZE * MAX_BLOCKS_IN_CHUNK) as u64;
 
         let chunker = Splitter::new(file, chunk_size, Some(encryption));
@@ -569,7 +569,7 @@ impl AkaveIpcSDK {
 mod tests {
     use crate::sdk::AkaveIpcSDK;
     use pretty_assertions::{assert_eq, assert_ne, assert_str_eq};
-    use std::future::Future; // crate for test-only use. Cannot be used in non-test code.
+    use std::{fs::File, future::Future}; // crate for test-only use. Cannot be used in non-test code.
 
     const ADDRESS: &str = "0x7975eD6b732D1A4748516F66216EE703f4856759";
     const BUCKET_TO_TEST: &str = "TEST_BUCKET_v5";
@@ -612,15 +612,23 @@ mod tests {
         );
     }
 
-    async fn test_upload_file() {}
+    async fn test_upload_file() {
+        println!("Test 5: upload a file to {}", BUCKET_TO_TEST);
+        let mut sdk = get_sdk().await.unwrap();
+        let file = File::open("foo.txt").unwrap();
+        let _ = sdk
+            .upload_file(BUCKET_TO_TEST, "foo.txt", file, "passwd")
+            .await
+            .unwrap();
+    }
 
     async fn test_view_uploaded_file() {}
 
     #[tokio::test]
     async fn test_all() {
-        test_create_bucket().await;
+        // test_create_bucket().await;
         test_upload_file().await;
-        test_view_uploaded_file().await;
+        // test_view_uploaded_file().await;
         // test_list_buckets().await;
         // test_view_bucket().await;
         // test_delete_bucket().await;
