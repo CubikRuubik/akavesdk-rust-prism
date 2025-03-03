@@ -281,7 +281,7 @@ impl AkaveIpcSDK {
                 bucket.id.to_vec(),
                 file_name.to_string(),
                 file_size as i64,
-                root_cid.as_bytes().to_vec(),
+                hex::decode(root_cid)?,
             )
             .await?;
 
@@ -345,11 +345,13 @@ impl AkaveIpcSDK {
         let tx = self
             .storage
             .add_file_chunk(
-                chunk_cid.as_bytes().to_vec(),
+                hex::decode(chunk_cid.clone())?,
                 bucket_id.to_vec(),
                 file_name.to_string(),
                 size as i64,
-                cids.iter().map(|cid| cid.as_bytes().to_vec()).collect(),
+                cids.iter()
+                    .map(|cid| hex::decode(cid))
+                    .collect::<Result<Vec<_>, _>>()?,
                 sizes.clone(),
                 index as i64,
             )
@@ -640,11 +642,11 @@ mod tests {
     #[tokio::test]
     async fn test_all() {
         // test_create_bucket().await;
-        test_upload_file().await;
-        // test_view_uploaded_file().await;
         // test_list_buckets().await;
         // test_view_bucket().await;
         // test_delete_bucket().await;
+        test_upload_file().await;
+        // test_view_uploaded_file().await;
     }
 
     /* #[tokio::test]

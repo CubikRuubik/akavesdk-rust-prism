@@ -34,7 +34,7 @@ impl Iterator for DagBuilder {
         hasher.update(&chunk);
         let hash = hex::encode(hasher.finalize());
         // TODO: this need to be properly tested
-        self.root_hasher.update(&hash);
+        self.root_hasher.update(hash.clone());
 
         let ipc_block = FileBlockUpload {
             cid: hash.clone(),
@@ -45,9 +45,9 @@ impl Iterator for DagBuilder {
         };
 
         if self.chunked.peek().is_none() {
-            self.root_cid = Some(hex::encode(Sha256::digest(
-                self.root_hasher.clone().finalize(),
-            )))
+            let hash = self.root_hasher.clone().finalize();
+            let root_cid = hex::encode(hash);
+            self.root_cid = Some(root_cid);
         }
 
         Some(ipc_block)
