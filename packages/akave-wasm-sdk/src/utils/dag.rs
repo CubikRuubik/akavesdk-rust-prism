@@ -5,12 +5,12 @@ use sha2::{Digest, Sha256};
 pub struct DagBuilder {
     pub chunked: Peekable<IntoIter<Vec<u8>>>,
     root_hasher: Sha256,
-    pub root_cid: Option<String>,
+    pub root_cid: Option<[u8; 32]>,
     size: usize,
 }
 
 pub struct FileBlockUpload {
-    pub cid: String,
+    pub cid: [u8; 32],
     pub data: Vec<u8>,
 
     pub permit: String,
@@ -32,12 +32,12 @@ impl Iterator for DagBuilder {
         let chunk = self.chunked.next()?;
         let mut hasher = Sha256::new();
         hasher.update(&chunk);
-        let hash = hex::encode(hasher.finalize());
+        let hash = hasher.finalize();
         // TODO: this need to be properly tested
         self.root_hasher.update(hash.clone());
 
         let ipc_block = FileBlockUpload {
-            cid: hash.clone(),
+            cid: hash.into(),
             data: chunk,
             permit: "".to_string(),
             node_address: "".to_string(),
@@ -46,8 +46,7 @@ impl Iterator for DagBuilder {
 
         if self.chunked.peek().is_none() {
             let hash = self.root_hasher.clone().finalize();
-            let root_cid = hex::encode(hash);
-            self.root_cid = Some(root_cid);
+            self.root_cid = Some(hash.into());
         }
 
         Some(ipc_block)
@@ -68,9 +67,9 @@ impl DagBuilder {
         }
     }
 
-    pub fn root_cid(&self) -> Result<String, Box<dyn std::error::Error>> {
+    pub fn root_cid(&self) -> Result<[u8; 32], Box<dyn std::error::Error>> {
         match &self.root_cid {
-            Some(cid) => Ok(cid.to_string()),
+            Some(cid) => Ok(*cid),
             None => Err("chunker need to be fully iterated to build the root_cid".into()),
         }
     }
