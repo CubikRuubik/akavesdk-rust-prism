@@ -1,4 +1,4 @@
-use std::{str::FromStr, time::Duration};
+use std::{io::Read, str::FromStr, time::Duration};
 
 use alloy::consensus::Receipt;
 use futures::StreamExt;
@@ -227,9 +227,8 @@ impl BlockchainProvider {
         size: i64,
         root_cid: Vec<u8>,
     ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
-        let r_cid: [u8; 32] = root_cid.try_into().expect("root_cid error");
         let id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
-        self.call_contract_with_confirmations(COMMIT_FILE, (id, file_name, size, r_cid))
+        self.call_contract_with_confirmations(COMMIT_FILE, (id, file_name, size, root_cid))
             .await
     }
 
@@ -238,15 +237,18 @@ impl BlockchainProvider {
         root_cid: Vec<u8>,
         bucket_id: Vec<u8>,
         file_name: String,
-        size: i64,
-        cids: Vec<Vec<u8>>,
-        sizes: Vec<i64>,
-        index: i64,
+        size: U256,
+        cids: Vec<[u8; 32]>,
+        sizes: Vec<U256>,
+        index: U256,
     ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
-        let r_cid: [u8; 32] = root_cid.try_into().expect("root_cid error");
+        // let r_cid: [u8; 32] = root_cid.try_into().expect("root_cid error");
         let id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
-        self.call_contract_with_confirmations(ADD_FILE_CHUNK, (r_cid, id, file_name, size))
-            .await
+        self.call_contract_with_confirmations(
+            ADD_FILE_CHUNK,
+            (root_cid, id, file_name, size, cids, sizes, index),
+        )
+        .await
     }
 
     pub async fn create_bucket(

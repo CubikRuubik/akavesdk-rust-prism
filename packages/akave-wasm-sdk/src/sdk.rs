@@ -256,6 +256,7 @@ impl AkaveIpcSDK {
 
         let mut root_hasher = Sha256::new();
         let mut file_size: usize = 0;
+
         while let Some((idx, Ok(block))) = enum_blocks.next() {
             let (chunk_upload, receipt, proto_chunk) = self
                 .create_chunk_upload(idx, block.to_vec(), bucket.id, file_name)
@@ -348,12 +349,16 @@ impl AkaveIpcSDK {
                 hex::decode(chunk_cid.clone())?,
                 bucket_id.to_vec(),
                 file_name.to_string(),
-                size as i64,
+                size.into(),
                 cids.iter()
-                    .map(|cid| hex::decode(cid))
-                    .collect::<Result<Vec<_>, _>>()?,
-                sizes.clone(),
-                index as i64,
+                    .map(|cid| hex::decode(cid).unwrap().as_slice().try_into())
+                    .collect::<Result<_, _>>()?,
+                sizes
+                    .iter()
+                    .map(|s| s.to_owned().into())
+                    .collect::<Vec<_>>()
+                    .clone(),
+                index.into(),
             )
             .await?;
 
@@ -500,6 +505,7 @@ impl AkaveIpcSDK {
                 index: idx as i64,
             });
         }
+
         let block_stream = futures::stream::iter(blocks_upload);
         let resp = self
             .client
@@ -510,6 +516,8 @@ impl AkaveIpcSDK {
         /* while let Some(block) = blocks.next() {
             self.client.
         } */
+
+        println!("before this?");
 
         Ok(())
     }
@@ -584,7 +592,7 @@ impl AkaveIpcSDK {
 mod tests {
     use crate::sdk::AkaveIpcSDK;
     use pretty_assertions::{assert_eq, assert_ne, assert_str_eq};
-    use std::{fs::File, future::Future}; // crate for test-only use. Cannot be used in non-test code.
+    use std::{env, fs::File, future::Future}; // crate for test-only use. Cannot be used in non-test code.
 
     const ADDRESS: &str = "0x7975eD6b732D1A4748516F66216EE703f4856759";
     const BUCKET_TO_TEST: &str = "TEST_BUCKET_v5";
@@ -641,6 +649,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_all() {
+        // env::set_var("RUST_BACKTRACE", "1");
         // test_create_bucket().await;
         // test_list_buckets().await;
         // test_view_bucket().await;
