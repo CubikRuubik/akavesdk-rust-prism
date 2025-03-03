@@ -27,9 +27,9 @@ type ProviderType = Http;
 const CREATE_BUCKET: &str = "createBucket";
 const DELETE_BUCKET: &str = "deleteBucket";
 const GET_BUCKET_BY_NAME: &str = "getBucketByName";
-const CREATE_FILE: &str = "createFile";
 const ADD_FILE_CHUNK: &str = "addFileChunk";
 const COMMIT_FILE: &str = "commitFile";
+const CREATE_FILE: &str = "createFile";
 
 pub struct BlockchainProvider {
     pub web3_provider: Web3<ProviderType>,
@@ -210,6 +210,16 @@ impl BlockchainProvider {
         }
     }
 
+    pub async fn create_file(
+        &self,
+        bucket_id: Vec<u8>,
+        file_name: String,
+    ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
+        let id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
+        self.call_contract_with_confirmations(CREATE_FILE, (id, file_name))
+            .await
+    }
+
     pub async fn commit_file(
         &self,
         bucket_id: Vec<u8>,
@@ -236,17 +246,6 @@ impl BlockchainProvider {
         let r_cid: [u8; 32] = root_cid.try_into().expect("root_cid error");
         let id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
         self.call_contract_with_confirmations(ADD_FILE_CHUNK, (r_cid, id, file_name, size))
-            .await
-    }
-
-    // Create a new file
-    pub async fn create_file(
-        &self,
-        bucket_id: Vec<u8>,
-        file_name: String,
-    ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
-        let id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
-        self.call_contract_with_confirmations(CREATE_FILE, (id, file_name))
             .await
     }
 

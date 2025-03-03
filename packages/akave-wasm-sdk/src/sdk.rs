@@ -211,6 +211,16 @@ impl AkaveIpcSDK {
         Ok(self.client.file_delete(request).await?.into_inner())
     }
 
+    async fn create_file_upload(
+        &mut self,
+        bucket_id: Vec<u8>,
+        file_name: &str,
+    ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
+        self.storage
+            .create_file(bucket_id, file_name.to_string())
+            .await
+    }
+
     pub async fn upload_file(
         &mut self,
         bucket_name: &str,
@@ -225,6 +235,9 @@ impl AkaveIpcSDK {
         let bucket = self
             .storage
             .get_bucket_by_name(bucket_name.to_string())
+            .await?;
+
+        self.create_file_upload(bucket.id.to_vec(), file_name)
             .await?;
 
         let info = vec![bucket_name, file_name].join("/");
@@ -307,11 +320,14 @@ impl AkaveIpcSDK {
             file_name: file_name.to_string(),
         };
 
+        print!("failing here? 1");
         let res = self
             .client
             .file_upload_chunk_create(req)
             .await?
             .into_inner();
+
+        print!("failing here? 2");
 
         let to_up_size = dag.count();
         let up_size = res.blocks.len();
@@ -617,7 +633,7 @@ mod tests {
         let mut sdk = get_sdk().await.unwrap();
         let file = File::open("foo.txt").unwrap();
         let _ = sdk
-            .upload_file(BUCKET_TO_TEST, "foo.txt", file, "passwd")
+            .upload_file(BUCKET_TO_TEST, "foo", file, "passwd")
             .await
             .unwrap();
     }
