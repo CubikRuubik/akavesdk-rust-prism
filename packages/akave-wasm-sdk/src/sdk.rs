@@ -320,14 +320,11 @@ impl AkaveIpcSDK {
             file_name: file_name.to_string(),
         };
 
-        print!("failing here? 1");
         let res = self
             .client
             .file_upload_chunk_create(req)
             .await?
             .into_inner();
-
-        print!("failing here? 2");
 
         let to_up_size = dag.count();
         let up_size = res.blocks.len();

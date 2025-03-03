@@ -368,6 +368,30 @@
     "inputs": [
       {
         "internalType": "bytes32",
+        "name": "bucketId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "string",
+        "name": "name",
+        "type": "string"
+      }
+    ],
+    "name": "createFile",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "id",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
         "name": "id",
         "type": "bytes32"
       },

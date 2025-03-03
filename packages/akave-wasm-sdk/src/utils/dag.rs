@@ -6,6 +6,7 @@ pub struct DagBuilder {
     pub chunked: Peekable<IntoIter<Vec<u8>>>,
     root_hasher: Sha256,
     pub root_cid: Option<String>,
+    size: usize,
 }
 
 pub struct FileBlockUpload {
@@ -24,7 +25,7 @@ impl Iterator for DagBuilder {
     where
         Self: Sized,
     {
-        return self.chunked.len();
+        return self.size;
     }
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -55,10 +56,13 @@ impl Iterator for DagBuilder {
 
 impl DagBuilder {
     pub fn new(data: Vec<u8>, chunk_size: usize) -> Self {
+        let chunked = DagBuilder::split_vec(data, chunk_size)
+            .into_iter()
+            .peekable();
+        let size = chunked.len();
         Self {
-            chunked: DagBuilder::split_vec(data, chunk_size)
-                .into_iter()
-                .peekable(),
+            chunked,
+            size,
             root_hasher: Sha256::new(),
             root_cid: None,
         }
