@@ -16,6 +16,23 @@ pub struct BucketResponse {
     pub files: Vec<[u8; 32]>,
 }
 
+pub struct IStorageChunk {
+    // TODO: DETOKENIZE
+    chunk_cids: Vec<Vec<u8>>,
+    chunk_size: Vec<U256>,
+}
+
+pub struct FileResponse {
+    // TODO: DETOKENIZE
+    pub id: [u8; 32],
+    pub file_cid: Vec<u8>,
+    pub bucket_id: [u8; 32],
+    pub name: String,
+    encoded_size: U256,
+    created_at: U256,
+    chunks: IStorageChunk,
+}
+
 impl Detokenize for BucketResponse {
     fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
         if let [Token::Tuple(tokens)] = tokens.as_slice() {

@@ -1,14 +1,12 @@
-use std::{io::Read, str::FromStr, time::Duration};
+use std::{str::FromStr, time::Duration};
 
-use alloy::consensus::Receipt;
 use futures::StreamExt;
 use web3::{
-    api::{Eth, EthFilter, Namespace},
     contract::{tokens::Tokenize, Contract, Options},
-    error::{self, TransportError},
+    error::TransportError,
     signing::{Key, SecretKey, SecretKeyRef},
-    types::{BlockNumber, FilterBuilder, TransactionReceipt, H160, H256, U256, U64},
-    Error, Transport, Web3,
+    types::{TransactionReceipt, H160, H256, U256},
+    Error, Web3,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -30,6 +28,7 @@ const GET_BUCKET_BY_NAME: &str = "getBucketByName";
 const ADD_FILE_CHUNK: &str = "addFileChunk";
 const COMMIT_FILE: &str = "commitFile";
 const CREATE_FILE: &str = "createFile";
+const GET_FILE_BY_NAME: &str = "getFileByName";
 
 pub struct BlockchainProvider {
     pub web3_provider: Web3<ProviderType>,
@@ -42,7 +41,7 @@ pub struct BlockchainProvider {
 impl BlockchainProvider {
     pub fn new(
         rpc_url: &str,
-        contract_address: &str,
+        access_address: &str,
         poll_interval: Option<Duration>,
         confirmations: Option<usize>,
     ) -> Result<BlockchainProvider, Error> {
@@ -65,7 +64,7 @@ impl BlockchainProvider {
                         let web3_provider = web3::Web3::new(transport);
                         let akave = Contract::from_json(
                             web3_provider.eth(),
-                            contract_address.parse::<H160>().unwrap(),
+                            access_address.parse::<H160>().unwrap(),
                             include_bytes!("contract.json"),
                         )
                         .unwrap();
@@ -91,12 +90,13 @@ impl BlockchainProvider {
         {
             let pvkey: &str = include_str!("user.akvf.key");
             let transport = ProviderType::new(rpc_url);
+
             match transport {
                 Ok(transport_option) => {
                     let web3_provider = Web3::new(transport_option);
                     let akave = Contract::from_json(
                         web3_provider.eth(),
-                        contract_address.parse::<H160>().unwrap(),
+                        access_address.parse::<H160>().unwrap(),
                         include_bytes!("contract.json"),
                     )
                     .unwrap();
@@ -222,20 +222,19 @@ impl BlockchainProvider {
 
     pub async fn commit_file(
         &self,
-        bucket_id: Vec<u8>,
+        bucket_id: [u8; 32],
         file_name: String,
-        size: i64,
+        size: U256,
         root_cid: Vec<u8>,
     ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
-        let id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
-        self.call_contract_with_confirmations(COMMIT_FILE, (id, file_name, size, root_cid))
+        self.call_contract_with_confirmations(COMMIT_FILE, (bucket_id, file_name, size, root_cid))
             .await
     }
 
     pub async fn add_file_chunk(
         &self,
         root_cid: Vec<u8>,
-        bucket_id: Vec<u8>,
+        bucket_id: [u8; 32],
         file_name: String,
         size: U256,
         cids: Vec<[u8; 32]>,
@@ -243,10 +242,9 @@ impl BlockchainProvider {
         index: U256,
     ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
         // let r_cid: [u8; 32] = root_cid.try_into().expect("root_cid error");
-        let id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
         self.call_contract_with_confirmations(
             ADD_FILE_CHUNK,
-            (root_cid, id, file_name, size, cids, sizes, index),
+            (root_cid, bucket_id, file_name, size, cids, sizes, index),
         )
         .await
     }
@@ -290,6 +288,26 @@ impl BlockchainProvider {
         Ok(result)
     }
 
+    /*     pub async fn get_file_by_name(
+           &self,
+           bucket_id: [u8; 32],
+           file_name: String,
+       ) -> Result<FileResponse, Box<dyn std::error::Error>> {
+           let address = self.get_address().await?;
+           let result: BucketResponse = self
+               .akave
+               .query(
+                   GET_FILE_BY_NAME,
+                   (bucket_id, file_name),
+                   address,
+                   Options::default(),
+                   None,
+               )
+               .await
+               .unwrap();
+           Ok(result)
+       }
+    */
     async fn sign_message(&self, str: String) -> Result<String, Error> {
         println!("Calling accounts.");
         let accounts = self.web3_provider.eth().accounts().await?;

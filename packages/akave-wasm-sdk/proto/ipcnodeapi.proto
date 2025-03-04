@@ -34,7 +34,8 @@ message ConnectionParamsRequest {}
 
 message ConnectionParamsResponse {
   string dial_uri = 1;
-  string contract_address = 2;
+  string storage_address = 2;
+  string access_address = 3;
 }
 
 message IPCBucketCreateRequest { string name = 1; }
@@ -124,7 +125,8 @@ message IPCFileViewResponse {
   string file_name = 2;
   string root_cid = 3;
   int64 encoded_size = 4;
-  google.protobuf.Timestamp created_at = 5;
+  bool is_public = 5;
+  google.protobuf.Timestamp created_at = 6;
 }
 
 message IPCFileDownloadCreateRequest {

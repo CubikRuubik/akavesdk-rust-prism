@@ -9,7 +9,7 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_file_reader::WebSysFile as File;
 
-use super::encryption::{self, Encryption};
+use super::encryption::Encryption;
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub struct Splitter {
