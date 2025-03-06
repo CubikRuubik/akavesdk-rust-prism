@@ -5,6 +5,8 @@ use cid::{
     Cid,
 };
 
+use super::split_vec::split_vec;
+
 pub const DAG_PROTOBUF: u64 = 0x70;
 
 pub struct DagBuilder {
@@ -62,9 +64,7 @@ impl Iterator for DagBuilder {
 
 impl DagBuilder {
     pub fn new(data: Vec<u8>, chunk_size: usize) -> Self {
-        let chunked = DagBuilder::split_vec(data, chunk_size)
-            .into_iter()
-            .peekable();
+        let chunked = split_vec(data, chunk_size).into_iter().peekable();
         let size = chunked.len();
         Self {
             chunked,
@@ -82,19 +82,5 @@ impl DagBuilder {
             }
             None => Err("chunker need to be fully iterated to build the root_cid".into()),
         }
-    }
-
-    fn split_vec<T>(v: Vec<T>, chunk_size: usize) -> Vec<Vec<T>> {
-        use std::collections::VecDeque;
-
-        let mut v: VecDeque<T> = v.into(); // avoids reallocating when possible
-
-        let mut acc = Vec::new();
-        while v.len() > chunk_size {
-            acc.push(v.drain(0..chunk_size).collect());
-            v.shrink_to_fit();
-        }
-        acc.push(v.into());
-        acc
     }
 }

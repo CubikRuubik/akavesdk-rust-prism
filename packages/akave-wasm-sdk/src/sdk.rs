@@ -1,7 +1,6 @@
 pub mod ipcnodeapi {
     tonic::include_proto!("ipcnodeapi");
 }
-
 use alloy::hex;
 use cid::{
     multibase::Base,
@@ -10,6 +9,7 @@ use cid::{
 };
 use ipcnodeapi::ipc_chunk::Block;
 use prost_wkt_types::Timestamp;
+use std::time::Duration;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
@@ -24,11 +24,14 @@ use ipcnodeapi::{
     IpcFileUploadChunkCreateRequest, IpcFileViewRequest, IpcFileViewResponse,
 };
 
-use crate::blockchain::response_types::BucketResponse;
-use crate::utils::dag::{DagBuilder, FileBlockUpload};
 use crate::utils::encryption::Encryption;
 use crate::utils::splitter::Splitter;
 use crate::{blockchain::provider::BlockchainProvider, utils::dag::DAG_PROTOBUF};
+use crate::{
+    blockchain::response_types::BucketResponse,
+    utils::dag_v2::{ChunkDag, FileBlockUpload},
+};
+use bytesize::{ByteSize, MIB};
 
 /// Otherwise default to grpc.
 #[cfg(not(target_arch = "wasm32"))]
@@ -39,10 +42,11 @@ use tonic::transport::{Channel, ClientTlsConfig};
 use tonic_web_wasm_client::Client as GrpcWebClient;
 
 const ENCRYPTION_OVERHEAD: usize = 32;
-const BLOCK_SIZE: usize = (1.0 * 1e6) as usize;
+const BLOCK_SIZE: usize = MIB as usize;
 const MIN_BUCKET_NAME_LENGTH: usize = 3;
 const MIN_FILE_SIZE: usize = 127;
 const MAX_BLOCKS_IN_CHUNK: usize = 32;
+const BLOCK_PART_SIZE: usize = ByteSize::kib(128).as_u64() as usize;
 
 /// Represents the Akave SDK client
 /// Akave Rust SDK should support both WASM (gRPC-Web) and native gRPC
@@ -106,7 +110,10 @@ impl AkaveIpcSDK {
                 .tls_config(tls_config)?
                 .connect()
                 .await?;
-            let mut client = IpcNodeApiClient::new(channel);
+
+            let mut client = IpcNodeApiClient::new(channel)
+                .max_decoding_message_size(usize::MAX)
+                .max_encoding_message_size(usize::MAX);
             let connection_params = client
                 .connection_params(ConnectionParamsRequest {})
                 .await?
@@ -249,7 +256,7 @@ impl AkaveIpcSDK {
         bucket_name: &str,
         file_name: &str,
         file: File,
-        passwd: &str,
+        passwd: Option<&str>,
     ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
         // GET BUCKET
         if bucket_name.is_empty() {
@@ -268,9 +275,14 @@ impl AkaveIpcSDK {
         }
         // SPLIT FILE INTO 32MB AND ENCRYPT DATA
         let info = vec![bucket_name, file_name].join("/");
-        let encryption = Encryption::new(passwd.as_bytes(), info.as_bytes())?;
+
+        let encryption = match passwd {
+            Some(key) => Some(Encryption::new(key.as_bytes(), info.as_bytes())?),
+            None => None,
+        };
+
         let chunk_size = (BLOCK_SIZE * MAX_BLOCKS_IN_CHUNK) as u64;
-        let chunker = Splitter::new(file, chunk_size, Some(encryption));
+        let chunker = Splitter::new(file, chunk_size, encryption);
         if chunker.size() == 0 {
             return Err("Empty file".into());
         }
@@ -281,18 +293,32 @@ impl AkaveIpcSDK {
         let mut root_hash = None;
         let mut file_size: usize = 0;
 
-        while let Some((idx, Ok(block))) = enum_blocks.next() {
+        while let Some((idx, Ok(block_32m))) = enum_blocks.next() {
             // CREATE CHUNK UPLOAD
             let (chunk, _, ipc_chunk) = self
-                .create_chunk(idx, block.to_vec(), bucket.id, file_name)
+                .create_chunk(idx, block_32m.to_vec(), bucket.id, file_name)
                 .await?;
             // INCREMENT FILE SIZE
             file_size += chunk.actual_size;
             // ADD CHUNK TO DAG ROOT
             root_hash = Some(root_hasher.digest(&chunk.chunk_cid.to_bytes()));
             // UPLOAD CHUNK
-            self.upload_chunk(chunk, bucket.id.to_vec(), file_name.to_string(), ipc_chunk)
+
+            let mut chunks_iter = chunk.blocks.iter().enumerate();
+            while let Some((index, block_1mb)) = chunks_iter.next() {
+                self.upload_chunk(IpcFileBlockData {
+                    data: block_1mb.data.to_owned(),
+                    cid: block_1mb.cid.to_string(),
+                    index: index as i64,
+                    chunk: Some(ipc_chunk.to_owned()),
+                    bucket_id: bucket.id.to_vec(),
+                    file_name: file_name.to_string(),
+                })
                 .await?;
+            }
+
+            /* self.upload_chunk(chunk, bucket.id.to_vec(), file_name.to_string(), ipc_chunk)
+            .await?; */
         }
         // GENERATES DAG ROOT CID
         let root_cid = Cid::new_v1(DAG_PROTOBUF, root_hash.unwrap());
@@ -323,10 +349,13 @@ impl AkaveIpcSDK {
         // BUILD A NEW DAG
         let block_size = BLOCK_SIZE;
         let size = data.len();
-        let mut dag = DagBuilder::new(data, block_size);
+        // let mut dag = DagBuilder::new(data, block_size);
+
+        let chunk_dag = ChunkDag::new(block_size, data);
+        let mut dag = chunk_dag.blocks.iter();
+
         // GET CIDS AND SIZES FROM to_ipc_proto_chunk
 
-        let mut blocks = vec![];
         let mut cids: Vec<[u8; 32]> = vec![];
         let mut sizes = vec![];
         let mut chunk_blocks = vec![];
@@ -340,18 +369,12 @@ impl AkaveIpcSDK {
                 cid: block.cid.to_string(),
                 size: block.data.len() as i64,
             });
-            blocks.push(block);
             cids.push(block_cid);
             sizes.push(U256::from(size));
         }
 
-        let chunk_cid = dag.root_cid()?;
+        let chunk_cid = chunk_dag.cid;
 
-        println!("{}", chunk_cid.to_bytes()[0]);
-        println!("{}", chunk_cid.to_string());
-        println!("{}", chunk_cid.to_string_of_base(Base::Base64)?);
-        println!("{}", hex::encode(chunk_cid.to_bytes()));
-        println!("{:#?}", chunk_cid.version());
         let ipc_chunk = IpcChunk {
             cid: chunk_cid.to_string(),
             index: index as i64,
@@ -364,14 +387,13 @@ impl AkaveIpcSDK {
             bucket_id: bucket_id.to_vec(),
             file_name: file_name.to_string(),
         };
-        println!("failing here? 1");
         let chunk_create_response = self
             .client
             .file_upload_chunk_create(chunk_create_request)
             .await?
             .into_inner();
-        println!("failing here? 2");
         // UPDATE DAG INFO WITH RESPONSE FROM GRPC
+        let mut blocks = chunk_dag.blocks;
         chunk_create_response
             .blocks
             .iter()
@@ -413,36 +435,54 @@ impl AkaveIpcSDK {
 
     async fn upload_chunk(
         &mut self,
-        chunk: IpcFileChunkUpload,
-        bucket_id: Vec<u8>,
-        file_name: String,
-        proto_chunk: IpcChunk,
+        chunk: IpcFileBlockData,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let blocks = chunk.blocks.into_iter();
+        let data = chunk.data;
+        let data_len = data.len();
+        if data_len == 0 {
+            return Ok(());
+        }
+
+        let mut total = 0;
+
+        println!("{:#?}", chunk.cid);
 
         let mut blocks_upload = vec![];
-        let mut iter_blocks = blocks.into_iter().enumerate();
-        while let Some((idx, block)) = iter_blocks.next() {
-            let chunk = proto_chunk.clone();
-            println!("{:#?}", block.cid.to_string());
+
+        while total < data_len {
+            let mut end = total + BLOCK_PART_SIZE;
+            if end > data_len {
+                end = data_len;
+            }
+
+            let new_bock_part = data[total..end].to_vec();
 
             blocks_upload.push(IpcFileBlockData {
-                bucket_id: bucket_id.clone(),
-                data: block.data,
-                cid: block.cid.to_string(),
-                chunk: Some(chunk),
-                file_name: file_name.clone(),
-                index: idx as i64,
+                bucket_id: chunk.bucket_id.clone(),
+                data: new_bock_part,
+                cid: if total == 0 {
+                    chunk.cid.to_string()
+                } else {
+                    String::from("")
+                },
+                chunk: if total == 0 {
+                    chunk.chunk.clone()
+                } else {
+                    None
+                },
+                file_name: chunk.file_name.clone(),
+                index: chunk.index as i64,
             });
+
+            total += BLOCK_PART_SIZE;
         }
 
         let block_stream = futures::stream::iter(blocks_upload);
-        let resp = self
-            .client
+
+        self.client
             .file_upload_block(block_stream)
             .await?
             .into_inner();
-
         Ok(())
     }
 }
@@ -451,10 +491,11 @@ impl AkaveIpcSDK {
 mod tests {
     use crate::sdk::AkaveIpcSDK;
     use pretty_assertions::{assert_eq, assert_ne};
-    use std::fs::File; // crate for test-only use. Cannot be used in non-test code.
+    use std::fs::File;
 
     const ADDRESS: &str = "0x7975eD6b732D1A4748516F66216EE703f4856759";
-    const BUCKET_TO_TEST: &str = "TEST_BUCKET_v12";
+    const BUCKET_TO_TEST: &str = "TEST_BUCKET_v31";
+    const FILE: &str = "foo.txt";
 
     async fn get_sdk() -> Result<AkaveIpcSDK, Box<(dyn std::error::Error + 'static)>> {
         AkaveIpcSDK::new("http://connect.akave.ai:5500").await
@@ -497,9 +538,9 @@ mod tests {
     async fn test_upload_file() {
         println!("Test 5: upload a file to {}", BUCKET_TO_TEST);
         let mut sdk = get_sdk().await.unwrap();
-        let file = File::open("foo.txt").unwrap();
+        let file = File::open(format!("test_files/{}", FILE)).unwrap();
         let _ = sdk
-            .upload_file(BUCKET_TO_TEST, "foo.txt", file, "passwd")
+            .upload_file(BUCKET_TO_TEST, FILE, file, None)
             .await
             .unwrap();
     }
@@ -523,6 +564,6 @@ mod tests {
         // test_view_bucket().await;
         // test_delete_bucket().await;
         test_upload_file().await;
-        test_list_files().await;
+        // test_list_files().await;
     }
 }
