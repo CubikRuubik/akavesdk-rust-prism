@@ -3,13 +3,11 @@ pub mod ipcnodeapi {
 }
 use alloy::hex;
 use cid::{
-    multibase::Base,
     multihash::{Code, MultihashDigest},
     Cid,
 };
 use ipcnodeapi::ipc_chunk::Block;
 use prost_wkt_types::Timestamp;
-use std::time::Duration;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
@@ -29,9 +27,9 @@ use crate::utils::splitter::Splitter;
 use crate::{blockchain::provider::BlockchainProvider, utils::dag::DAG_PROTOBUF};
 use crate::{
     blockchain::response_types::BucketResponse,
-    utils::dag_v2::{ChunkDag, FileBlockUpload},
+    utils::dag::{ChunkDag, FileBlockUpload},
 };
-use bytesize::{ByteSize, MIB};
+use bytesize::{ByteSize, MB};
 
 /// Otherwise default to grpc.
 #[cfg(not(target_arch = "wasm32"))]
@@ -42,7 +40,7 @@ use tonic::transport::{Channel, ClientTlsConfig};
 use tonic_web_wasm_client::Client as GrpcWebClient;
 
 const ENCRYPTION_OVERHEAD: usize = 32;
-const BLOCK_SIZE: usize = MIB as usize;
+const BLOCK_SIZE: usize = MB as usize;
 const MIN_BUCKET_NAME_LENGTH: usize = 3;
 const MIN_FILE_SIZE: usize = 127;
 const MAX_BLOCKS_IN_CHUNK: usize = 32;
@@ -494,8 +492,8 @@ mod tests {
     use std::fs::File;
 
     const ADDRESS: &str = "0x7975eD6b732D1A4748516F66216EE703f4856759";
-    const BUCKET_TO_TEST: &str = "TEST_BUCKET_v31";
-    const FILE: &str = "foo.txt";
+    const BUCKET_TO_TEST: &str = "TEST_BUCKET_v35";
+    const FILE: &str = "100MB.txt";
 
     async fn get_sdk() -> Result<AkaveIpcSDK, Box<(dyn std::error::Error + 'static)>> {
         AkaveIpcSDK::new("http://connect.akave.ai:5500").await
