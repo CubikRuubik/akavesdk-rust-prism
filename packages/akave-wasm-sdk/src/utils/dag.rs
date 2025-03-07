@@ -1,68 +1,90 @@
-use std::iter::Peekable;
+use cid::{
+    multihash::{Code, Multihash, MultihashDigest},
+    Cid,
+};
 
-use crate::sdk::ipcnodeapi::{ipc_file_upload_create_request::IpcBlock, IpcFileBlockData};
-use sha2::{Digest, Sha256};
+use ipfs_unixfs::file::adder::{BalancedCollector, Chunker, Collector, FileAdder};
 
-use super::file_chunker::FileChunker;
+pub const DAG_PROTOBUF: u64 = 0x70;
 
-pub struct DagBuilder {
-    pub chunker: Peekable<FileChunker>,
-    root_hasher: Sha256,
-    pub root_cid: Option<String>,
+#[derive(Debug)]
+pub struct FileBlockUpload {
+    pub cid: Cid,
+    pub data: Vec<u8>,
+
+    pub permit: String,
+    pub node_address: String,
+    pub node_id: String,
 }
 
-impl Iterator for DagBuilder {
-    type Item = (IpcBlock, IpcFileBlockData);
-
-    fn count(self) -> usize
-    where
-        Self: Sized,
-    {
-        return self.chunker.count();
-    }
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let chunk = self.chunker.next()?;
-
-        let mut hasher = Sha256::new();
-        hasher.update(&chunk);
-        let hash = format!("sha256-{}", hex::encode(hasher.finalize()));
-        // TODO: this need to be properly tested
-        self.root_hasher.update(&hash);
-
-        let ipc_block = IpcBlock {
-            cid: hash.clone(),
-            size: chunk.len() as i64,
-        };
-        let block_data = IpcFileBlockData {
-            data: chunk.into_vec(),
-            cid: hash,
-        };
-
-        if self.chunker.peek().is_none() {
-            self.root_cid = Some(format!(
-                "sha256-{}",
-                hex::encode(Sha256::digest(self.root_hasher.clone().finalize()))
-            ))
-        }
-
-        Some((ipc_block, block_data))
-    }
+#[derive(Debug)]
+pub struct ChunkDag {
+    pub cid: Cid,
+    pub raw_data_size: usize,
+    pub proto_node_size: usize,
+    pub blocks: Vec<FileBlockUpload>,
 }
 
-impl DagBuilder {
-    pub fn new(chunker: FileChunker) -> Self {
-        Self {
-            chunker: chunker.peekable(),
-            root_hasher: Sha256::new(),
-            root_cid: None,
-        }
-    }
+impl ChunkDag {
+    pub fn new(size: usize, data: Vec<u8>) -> Self {
+        let dag_builder = FileAdder::builder();
 
-    pub fn root_cid(&self) -> Result<String, Box<dyn std::error::Error>> {
-        match &self.root_cid {
-            Some(cid) => Ok(cid.to_string()),
-            None => Err("chunker need to be fully iterated to build the root_cid".into()),
+        let chunker = Chunker::Size(size);
+        let collector = Collector::Balanced(BalancedCollector::default());
+        let mut adder = dag_builder
+            .with_chunker(chunker)
+            .with_collector(collector)
+            .build();
+
+        let mut total = 0;
+        let mut dag_blocks = vec![];
+        let data_len = data.len();
+
+        while total < data_len {
+            let mut end = total + size;
+            if end > data_len {
+                end = data_len
+            }
+            let (blocks, consumed) = adder.push(&data[total..end]);
+            total += consumed;
+            blocks.for_each(|block| {
+                dag_blocks.push(block);
+            });
         }
+
+        adder.finish().for_each(|block| {
+            dag_blocks.push(block);
+        });
+
+        let mut blocks = vec![];
+
+        let mut raw_data_size = 0;
+
+        dag_blocks.iter().for_each(|(_, block_data)| {
+            let hash: Multihash = Code::Sha2_256.digest(&block_data);
+            let cid = Cid::new_v1(DAG_PROTOBUF, hash);
+            raw_data_size += block_data.len();
+            blocks.push(FileBlockUpload {
+                cid,
+                data: block_data.to_owned(),
+                permit: "".to_string(),
+                node_address: "".to_string(),
+                node_id: "".to_string(),
+            });
+        });
+
+        let proto_node_size = blocks.last().unwrap().data.len();
+        let cid = blocks.last().unwrap().cid;
+
+        if blocks.len() > 1 {
+            let _ = blocks.pop();
+        }
+
+        return Self {
+            cid,
+            raw_data_size,
+            proto_node_size,
+            blocks,
+        };
     }
 }

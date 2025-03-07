@@ -10,7 +10,18 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 # Enable optional debugging for panics
-default = ["console_error_panic_hook"]
+default = ["console_error_panic_hook", "std"]
+std = []
+vendored-protoc = ["protobuf-src"]
+vendored-protox = ["protox"]
+
+[profile.release]
+# Optimize for small binary size
+opt-level = "s"
+
+# -----------------------------------------
+#         GENERAL DEPENDENCIES            |
+# -----------------------------------------
 
 [dependencies]
 # Dependencies shared by all targets
@@ -25,23 +36,40 @@ sha2 = "0.10.8"
 async-trait = "0.1.85"
 futures = "0.3.31"
 derivative = "2.2.0"
+chrono = { version = "0.4.27", default-features = false, features = ["serde"] }
+alloy = "0.11.0"
+alloy-sol-types = "0.8.20"
+aes-gcm = "0.10.3"
+hkdf = "0.12.4"
+bytesize = "2.0.1"
+cid = "0.7.0"
+ipfs-unixfs = "0.2.0"
 
 [dev-dependencies]
-wasm-bindgen-test = "0.3.49"
+pretty_assertions = "1"
 
-[profile.release]
-# Optimize for small binary size
-opt-level = "s"
+multihash-derive = { version = "0.9.0", default-features = false }
+multihash-codetable = { version = "0.1.4", default-features = false, features = [
+  "sha2",
+] }
 
 [build-dependencies]
+prost = "0.13"
+prost-types = "0.13"
 prost-build = "0.13"
 prost-wkt-build = "0.6"
+protobuf-src = { version = "1.1.0", optional = true }
+protox = { version = "0.6.0", optional = true }
 tonic-build = { version = "0.12", default-features = false, features = [
   "prost",
 ] }
 
-[target.'cfg(target_arch = "wasm32")'.build-dependencies]
-tsify-next = { version = "0.5.4", default-features = false, features = ["js"] }
+
+# -----------------------------------------
+
+# -----------------------------------------
+#          WASM DEPENDENCIES              |
+# -----------------------------------------
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # WASM-specific dependencies
@@ -67,10 +95,20 @@ web3 = { version = "0.19.0", default-features = false, features = [
 ] }
 tsify-next = { version = "0.5.4", default-features = false, features = ["js"] }
 wasm-bindgen-file-reader = "1"
-
-
 # Optional debugging utility for WebAssembly
 console_error_panic_hook = { version = "0.1.7", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3.49"
+
+[target.'cfg(target_arch = "wasm32")'.build-dependencies]
+tsify-next = { version = "0.5.4", default-features = false, features = ["js"] }
+
+# -----------------------------------------
+
+# -----------------------------------------
+#        NON WASM DEPENDENCIES            |
+# -----------------------------------------
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Dependencies for native (non-WASM) builds
@@ -79,6 +117,13 @@ tonic = { version = "0.12", default-features = false, features = [
   "codegen",
   "transport",
   "tls",
+  "tls-roots",
 ] }
 tokio = { version = "1.42.0", features = ["full"] }
 getrandom = { version = "0.2.15", features = ["std"] }
+web3 = { version = "0.19.0", features = ["http", "signing"] }
+hex-literal = "0.3.4"
+
+#[target.'cfg(not(target_arch = "wasm32"))'.build_dependencies]
+
+# -----------------------------------------

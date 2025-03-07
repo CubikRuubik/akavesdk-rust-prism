@@ -1,2 +1,5 @@
 pub mod dag;
-pub mod file_chunker;
+pub mod encryption;
+pub mod file_size;
+pub mod split_vec;
+pub mod splitter;
