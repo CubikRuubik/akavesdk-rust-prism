@@ -107,12 +107,6 @@ struct FileChunkDownload {
     blocks: Vec<FileBlockDownload>,
 }
 
-struct RetrievedBlock {
-    pos: i64,
-    cid: String,
-    data: Vec<u8>,
-}
-
 impl AkaveIpcSDK {
     /// Creates a new AkaveSDK instance
     pub async fn new(server_address: &str) -> Result<Self, Box<dyn std::error::Error>> {
