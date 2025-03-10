@@ -2,10 +2,10 @@ use cid::{
     multihash::{Code, Multihash, MultihashDigest},
     Cid,
 };
-
 use ipfs_unixfs::file::adder::{BalancedCollector, Chunker, Collector, FileAdder};
 
 pub const DAG_PROTOBUF: u64 = 0x70;
+pub const RAW: u64 = 0x55;
 
 #[derive(Debug)]
 pub struct FileBlockUpload {
