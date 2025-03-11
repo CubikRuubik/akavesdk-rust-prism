@@ -6,8 +6,18 @@ use cid::{
     multihash::{Code, MultihashDigest},
     Cid,
 };
-use ipcnodeapi::ipc_chunk::Block;
+use ipcnodeapi::{
+    ipc_chunk::Block, ipc_file_download_create_response::Chunk, IpcFileDownloadBlockRequest,
+    IpcFileDownloadChunkCreateRequest, IpcFileDownloadCreateRequest, IpcFileDownloadCreateResponse,
+};
+
+use quick_protobuf::BytesReader;
+
 use prost_wkt_types::Timestamp;
+
+use std::{borrow::Cow, fs::OpenOptions, io::Write};
+
+use crate::utils::{dag::RAW, pb_data::PbData};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
@@ -55,7 +65,7 @@ type ClientTransport = GrpcWebClient;
 #[cfg(not(target_arch = "wasm32"))]
 type ClientTransport = Channel;
 
-struct IpcFileListItem {
+pub struct IpcFileListItem {
     pub root_cid: String,
     pub name: String,
     pub encoded_size: i64,
@@ -76,6 +86,25 @@ struct IpcFileChunkUpload {
 pub struct AkaveIpcSDK {
     client: IpcNodeApiClient<ClientTransport>,
     storage: BlockchainProvider,
+}
+
+struct AkaveBlockData {
+    permit: String,
+    node_address: String,
+    node_id: String,
+}
+struct FileBlockDownload {
+    cid: String,
+    data: Vec<u8>,
+    akave: AkaveBlockData,
+}
+
+struct FileChunkDownload {
+    cid: String,
+    index: i64,
+    encoded_size: i64,
+    size: i64,
+    blocks: Vec<FileBlockDownload>,
 }
 
 impl AkaveIpcSDK {
@@ -294,7 +323,7 @@ impl AkaveIpcSDK {
         while let Some((idx, Ok(block_32m))) = enum_blocks.next() {
             // CREATE CHUNK UPLOAD
             let (chunk, _, ipc_chunk) = self
-                .create_chunk(idx, block_32m.to_vec(), bucket.id, file_name)
+                .create_chunk_upload(idx, block_32m.to_vec(), bucket.id, file_name)
                 .await?;
             // INCREMENT FILE SIZE
             file_size += chunk.actual_size;
@@ -336,7 +365,7 @@ impl AkaveIpcSDK {
         Ok(receipt) // TODO: Improve response
     }
 
-    async fn create_chunk(
+    async fn create_chunk_upload(
         &mut self,
         index: usize,
         data: Vec<u8>,
@@ -483,6 +512,156 @@ impl AkaveIpcSDK {
             .into_inner();
         Ok(())
     }
+
+    async fn create_file_download(
+        &mut self,
+        address: &str,
+        bucket_name: &str,
+        file_name: &str,
+    ) -> Result<IpcFileDownloadCreateResponse, Box<dyn std::error::Error>> {
+        let request = IpcFileDownloadCreateRequest {
+            address: address.to_string(),
+            bucket_name: bucket_name.to_string(),
+            file_name: file_name.to_string(),
+        };
+        Ok(self
+            .client
+            .file_download_create(request)
+            .await?
+            .into_inner())
+    }
+
+    pub async fn download_file(
+        &mut self,
+        address: &str,
+        bucket_name: &str,
+        file_name: &str,
+        passwd: Option<&str>,
+        destination_path: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let info = vec![bucket_name, file_name].join("/");
+
+        let option_encryption = match passwd {
+            Some(key) => Some(Encryption::new(key.as_bytes(), info.as_bytes())?),
+            None => None,
+        };
+
+        let file_download = self
+            .create_file_download(address, bucket_name, file_name)
+            .await?;
+
+        let mut destination_file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(format!("{}{}", destination_path, file_name))?;
+
+        let codec = Cid::try_from(file_download.chunks[0].cid.clone())?.codec();
+
+        let mut chunk_index = 0;
+        for chunk in file_download.chunks {
+            let chunk_cid = chunk.cid.clone();
+            let chunk_download = self
+                .create_chunk_download(bucket_name, file_name, address, chunk, chunk_index)
+                .await?;
+
+            let mut block_index = 0;
+            for block in chunk_download.blocks {
+                let mut chunk_data = vec![];
+                // let mut retrieved_blocks = vec![];
+                let req = IpcFileDownloadBlockRequest {
+                    address: address.to_string(),
+                    chunk_cid: chunk_cid.clone(),
+                    chunk_index,
+                    block_cid: block.cid.clone(),
+                    block_index,
+                    bucket_name: bucket_name.to_string(),
+                    file_name: file_name.to_string(),
+                };
+                let mut stream = self.client.file_download_block(req).await?.into_inner();
+
+                while let Some(mut message) = stream.message().await? {
+                    chunk_data.append(message.data.as_mut());
+                }
+
+                let final_data = match codec {
+                    RAW => chunk_data,
+                    DAG_PROTOBUF => {
+                        let mut reader = BytesReader::from_bytes(&chunk_data);
+
+                        let mut msg = PbData::default();
+                        while !reader.is_eof() {
+                            match reader.next_tag(&chunk_data) {
+                                Ok(18) => {
+                                    msg.data =
+                                        Some(reader.read_bytes(&chunk_data).map(Cow::Borrowed)?)
+                                }
+                                Ok(_) => {}
+                                Err(e) => return Err("error decoding message")?,
+                            }
+                        }
+
+                        msg.data.unwrap().into_owned()
+                    }
+                    _default => Err("Unknown codec for decoding message")?,
+                };
+
+                let decrypted_data = match option_encryption {
+                    Some(ref encryption) => encryption
+                        .decrypt(&final_data, format!("block_{}", block_index).as_bytes())?,
+                    None => final_data,
+                };
+
+                destination_file.write_all(&decrypted_data)?;
+                destination_file.flush()?;
+                block_index += 1;
+            }
+            chunk_index += 1;
+        }
+
+        Ok(())
+    }
+
+    async fn create_chunk_download(
+        &mut self,
+        bucket_name: &str,
+        file_name: &str,
+        address: &str,
+        chunk: Chunk,
+        index: i64,
+    ) -> Result<FileChunkDownload, Box<dyn std::error::Error>> {
+        let request = IpcFileDownloadChunkCreateRequest {
+            bucket_name: bucket_name.to_string(),
+            file_name: file_name.to_string(),
+            chunk_cid: chunk.cid.clone(),
+            address: address.to_string(),
+        };
+
+        let resp = self
+            .client
+            .file_download_chunk_create(request)
+            .await?
+            .into_inner();
+        let mut blocks = vec![];
+        for block in resp.blocks {
+            blocks.push(FileBlockDownload {
+                cid: block.cid,
+                data: [].to_vec(),
+                akave: AkaveBlockData {
+                    node_id: block.node_id,
+                    permit: block.permit,
+                    node_address: block.node_address,
+                },
+            });
+        }
+
+        Ok(FileChunkDownload {
+            cid: chunk.cid,
+            index,
+            encoded_size: chunk.encoded_size,
+            size: chunk.size,
+            blocks,
+        })
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -493,7 +672,8 @@ mod tests {
 
     const ADDRESS: &str = "0x7975eD6b732D1A4748516F66216EE703f4856759";
     const BUCKET_TO_TEST: &str = "TEST_BUCKET_v35";
-    const FILE: &str = "100MB.txt";
+    const FILE_NAME_TO_TEST: &str = "5MB.txt";
+    const DOWNLOAD_DESTINATION: &str = "/home/gil/Development/work/akave/wasm_sdk/akave-wasm-sdk/packages/akave-wasm-sdk/test_files/downloaded/";
 
     async fn get_sdk() -> Result<AkaveIpcSDK, Box<(dyn std::error::Error + 'static)>> {
         AkaveIpcSDK::new("http://connect.akave.ai:5500").await
@@ -536,9 +716,9 @@ mod tests {
     async fn test_upload_file() {
         println!("Test 5: upload a file to {}", BUCKET_TO_TEST);
         let mut sdk = get_sdk().await.unwrap();
-        let file = File::open(format!("test_files/{}", FILE)).unwrap();
+        let file = File::open(format!("test_files/{}", FILE_NAME_TO_TEST)).unwrap();
         let _ = sdk
-            .upload_file(BUCKET_TO_TEST, FILE, file, None)
+            .upload_file(BUCKET_TO_TEST, FILE_NAME_TO_TEST, file, None)
             .await
             .unwrap();
     }
@@ -555,13 +735,31 @@ mod tests {
         });
     }
 
+    async fn test_download_file() {
+        println!(
+            "Test 7: Download {} from bucket {}",
+            FILE_NAME_TO_TEST, BUCKET_TO_TEST
+        );
+        let mut sdk = get_sdk().await.unwrap();
+        sdk.download_file(
+            ADDRESS,
+            BUCKET_TO_TEST,
+            FILE_NAME_TO_TEST,
+            None,
+            DOWNLOAD_DESTINATION,
+        )
+        .await
+        .unwrap();
+    }
+
     #[tokio::test]
     async fn test_all() {
-        test_create_bucket().await;
+        // test_create_bucket().await;
         // test_list_buckets().await;
         // test_view_bucket().await;
         // test_delete_bucket().await;
-        test_upload_file().await;
+        // test_upload_file().await;
         // test_list_files().await;
+        test_download_file().await;
     }
 }
