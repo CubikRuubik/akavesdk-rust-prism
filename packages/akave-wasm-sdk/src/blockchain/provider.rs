@@ -285,7 +285,8 @@ impl BlockchainProvider {
     ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
         /* let id: &[u8] = &bucket_id[..]; */
         let id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
-        let result = self.call_contract_with_confirmations(DELETE_BUCKET, (id, bucket_name, bucket_idx))
+        let result = self
+            .call_contract_with_confirmations(DELETE_BUCKET, (id, bucket_name, bucket_idx))
             .await;
         result
     }
@@ -314,7 +315,7 @@ impl BlockchainProvider {
         bucket_name: String,
     ) -> Result<U256, Box<dyn std::error::Error>> {
         let address = self.get_address().await?;
-        let result:U256 = self
+        let result: U256 = self
             .akave
             .query(
                 GET_BUCKET_INDEX_BY_NAME,
@@ -336,9 +337,17 @@ impl BlockchainProvider {
         // let parsed_file_id: [u8; 32] = file_id.try_into().expect("file_id error");
         let parsed_bucket_id: [u8; 32] = bucket_id.clone().try_into().expect("bucket_id error");
 
-        let file = self.get_file_by_name(bucket_id, file_name.to_string()).await?;
-        let file_idx = self.get_file_index_by_name(file.name, file.id.to_vec().clone()).await?;
-        let result = self.call_contract_with_confirmations(DELETE_FILE, (file.id, parsed_bucket_id, file_name, file_idx))
+        let file = self
+            .get_file_by_name(bucket_id, file_name.to_string())
+            .await?;
+        let file_idx = self
+            .get_file_index_by_name(file.name, file.id.to_vec().clone())
+            .await?;
+        let result = self
+            .call_contract_with_confirmations(
+                DELETE_FILE,
+                (file.id, parsed_bucket_id, file_name, file_idx),
+            )
             .await;
         result
     }
@@ -346,11 +355,11 @@ impl BlockchainProvider {
     pub async fn get_file_index_by_name(
         &self,
         file_name: String,
-        file_id: Vec<u8>
+        file_id: Vec<u8>,
     ) -> Result<U256, Box<dyn std::error::Error>> {
         let address = self.get_address().await?;
         let parsed_id: [u8; 32] = file_id.try_into().expect("file_id error");
-        let result:U256 = self
+        let result: U256 = self
             .akave
             .query(
                 GET_FILE_INDEX_BY_NAME,
@@ -367,7 +376,7 @@ impl BlockchainProvider {
     pub async fn get_file_by_name(
         &self,
         bucket_id: Vec<u8>,
-        file_name: String
+        file_name: String,
     ) -> Result<FileResponse, Box<dyn std::error::Error>> {
         let address = self.get_address().await?;
         let parsed_id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");

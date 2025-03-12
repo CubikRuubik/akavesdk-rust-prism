@@ -70,24 +70,17 @@ impl Detokenize for BucketResponse {
 impl Detokenize for FileResponse {
     fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
         if let [Token::Tuple(tokens)] = tokens.as_slice() {
-            if let [
-                Token::FixedBytes(id),
-                Token::Bytes(file_cid),
-                Token::FixedBytes(bucket_id),
-                Token::String(name),
-                Token::Uint(encoded_size),
-                Token::Uint(created_at),
-                Token::Tuple(chunks_tokens),
-            ] = tokens.as_slice()
+            if let [Token::FixedBytes(id), Token::Bytes(file_cid), Token::FixedBytes(bucket_id), Token::String(name), Token::Uint(encoded_size), Token::Uint(created_at), Token::Tuple(chunks_tokens)] =
+                tokens.as_slice()
             {
                 let mut id_bytes = [0u8; 32];
                 id_bytes.copy_from_slice(id);
-                
+
                 let mut bucket_id_bytes = [0u8; 32];
                 bucket_id_bytes.copy_from_slice(bucket_id);
-                
+
                 let chunks = IStorageChunk::from_tokens(vec![Token::Tuple(chunks_tokens.clone())])?;
-                
+
                 Ok(FileResponse {
                     id: id_bytes,
                     file_cid: file_cid.clone(),
@@ -120,7 +113,7 @@ impl Detokenize for IStorageChunk {
                         }
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                
+
                 let chunk_size = chunk_sizes
                     .iter()
                     .map(|token| {
@@ -131,7 +124,7 @@ impl Detokenize for IStorageChunk {
                         }
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                
+
                 Ok(IStorageChunk {
                     chunk_cids,
                     chunk_size,
