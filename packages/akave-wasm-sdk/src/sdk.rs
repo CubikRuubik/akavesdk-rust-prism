@@ -28,7 +28,7 @@ use ipcnodeapi::{
 };
 
 // Internal crate imports
-use crate::blockchain::provider::BlockchainProvider;
+use crate::{blockchain::provider::BlockchainProvider, utils};
 use crate::blockchain::response_types::BucketResponse;
 use crate::utils::dag::{ChunkDag, FileBlockUpload, DAG_PROTOBUF, RAW};
 use crate::utils::encryption::Encryption;
@@ -48,7 +48,6 @@ use wasm_imports::*;
 #[cfg(not(target_arch = "wasm32"))]
 mod native_imports {
     pub use std::fs::File;
-    pub use std::fs::OpenOptions;
     pub use tonic::transport::{Channel, ClientTlsConfig};
 }
 
@@ -90,11 +89,6 @@ struct IpcFileChunkUpload {
     pub file_name: String,
 }
 
-pub struct AkaveIpcSDK {
-    client: IpcNodeApiClient<ClientTransport>,
-    storage: BlockchainProvider,
-}
-
 struct AkaveBlockData {
     permit: String,
     node_address: String,
@@ -112,6 +106,11 @@ struct FileChunkDownload {
     encoded_size: i64,
     size: i64,
     blocks: Vec<FileBlockDownload>,
+}
+
+pub struct AkaveIpcSDK {
+    client: IpcNodeApiClient<ClientTransport>,
+    storage: BlockchainProvider,
 }
 
 impl AkaveIpcSDK {
@@ -566,10 +565,7 @@ impl AkaveIpcSDK {
             .create_file_download(address, bucket_name, file_name)
             .await?;
 
-        let mut destination_file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .open(format!("{}{}", destination_path, file_name))?;
+        let mut destination = utils::destination::Destination::new(destination_path, file_name)?;
 
         let codec = Cid::try_from(file_download.chunks[0].cid.clone())?.codec();
 
@@ -627,12 +623,13 @@ impl AkaveIpcSDK {
                     None => final_data,
                 };
 
-                destination_file.write_all(&decrypted_data)?;
-                destination_file.flush()?;
+                destination.write(&decrypted_data)?;
+                destination.flush()?;
                 block_index += 1;
             }
             chunk_index += 1;
         }
+        destination.finalize()?;
 
         Ok(())
     }
