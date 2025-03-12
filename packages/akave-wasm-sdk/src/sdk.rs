@@ -920,6 +920,11 @@ mod tests {
 
         // Cleanup
         cleanup_download(&download_path);
+        
+        // Delete file
+        let _ = sdk.delete_file(ADDRESS, &bucket_name, FILE_NAME_TO_TEST);
+
+        // Delete bucket
         let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
     }
 
