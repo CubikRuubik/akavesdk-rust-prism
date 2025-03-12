@@ -1,16 +1,9 @@
-use aes_gcm::{
-    aead::{AeadMutInPlace, OsRng},
-    aes::Aes256,
-    AeadCore, Aes256Gcm, AesGcm, Key, KeyInit,
-};
-use hkdf::{Hkdf, InvalidLength};
-use sha2::{
-    digest::{
-        generic_array::GenericArray,
-        typenum::consts::{U12, U32},
-    },
-    Sha256,
-};
+use aes_gcm::{AeadInPlace, Aes256Gcm, Key, KeyInit, Nonce};
+use hkdf::Hkdf;
+use sha2::Sha256;
+
+#[cfg(not(target_arch = "wasm32"))]
+use aes_gcm::aead::{OsRng, rand_core::RngCore};
 
 pub const KEY_LEN: usize = 32;
 pub const GCM_NONCE_SIZE: usize = 12;
@@ -27,52 +20,56 @@ impl Encryption {
     }
 
     pub fn len(&self) -> usize {
-        match self.key {
-            Some(size) => size.len(),
-            None => 0,
-        }
+        self.key.map(|k| k.len()).unwrap_or(0)
     }
 
-    // call in the sdk with
-    // let info = vec![bucket_name, file_name].join("/");
-    // and key as private key?
     fn derive_key(
         key: &[u8],
         info: &[u8],
     ) -> Result<Option<[u8; KEY_LEN]>, Box<dyn std::error::Error>> {
-        // let password_byte = key.as_bytes();
-        if key.len() == 0 {
+        if key.is_empty() {
             return Ok(None);
         }
-
-        let hk: Hkdf<Sha256> = Hkdf::<Sha256>::new(None, key);
+        let hk = Hkdf::<Sha256>::new(None, key);
         let mut derived = [0u8; KEY_LEN];
-        let res: Result<(), InvalidLength> = hk.expand(info, &mut derived);
-        match res {
+        match hk.expand(info, &mut derived) {
             Ok(_) => Ok(Some(derived)),
-            Err(_) => Err(format!("{} is a valid length for Sha256 to output", KEY_LEN).into()),
+            Err(_) => Err(Box::from("hk.expand failed: invalid length")),
         }
     }
 
-    fn make_gcm_cipher(
-        &self,
-        info: &[u8],
-    ) -> Result<AesGcm<Aes256, U12>, Box<dyn std::error::Error>> {
-        match self.key {
-            Some(some_key) => {
-                let key = Encryption::derive_key(&some_key, info)?;
-                match key {
-                    Some(option_key) => {
-                        let new_k: &GenericArray<u8, U32> =
-                            Key::<Aes256Gcm>::from_slice(&option_key);
-                        let gcm: AesGcm<Aes256, U12> = Aes256Gcm::new(&new_k);
-                        Ok(gcm)
-                    }
-                    None => Err("Failed deriving key")?,
-                }
-            }
-            None => Err("There's no saved key")?,
-        }
+    fn make_gcm_cipher(&self, info: &[u8]) -> Result<Aes256Gcm, Box<dyn std::error::Error>> {
+        let key = match self.key {
+            Some(k) => Self::derive_key(&k, info)?,
+            None => return Err("No encryption key available".into()),
+        };
+        let key = key.ok_or("Failed deriving key")?;
+        Ok(Aes256Gcm::new(&Key::<Aes256Gcm>::from_slice(&key)))
+    }
+
+    /// Generate a secure nonce for encryption
+    #[cfg(not(target_arch = "wasm32"))]
+    fn generate_nonce() -> [u8; GCM_NONCE_SIZE] {
+        let mut nonce = [0u8; GCM_NONCE_SIZE];
+        OsRng.fill_bytes(&mut nonce);
+        nonce
+    }
+
+    /// Generate a secure nonce in WASM using Web Crypto API
+    #[cfg(target_arch = "wasm32")]
+    fn generate_nonce() -> [u8; GCM_NONCE_SIZE] {
+        use web_sys::window;
+        let mut nonce = [0u8; GCM_NONCE_SIZE];
+
+        let crypto = window()
+            .expect("No global `window` exists")
+            .crypto()
+            .expect("No Web Crypto support in this environment");
+        crypto
+            .get_random_values_with_u8_array(&mut nonce)
+            .expect("Failed to get random values");
+
+        nonce
     }
 
     pub fn encrypt(
@@ -81,35 +78,46 @@ impl Encryption {
         info: &[u8],
     ) -> Result<Box<[u8]>, Box<dyn std::error::Error>> {
         let mut gcm = self.make_gcm_cipher(info)?;
-        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-        let mut buffer: Vec<u8> = Vec::new();
-        buffer.extend_from_slice(data);
+        let nonce = Self::generate_nonce();
+        let nonce_array = Nonce::from_slice(&nonce);
 
-        match gcm.encrypt_in_place(&nonce, b"", &mut buffer) {
-            Ok(_) => Ok([&buffer, nonce.as_slice()].concat().into_boxed_slice()),
-            Err(_) => Err("Error encrypting data".into()),
+        let mut buffer = data.to_vec();
+
+        match gcm.encrypt_in_place(nonce_array, b"", &mut buffer) {
+            Ok(_) => {
+                let mut result = Vec::with_capacity(buffer.len() + GCM_NONCE_SIZE);
+                result.extend_from_slice(&buffer);
+                result.extend_from_slice(&nonce);
+
+                Ok(result.into_boxed_slice())
+            }
+            Err(e) => Err(Box::from("gcm encrypt error")),
         }
     }
 
     pub fn decrypt(&self, data: &[u8], info: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let mut gcm = self.make_gcm_cipher(info)?;
 
-        if let Some((encrypted_data, nonce)) = data.split_last_chunk::<GCM_NONCE_SIZE>() {
-            let mut buffer: Vec<u8> = Vec::new();
-            buffer.extend_from_slice(encrypted_data);
-
-            return match gcm.decrypt_in_place(nonce.into(), b"", &mut buffer) {
-                Ok(_) => Ok(buffer),
-                Err(_) => Err("Error decrypting data".into()),
-            };
+        if data.len() < GCM_NONCE_SIZE {
+            return Err("Invalid encrypted data".into());
         }
-        Err("Error decrypting data".into())
+
+        let (encrypted_data, nonce) = data.split_at(data.len() - GCM_NONCE_SIZE);
+        let nonce_array = Nonce::from_slice(nonce);
+
+        let mut buffer = encrypted_data.to_vec();
+        // gcm.decrypt_in_place(nonce_array, b"", &mut buffer)?;
+
+        match gcm.decrypt_in_place(nonce_array, b"", &mut buffer) {
+            Ok(_) => Ok(buffer),
+            Err(_) => Err(Box::from("gcm decrypt error")),
+        }
     }
 }
 
 mod tests {
 
-    use crate::utils::encryption::{self, Encryption};
+    use crate::utils::encryption::Encryption;
 
     const BUCKET_TO_TEST: &str = "TEST_BUCKET_v2";
 
@@ -138,6 +146,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_all() {
         test_text_encryption().await;
