@@ -80,7 +80,7 @@ impl BlockchainProvider {
             match provider {
                 Ok(provider_option) => match provider_option {
                     Some(provider) => {
-                        let transport = Provider::new(provider);
+                        let transport = web3::transports::eip_1193::Eip1193::new(provider);
                         let web3_provider = web3::Web3::new(transport);
                         let akave = Contract::from_json(
                             web3_provider.eth(),
@@ -201,27 +201,27 @@ impl BlockchainProvider {
             gas: Some(U256::from(500000)),
             ..Default::default()
         };
-
-        match self.key {
-            Some(key) => {
-                let key_ref = SecretKeyRef::new(&key);
-
-                let hash = self
-                    .akave
-                    .signed_call(function_name, params, txopts, key_ref)
-                    .await?;
-
-                Ok(hash)
-            }
-            None => {
-                let address = self.web3_provider.eth().accounts().await?[0];
-                Ok(self
-                    .akave
-                    .call(function_name, params, address, txopts)
-                    .await?)
-            }
+    
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let key = self.key.as_ref().ok_or("Missing key for signed call")?;
+            let key_ref = SecretKeyRef::new(key);
+    
+            let hash = self
+                .akave
+                .signed_call(function_name, params, txopts, key_ref)
+                .await?;
+    
+            return Ok(hash);
+        }
+    
+        #[cfg(target_arch = "wasm32")]
+        {
+            let address = self.web3_provider.eth().accounts().await?[0];
+            return Ok(self.akave.call(function_name, params, address, txopts).await?);
         }
     }
+    
 
     pub async fn get_address(&self) -> Result<H160, Box<dyn std::error::Error>> {
         match self.key {
