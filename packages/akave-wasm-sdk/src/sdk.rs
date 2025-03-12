@@ -253,12 +253,8 @@ impl AkaveIpcSDK {
     ) -> Result<(), Box<dyn std::error::Error>> {
         // TODO: Check if bucket is empty
         let bucket = self.view_bucket(address, bucket_name).await?;
-        println!("printing bucket response {:#?}", bucket);
         let bucket_id = hex::decode(bucket.id.clone())?;
-        println!("printing bucket id {:#?}, len: {}", bucket_id, bucket_id.len());
-
         let bucket_idx = self.storage.get_bucket_index_by_name(bucket_name.to_string()).await?;
-        println!("printing bucket idx {:#?}", bucket_idx);
 
         self.storage
             .delete_bucket(bucket_id, bucket_name.into(), bucket_idx)
@@ -772,8 +768,7 @@ mod tests {
         
         // Test delete
         let result = sdk.delete_bucket(ADDRESS, &bucket_name).await;
-        println!("printing delete bucket resp: {:#?}", result);
-        // assert!(result.is_ok(), "Failed to delete bucket: {:?}", result.err());
+        assert!(result.is_ok(), "Failed to delete bucket: {:?}", result.err());
         
         // Verify deletion - this might need adjustment based on expected behavior
         // If view_bucket is expected to return an error for non-existent buckets:
@@ -889,7 +884,7 @@ mod tests {
     }
 
     // This test is not marked with #[tokio::test] so it won't run automatically
-    // Run it explicitly with: cargo test --package your_package --lib -- tests::cleanup_all_test_resources --exact --nocapture
+    // Run it explicitly with: cargo test --package akave-wasm-sdk --lib -- tests::cleanup_all_test_resources --exact --nocapture
     async fn cleanup_all_test_resources() {
         println!("Starting cleanup of all test resources...");
         

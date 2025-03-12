@@ -283,12 +283,8 @@ impl BlockchainProvider {
     ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
         /* let id: &[u8] = &bucket_id[..]; */
         let id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
-        
-        println!("printing bucket idd {:#?}", id);
         let result = self.call_contract_with_confirmations(DELETE_BUCKET, (id, bucket_name, bucket_idx))
             .await;
-
-        println!("printing result {:#?}", result);
         result
     }
 
