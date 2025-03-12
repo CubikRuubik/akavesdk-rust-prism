@@ -1,5 +1,7 @@
+// Standard library imports
 use std::{str::FromStr, time::Duration};
 
+// External crate imports (general)
 use futures::StreamExt;
 use web3::{
     contract::{tokens::Tokenize, Contract, Options},
@@ -9,22 +11,38 @@ use web3::{
     Error, Web3,
 };
 
-#[cfg(target_arch = "wasm32")]
-use web3::transports::eip_1193::{Eip1193, Provider};
-
-#[cfg(not(target_arch = "wasm32"))]
-use web3::transports::http::Http;
-
+// Internal imports
 use super::response_types::BucketResponse;
 
+// Target-specific imports
+#[cfg(target_arch = "wasm32")]
+mod wasm_imports {
+    pub use web3::transports::eip_1193::{Eip1193, Provider};
+}
+
+#[cfg(target_arch = "wasm32")]
+use wasm_imports::*;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod native_imports {
+    pub use web3::transports::http::Http;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+use native_imports::*;
+
+// Target-specific type definitions
 #[cfg(target_arch = "wasm32")]
 type ProviderType = Eip1193;
+
 #[cfg(not(target_arch = "wasm32"))]
 type ProviderType = Http;
 
+// Constants
 const CREATE_BUCKET: &str = "createBucket";
 const DELETE_BUCKET: &str = "deleteBucket";
 const GET_BUCKET_BY_NAME: &str = "getBucketByName";
+const GET_BUCKET_INDEX_BY_NAME: &str = "getBucketIndexByName";
 const ADD_FILE_CHUNK: &str = "addFileChunk";
 const COMMIT_FILE: &str = "commitFile";
 const CREATE_FILE: &str = "createFile";
@@ -261,12 +279,17 @@ impl BlockchainProvider {
         &self,
         bucket_id: Vec<u8>,
         bucket_name: String,
+        bucket_idx: U256,
     ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
         /* let id: &[u8] = &bucket_id[..]; */
         let id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
+        
+        println!("printing bucket idd {:#?}", id);
+        let result = self.call_contract_with_confirmations(DELETE_BUCKET, (id, bucket_name, bucket_idx))
+            .await;
 
-        self.call_contract_with_confirmations(DELETE_BUCKET, (id, bucket_name))
-            .await
+        println!("printing result {:#?}", result);
+        result
     }
 
     pub async fn get_bucket_by_name(
@@ -279,6 +302,25 @@ impl BlockchainProvider {
             .query(
                 GET_BUCKET_BY_NAME,
                 (bucket_name,),
+                address,
+                Options::default(),
+                None,
+            )
+            .await
+            .unwrap();
+        Ok(result)
+    }
+
+    pub async fn get_bucket_index_by_name(
+        &self,
+        bucket_name: String,
+    ) -> Result<U256, Box<dyn std::error::Error>> {
+        let address = self.get_address().await?;
+        let result:U256 = self
+            .akave
+            .query(
+                GET_BUCKET_INDEX_BY_NAME,
+                (bucket_name, address),
                 address,
                 Options::default(),
                 None,

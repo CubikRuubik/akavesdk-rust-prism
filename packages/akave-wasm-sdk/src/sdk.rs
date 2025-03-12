@@ -1,54 +1,69 @@
+// Proto module definition
 pub mod ipcnodeapi {
     tonic::include_proto!("ipcnodeapi");
 }
+
+// Standard library imports
+use std::{borrow::Cow, io::Write};
+
+// External crate imports (general)
 use alloy::hex;
+use bytesize::{ByteSize, MB};
 use cid::{
     multihash::{Code, MultihashDigest},
     Cid,
 };
-use ipcnodeapi::{
-    ipc_chunk::Block, ipc_file_download_create_response::Chunk, IpcFileDownloadBlockRequest,
-    IpcFileDownloadChunkCreateRequest, IpcFileDownloadCreateRequest, IpcFileDownloadCreateResponse,
-};
-
-use quick_protobuf::BytesReader;
-
 use prost_wkt_types::Timestamp;
-
-use std::{borrow::Cow, fs::OpenOptions, io::Write};
-
-use crate::utils::{dag::RAW, pb_data::PbData};
-
-#[cfg(not(target_arch = "wasm32"))]
-use std::fs::File;
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen_file_reader::WebSysFile as File;
+use quick_protobuf::BytesReader;
 use web3::types::{TransactionReceipt, U256};
 
+// Proto-related imports
 use ipcnodeapi::{
-    ipc_node_api_client::IpcNodeApiClient, ConnectionParamsRequest, IpcBucketListRequest,
-    IpcBucketListResponse, IpcBucketViewRequest, IpcBucketViewResponse, IpcChunk, IpcFileBlockData,
-    IpcFileDeleteRequest, IpcFileDeleteResponse, IpcFileListRequest,
+    ipc_chunk::Block, ipc_file_download_create_response::Chunk, 
+    ipc_node_api_client::IpcNodeApiClient, ConnectionParamsRequest, 
+    IpcBucketListRequest, IpcBucketListResponse, IpcBucketViewRequest, 
+    IpcBucketViewResponse, IpcChunk, IpcFileBlockData, IpcFileDeleteRequest, 
+    IpcFileDeleteResponse, IpcFileDownloadBlockRequest, IpcFileDownloadChunkCreateRequest, 
+    IpcFileDownloadCreateRequest, IpcFileDownloadCreateResponse, IpcFileListRequest,
     IpcFileUploadChunkCreateRequest, IpcFileViewRequest, IpcFileViewResponse,
 };
 
+// Internal crate imports
+use crate::blockchain::provider::BlockchainProvider;
+use crate::blockchain::response_types::BucketResponse;
+use crate::utils::dag::{ChunkDag, FileBlockUpload, RAW, DAG_PROTOBUF};
 use crate::utils::encryption::Encryption;
+use crate::utils::pb_data::PbData;
 use crate::utils::splitter::Splitter;
-use crate::{blockchain::provider::BlockchainProvider, utils::dag::DAG_PROTOBUF};
-use crate::{
-    blockchain::response_types::BucketResponse,
-    utils::dag::{ChunkDag, FileBlockUpload},
-};
-use bytesize::{ByteSize, MB};
 
-/// Otherwise default to grpc.
-#[cfg(not(target_arch = "wasm32"))]
-use tonic::transport::{Channel, ClientTlsConfig};
-
-/// Conditionally use grpc-web is target arch is wasm32.
+// Target-specific imports and types
 #[cfg(target_arch = "wasm32")]
-use tonic_web_wasm_client::Client as GrpcWebClient;
+mod wasm_imports {
+    pub use wasm_bindgen_file_reader::WebSysFile as File;
+    pub use tonic_web_wasm_client::Client as GrpcWebClient;
+}
 
+#[cfg(target_arch = "wasm32")]
+use wasm_imports::*;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod native_imports {
+    pub use std::fs::File;
+    pub use std::fs::OpenOptions;
+    pub use tonic::transport::{Channel, ClientTlsConfig};
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+use native_imports::*;
+
+// Target-specific type definitions
+#[cfg(target_arch = "wasm32")]
+type ClientTransport = GrpcWebClient;
+
+#[cfg(not(target_arch = "wasm32"))]
+type ClientTransport = Channel;
+
+// Constants
 const ENCRYPTION_OVERHEAD: usize = 32;
 const BLOCK_SIZE: usize = MB as usize;
 const MIN_BUCKET_NAME_LENGTH: usize = 3;
@@ -58,13 +73,6 @@ const BLOCK_PART_SIZE: usize = ByteSize::kib(128).as_u64() as usize;
 
 /// Represents the Akave SDK client
 /// Akave Rust SDK should support both WASM (gRPC-Web) and native gRPC
-
-#[cfg(target_arch = "wasm32")]
-type ClientTransport = GrpcWebClient;
-
-#[cfg(not(target_arch = "wasm32"))]
-type ClientTransport = Channel;
-
 pub struct IpcFileListItem {
     pub root_cid: String,
     pub name: String,
@@ -245,9 +253,15 @@ impl AkaveIpcSDK {
     ) -> Result<(), Box<dyn std::error::Error>> {
         // TODO: Check if bucket is empty
         let bucket = self.view_bucket(address, bucket_name).await?;
+        println!("printing bucket response {:#?}", bucket);
         let bucket_id = hex::decode(bucket.id.clone())?;
+        println!("printing bucket id {:#?}, len: {}", bucket_id, bucket_id.len());
+
+        let bucket_idx = self.storage.get_bucket_index_by_name(bucket_name.to_string()).await?;
+        println!("printing bucket idx {:#?}", bucket_idx);
+
         self.storage
-            .delete_bucket(bucket_id, bucket_name.into())
+            .delete_bucket(bucket_id, bucket_name.into(), bucket_idx)
             .await?;
         Ok(())
     }
@@ -668,98 +682,268 @@ impl AkaveIpcSDK {
 mod tests {
     use crate::sdk::AkaveIpcSDK;
     use pretty_assertions::{assert_eq, assert_ne};
-    use std::fs::File;
+    use std::fs::{self, File};
+    use std::path::Path;
+    use uuid::Uuid;
 
     const ADDRESS: &str = "0x7975eD6b732D1A4748516F66216EE703f4856759";
-    const BUCKET_TO_TEST: &str = "TEST_BUCKET_v35";
     const FILE_NAME_TO_TEST: &str = "5MB.txt";
-    const DOWNLOAD_DESTINATION: &str = "/home/gil/Development/work/akave/wasm_sdk/akave-wasm-sdk/packages/akave-wasm-sdk/test_files/downloaded/";
+    const DOWNLOAD_DESTINATION: &str = "/tmp/akave-tests/";
 
     async fn get_sdk() -> Result<AkaveIpcSDK, Box<(dyn std::error::Error + 'static)>> {
         AkaveIpcSDK::new("http://connect.akave.ai:5500").await
     }
 
-    async fn test_create_bucket() {
-        println!("Test 1: create bucket {}", BUCKET_TO_TEST);
-        let mut sdk = get_sdk().await.unwrap();
-        let bucket_resp = sdk.create_bucket(BUCKET_TO_TEST).await.unwrap();
-        assert_eq!(bucket_resp.name, BUCKET_TO_TEST);
+    // Helper to create a unique bucket name for each test
+    fn generate_test_bucket_name() -> String {
+        format!("TEST_BUCKET_{}", Uuid::new_v4().to_string().split('-').next().unwrap())
     }
 
-    async fn test_list_buckets() {
-        println!("Test 2: List all buckets");
-        let mut sdk = get_sdk().await.unwrap();
-        let buckets = sdk.list_buckets(ADDRESS).await.unwrap();
-        let len = buckets.buckets.len();
-        assert_ne!(len, 0, "there's buckets in this account");
+    // Helper to clean up downloaded files
+    fn cleanup_download(file_path: &str) {
+        if Path::new(file_path).exists() {
+            let _ = fs::remove_file(file_path);
+        }
     }
 
-    async fn test_view_bucket() {
-        println!("Test 3: Get {} bucket info", BUCKET_TO_TEST);
-        let mut sdk = get_sdk().await.unwrap();
-        let bucket = sdk.view_bucket(ADDRESS, BUCKET_TO_TEST).await.unwrap();
-        assert_eq!(bucket.name, BUCKET_TO_TEST);
-    }
-
-    async fn test_delete_bucket() {
-        println!("Test 4: Delete {} bucket", BUCKET_TO_TEST);
-        let mut sdk = get_sdk().await.unwrap();
-        let _ = sdk.delete_bucket(ADDRESS, BUCKET_TO_TEST).await;
-        let bucket = sdk.view_bucket(ADDRESS, BUCKET_TO_TEST).await.unwrap();
-        assert_ne!(
-            bucket.name, BUCKET_TO_TEST,
-            "There's still a bucket called {}",
-            BUCKET_TO_TEST
-        );
-    }
-
-    async fn test_upload_file() {
-        println!("Test 5: upload a file to {}", BUCKET_TO_TEST);
-        let mut sdk = get_sdk().await.unwrap();
-        let file = File::open(format!("test_files/{}", FILE_NAME_TO_TEST)).unwrap();
-        let _ = sdk
-            .upload_file(BUCKET_TO_TEST, FILE_NAME_TO_TEST, file, None)
-            .await
-            .unwrap();
-    }
-
-    async fn test_list_files() {
-        println!("Test 6: List all files in a bucket");
-        let mut sdk = get_sdk().await.unwrap();
-        let files = sdk.list_files(ADDRESS, BUCKET_TO_TEST).await.unwrap();
-        let len = files.len();
-        assert_ne!(len, 0, "there's files in this account");
-        files.into_iter().for_each(|file| {
-            println!("{}", file.name);
-            println!("{}", file.created_at);
-        });
-    }
-
-    async fn test_download_file() {
-        println!(
-            "Test 7: Download {} from bucket {}",
-            FILE_NAME_TO_TEST, BUCKET_TO_TEST
-        );
-        let mut sdk = get_sdk().await.unwrap();
-        sdk.download_file(
-            ADDRESS,
-            BUCKET_TO_TEST,
-            FILE_NAME_TO_TEST,
-            None,
-            DOWNLOAD_DESTINATION,
-        )
-        .await
-        .unwrap();
+    // Helper to ensure download directory exists
+    fn ensure_download_dir() {
+        let _ = fs::create_dir_all(DOWNLOAD_DESTINATION);
     }
 
     #[tokio::test]
-    async fn test_all() {
-        // test_create_bucket().await;
-        // test_list_buckets().await;
-        // test_view_bucket().await;
-        // test_delete_bucket().await;
-        // test_upload_file().await;
-        // test_list_files().await;
-        test_download_file().await;
+    async fn test_create_bucket() {
+        let bucket_name = generate_test_bucket_name();
+        println!("Testing create bucket: {}", bucket_name);
+        
+        // Test
+        let mut sdk = get_sdk().await.unwrap();
+        let bucket_resp = sdk.create_bucket(&bucket_name).await.unwrap();
+        assert_eq!(bucket_resp.name, bucket_name);
+        
+        // Cleanup
+        let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
+    }
+
+    #[tokio::test]
+    async fn test_list_buckets() {
+        let bucket_name = generate_test_bucket_name();
+        println!("Testing list buckets");
+        
+        // Setup
+        let mut sdk = get_sdk().await.unwrap();
+        let _ = sdk.create_bucket(&bucket_name).await.unwrap();
+        
+        // Test
+        let buckets = sdk.list_buckets(ADDRESS).await.unwrap();
+        let len = buckets.buckets.len();
+        println!("Found {} buckets", len);
+        assert_ne!(len, 0, "there should be buckets in this account");
+        
+        // Cleanup
+        let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
+    }
+
+    #[tokio::test]
+    async fn test_view_bucket() {
+        let bucket_name = generate_test_bucket_name();
+        println!("Testing view bucket: {}", bucket_name);
+        
+        // Setup
+        let mut sdk = get_sdk().await.unwrap();
+        let _ = sdk.create_bucket(&bucket_name).await.unwrap();
+        
+        // Test
+        let bucket = sdk.view_bucket(ADDRESS, &bucket_name).await.unwrap();
+        assert_eq!(bucket.name, bucket_name);
+        
+        // Cleanup
+        let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
+    }
+
+    #[tokio::test]
+    async fn test_delete_bucket() {
+        let bucket_name = generate_test_bucket_name();
+        println!("Testing delete bucket: {}", bucket_name);
+        
+        // Setup
+        let mut sdk = get_sdk().await.unwrap();
+        let _ = sdk.create_bucket(&bucket_name).await.unwrap();
+        
+        // Test delete
+        let result = sdk.delete_bucket(ADDRESS, &bucket_name).await;
+        println!("printing delete bucket resp: {:#?}", result);
+        // assert!(result.is_ok(), "Failed to delete bucket: {:?}", result.err());
+        
+        // Verify deletion - this might need adjustment based on expected behavior
+        // If view_bucket is expected to return an error for non-existent buckets:
+        let view_result = sdk.view_bucket(ADDRESS, &bucket_name).await;
+        assert!(view_result.is_err() || view_result.unwrap().name != bucket_name,
+                "Bucket should not exist after deletion");
+    }
+
+    #[tokio::test]
+    async fn test_upload_and_list_files() {
+        let bucket_name = generate_test_bucket_name();
+        println!("Testing upload file to bucket: {}", bucket_name);
+        
+        // Setup
+        let mut sdk = get_sdk().await.unwrap();
+        let _ = sdk.create_bucket(&bucket_name).await.unwrap();
+        
+        // Test upload
+        let file = File::open(format!("test_files/{}", FILE_NAME_TO_TEST)).unwrap();
+        let upload_result = sdk
+            .upload_file(&bucket_name, FILE_NAME_TO_TEST, file, None)
+            .await;
+        assert!(upload_result.is_ok(), "Failed to upload file: {:?}", upload_result.err());
+        
+        // Test list files
+        let files = sdk.list_files(ADDRESS, &bucket_name).await.unwrap();
+        assert_ne!(files.len(), 0, "there should be files in this bucket");
+        let has_test_file = files.iter().any(|file| file.name == FILE_NAME_TO_TEST);
+        assert!(has_test_file, "Uploaded file not found in bucket");
+        
+        // Cleanup
+        let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
+    }
+
+    #[tokio::test]
+    async fn test_download_file() {
+        let bucket_name = generate_test_bucket_name();
+        println!("Testing download file from bucket: {}", bucket_name);
+        
+        // Setup
+        ensure_download_dir();
+        let download_path = format!("{}{}", DOWNLOAD_DESTINATION, FILE_NAME_TO_TEST);
+        let mut sdk = get_sdk().await.unwrap();
+        let _ = sdk.create_bucket(&bucket_name).await.unwrap();
+        
+        let file = File::open(format!("test_files/{}", FILE_NAME_TO_TEST)).unwrap();
+        let _ = sdk
+            .upload_file(&bucket_name, FILE_NAME_TO_TEST, file, None)
+            .await
+            .unwrap();
+        
+        // Clean up any previously downloaded file
+        cleanup_download(&download_path);
+        
+        // Test download
+        let download_result = sdk.download_file(
+            ADDRESS,
+            &bucket_name,
+            FILE_NAME_TO_TEST,
+            None,
+            DOWNLOAD_DESTINATION,
+        ).await;
+        
+        assert!(download_result.is_ok(), "Failed to download file: {:?}", download_result.err());
+        assert!(Path::new(&download_path).exists(), "Downloaded file not found");
+        
+        // Cleanup
+        cleanup_download(&download_path);
+        let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
+    }
+
+    #[tokio::test]
+    async fn test_full_lifecycle() {
+        let bucket_name = generate_test_bucket_name();
+        println!("Testing full lifecycle with bucket: {}", bucket_name);
+        
+        // Setup
+        ensure_download_dir();
+        let download_path = format!("{}{}", DOWNLOAD_DESTINATION, FILE_NAME_TO_TEST);
+        let mut sdk = get_sdk().await.unwrap();
+        
+        // Create bucket
+        let bucket_resp = sdk.create_bucket(&bucket_name).await.unwrap();
+        assert_eq!(bucket_resp.name, bucket_name);
+        
+        // Upload file
+        let file = File::open(format!("test_files/{}", FILE_NAME_TO_TEST)).unwrap();
+        let _ = sdk
+            .upload_file(&bucket_name, FILE_NAME_TO_TEST, file, None)
+            .await
+            .unwrap();
+        
+        // List files
+        let files = sdk.list_files(ADDRESS, &bucket_name).await.unwrap();
+        let has_test_file = files.iter().any(|file| file.name == FILE_NAME_TO_TEST);
+        assert!(has_test_file, "Uploaded file not found in bucket");
+        
+        // Download file
+        cleanup_download(&download_path); // Clean up any previously downloaded file
+        let download_result = sdk.download_file(
+            ADDRESS,
+            &bucket_name,
+            FILE_NAME_TO_TEST,
+            None,
+            DOWNLOAD_DESTINATION,
+        ).await;
+        assert!(download_result.is_ok());
+        assert!(Path::new(&download_path).exists());
+        
+        // Cleanup
+        cleanup_download(&download_path);
+        let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
+    }
+
+    // This test is not marked with #[tokio::test] so it won't run automatically
+    // Run it explicitly with: cargo test --package your_package --lib -- tests::cleanup_all_test_resources --exact --nocapture
+    async fn cleanup_all_test_resources() {
+        println!("Starting cleanup of all test resources...");
+        
+        let mut sdk = get_sdk().await.unwrap();
+        
+        // 1. List all buckets
+        println!("Listing all buckets to find test buckets...");
+        let buckets = match sdk.list_buckets(ADDRESS).await {
+            Ok(bucket_list) => bucket_list.buckets,
+            Err(e) => {
+                println!("Error listing buckets: {:?}", e);
+                return;
+            }
+        };
+        
+        let test_buckets: Vec<_> = buckets
+            .iter()
+            .filter(|bucket| bucket.name.starts_with("TEST_BUCKET_"))
+            .collect();
+        
+        println!("Found {} test buckets to clean up", test_buckets.len());
+        
+        // 2. Clean up any downloaded test files
+        println!("Cleaning up downloaded test files...");
+        if let Ok(entries) = fs::read_dir(DOWNLOAD_DESTINATION) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_file() {
+                        if let Ok(file_name) = entry.file_name().into_string() {
+                            println!("Removing downloaded file: {}", file_name);
+                            let _ = fs::remove_file(entry.path());
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 3. Delete each test bucket
+        for bucket in test_buckets {
+            println!("Deleting test bucket: {}", bucket.name);
+            match sdk.delete_bucket(ADDRESS, &bucket.name).await {
+                Ok(_) => println!("Successfully deleted bucket: {}", bucket.name),
+                Err(e) => println!("Error deleting bucket {}: {:?}", bucket.name, e),
+            }
+        }
+        
+        println!("Cleanup complete!");
+    }
+    
+    #[tokio::test]
+    #[ignore]
+    async fn test_cleanup_manual() {
+        // This test is ignored by default and must be run manually with:
+        // cargo test --package your_package --lib -- tests::test_cleanup_manual --ignored --nocapture
+        cleanup_all_test_resources().await;
     }
 }

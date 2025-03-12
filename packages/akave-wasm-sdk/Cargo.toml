@@ -45,6 +45,7 @@ bytesize = "2.0.1"
 cid = "0.7.0"
 ipfs-unixfs = "0.2.0"
 quick-protobuf = "0.8.0"
+uuid = { version = "1.15.1", features = [ "v4",] }
 
 [dev-dependencies]
 pretty_assertions = "1"
