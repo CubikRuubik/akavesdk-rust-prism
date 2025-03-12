@@ -1,3 +1,6 @@
+// this is a pb data file and need to skip linter snakecase warnings.
+#![allow(non_snake_case)]
+
 use prost::alloc::borrow::Cow;
 use quick_protobuf::sizeofs::*;
 use quick_protobuf::{BytesReader, MessageRead, MessageWrite, Result, Writer, WriterBackend};

@@ -1,7 +1,7 @@
 {
   "name": "monorepo-akave-sdk",
   "version": "1.0.0",
-  "description": "Akave Wasm SDK",
+  "description": "Akave Rust/Wasm SDK",
   "workspaces": [
     "packages/*"
   ],
@@ -20,15 +20,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/lightshiftdev/akave-wasm-sdk.git"
+    "url": "git+https://github.com/lightshiftdev/akave-rs.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/lightshiftdev/akave-wasm-sdk/issues"
+    "url": "https://github.com/lightshiftdev/akave-rs/issues"
   },
-  "homepage": "https://github.com/lightshiftdev/akave-wasm-sdk#readme",
+  "homepage": "https://github.com/lightshiftdev/akave-rs#readme",
   "main": "index.js"
 }
