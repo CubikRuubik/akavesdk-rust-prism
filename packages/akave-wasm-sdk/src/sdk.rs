@@ -606,7 +606,7 @@ impl AkaveIpcSDK {
                                         Some(reader.read_bytes(&chunk_data).map(Cow::Borrowed)?)
                                 }
                                 Ok(_) => {}
-                                Err(e) => return Err("error decoding message")?,
+                                Err(_) => return Err("error decoding message")?,
                             }
                         }
 
@@ -883,8 +883,7 @@ mod tests {
         let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
     }
 
-    // This test is not marked with #[tokio::test] so it won't run automatically
-    // Run it explicitly with: cargo test --package akave-wasm-sdk --lib -- tests::cleanup_all_test_resources --exact --nocapture
+    // helper cleanup function
     async fn cleanup_all_test_resources() {
         println!("Starting cleanup of all test resources...");
         
@@ -938,7 +937,7 @@ mod tests {
     #[ignore]
     async fn test_cleanup_manual() {
         // This test is ignored by default and must be run manually with:
-        // cargo test --package your_package --lib -- tests::test_cleanup_manual --ignored --nocapture
+        // cargo test --package akave-wasm-sdk --lib -- tests::test_cleanup_manual --ignored --nocapture
         cleanup_all_test_resources().await;
     }
 }
