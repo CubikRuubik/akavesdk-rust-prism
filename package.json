@@ -1,7 +1,7 @@
 {
   "name": "monorepo-akave-sdk",
   "version": "1.0.0",
-  "description": "Akave Wasm SDK",
+  "description": "Akave Rust/Wasm SDK",
   "workspaces": [
     "packages/*"
   ],

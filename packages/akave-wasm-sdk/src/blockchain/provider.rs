@@ -285,10 +285,8 @@ impl BlockchainProvider {
     ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
         /* let id: &[u8] = &bucket_id[..]; */
         let id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
-        let result = self
-            .call_contract_with_confirmations(DELETE_BUCKET, (id, bucket_name, bucket_idx))
-            .await;
-        result
+        self.call_contract_with_confirmations(DELETE_BUCKET, (id, bucket_name, bucket_idx))
+            .await
     }
 
     pub async fn get_bucket_by_name(
@@ -324,8 +322,7 @@ impl BlockchainProvider {
                 Options::default(),
                 None,
             )
-            .await
-            .unwrap();
+            .await?;
         Ok(result)
     }
 
@@ -343,13 +340,11 @@ impl BlockchainProvider {
         let file_idx = self
             .get_file_index_by_name(file.name, file.id.to_vec().clone())
             .await?;
-        let result = self
-            .call_contract_with_confirmations(
-                DELETE_FILE,
-                (file.id, parsed_bucket_id, file_name, file_idx),
-            )
-            .await;
-        result
+        self.call_contract_with_confirmations(
+            DELETE_FILE,
+            (file.id, parsed_bucket_id, file_name, file_idx),
+        )
+        .await
     }
 
     pub async fn get_file_index_by_name(
@@ -368,8 +363,7 @@ impl BlockchainProvider {
                 Options::default(),
                 None,
             )
-            .await
-            .unwrap();
+            .await?;
         Ok(result)
     }
 
