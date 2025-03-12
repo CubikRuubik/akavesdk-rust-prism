@@ -17,13 +17,11 @@ pub struct BucketResponse {
 }
 
 pub struct IStorageChunk {
-    // TODO: DETOKENIZE
     chunk_cids: Vec<Vec<u8>>,
     chunk_size: Vec<U256>,
 }
 
 pub struct FileResponse {
-    // TODO: DETOKENIZE
     pub id: [u8; 32],
     pub file_cid: Vec<u8>,
     pub bucket_id: [u8; 32],
@@ -59,6 +57,84 @@ impl Detokenize for BucketResponse {
                     created_at: *created_at,
                     owner: *owner,
                     files,
+                })
+            } else {
+                Err(web3::contract::Error::InterfaceUnsupported)
+            }
+        } else {
+            Err(web3::contract::Error::InterfaceUnsupported)
+        }
+    }
+}
+
+impl Detokenize for FileResponse {
+    fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
+        if let [Token::Tuple(tokens)] = tokens.as_slice() {
+            if let [
+                Token::FixedBytes(id),
+                Token::Bytes(file_cid),
+                Token::FixedBytes(bucket_id),
+                Token::String(name),
+                Token::Uint(encoded_size),
+                Token::Uint(created_at),
+                Token::Tuple(chunks_tokens),
+            ] = tokens.as_slice()
+            {
+                let mut id_bytes = [0u8; 32];
+                id_bytes.copy_from_slice(id);
+                
+                let mut bucket_id_bytes = [0u8; 32];
+                bucket_id_bytes.copy_from_slice(bucket_id);
+                
+                let chunks = IStorageChunk::from_tokens(vec![Token::Tuple(chunks_tokens.clone())])?;
+                
+                Ok(FileResponse {
+                    id: id_bytes,
+                    file_cid: file_cid.clone(),
+                    bucket_id: bucket_id_bytes,
+                    name: name.clone(),
+                    encoded_size: *encoded_size,
+                    created_at: *created_at,
+                    chunks,
+                })
+            } else {
+                Err(web3::contract::Error::InterfaceUnsupported)
+            }
+        } else {
+            Err(web3::contract::Error::InterfaceUnsupported)
+        }
+    }
+}
+
+impl Detokenize for IStorageChunk {
+    fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
+        if let [Token::Tuple(tokens)] = tokens.as_slice() {
+            if let [Token::Array(chunk_cids), Token::Array(chunk_sizes)] = tokens.as_slice() {
+                let chunk_cids = chunk_cids
+                    .iter()
+                    .map(|token| {
+                        if let Token::Bytes(cid) = token {
+                            Ok(cid.clone())
+                        } else {
+                            Err(web3::contract::Error::InterfaceUnsupported)
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                
+                let chunk_size = chunk_sizes
+                    .iter()
+                    .map(|token| {
+                        if let Token::Uint(size) = token {
+                            Ok(*size)
+                        } else {
+                            Err(web3::contract::Error::InterfaceUnsupported)
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                
+                Ok(IStorageChunk {
+                    chunk_cids,
+                    chunk_size,
                 })
             } else {
                 Err(web3::contract::Error::InterfaceUnsupported)

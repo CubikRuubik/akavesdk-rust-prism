@@ -12,7 +12,7 @@ use web3::{
 };
 
 // Internal imports
-use super::response_types::BucketResponse;
+use super::response_types::{BucketResponse, FileResponse};
 
 // Target-specific imports
 #[cfg(target_arch = "wasm32")]
@@ -46,6 +46,8 @@ const GET_BUCKET_INDEX_BY_NAME: &str = "getBucketIndexByName";
 const ADD_FILE_CHUNK: &str = "addFileChunk";
 const COMMIT_FILE: &str = "commitFile";
 const CREATE_FILE: &str = "createFile";
+const DELETE_FILE: &str = "deleteFile";
+const GET_FILE_INDEX_BY_NAME: &str = "getFileIndexById";
 const GET_FILE_BY_NAME: &str = "getFileByName";
 
 pub struct BlockchainProvider {
@@ -326,26 +328,63 @@ impl BlockchainProvider {
         Ok(result)
     }
 
-    /*     pub async fn get_file_by_name(
-           &self,
-           bucket_id: [u8; 32],
-           file_name: String,
-       ) -> Result<FileResponse, Box<dyn std::error::Error>> {
-           let address = self.get_address().await?;
-           let result: BucketResponse = self
-               .akave
-               .query(
-                   GET_FILE_BY_NAME,
-                   (bucket_id, file_name),
-                   address,
-                   Options::default(),
-                   None,
-               )
-               .await
-               .unwrap();
-           Ok(result)
-       }
-    */
+    pub async fn delete_file(
+        &self,
+        file_name: String,
+        bucket_id: Vec<u8>,
+    ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
+        // let parsed_file_id: [u8; 32] = file_id.try_into().expect("file_id error");
+        let parsed_bucket_id: [u8; 32] = bucket_id.clone().try_into().expect("bucket_id error");
+
+        let file = self.get_file_by_name(bucket_id, file_name.to_string()).await?;
+        let file_idx = self.get_file_index_by_name(file.name, file.id.to_vec().clone()).await?;
+        let result = self.call_contract_with_confirmations(DELETE_FILE, (file.id, parsed_bucket_id, file_name, file_idx))
+            .await;
+        result
+    }
+
+    pub async fn get_file_index_by_name(
+        &self,
+        file_name: String,
+        file_id: Vec<u8>
+    ) -> Result<U256, Box<dyn std::error::Error>> {
+        let address = self.get_address().await?;
+        let parsed_id: [u8; 32] = file_id.try_into().expect("file_id error");
+        let result:U256 = self
+            .akave
+            .query(
+                GET_FILE_INDEX_BY_NAME,
+                (file_name, parsed_id),
+                address,
+                Options::default(),
+                None,
+            )
+            .await
+            .unwrap();
+        Ok(result)
+    }
+
+    pub async fn get_file_by_name(
+        &self,
+        bucket_id: Vec<u8>,
+        file_name: String
+    ) -> Result<FileResponse, Box<dyn std::error::Error>> {
+        let address = self.get_address().await?;
+        let parsed_id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
+        let result = self
+            .akave
+            .query(
+                GET_FILE_BY_NAME,
+                (parsed_id, file_name),
+                address,
+                Options::default(),
+                None,
+            )
+            .await
+            .unwrap();
+        Ok(result)
+    }
+
     async fn sign_message(&self, str: String) -> Result<String, Error> {
         println!("Calling accounts.");
         let accounts = self.web3_provider.eth().accounts().await?;

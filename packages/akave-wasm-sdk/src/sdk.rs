@@ -227,6 +227,7 @@ impl AkaveIpcSDK {
             file_name: file_name.to_string(),
             address: address.to_string(),
         };
+        println!("request:  {:?}", request);
         Ok(self.client.file_view(request).await?.into_inner())
     }
 
@@ -263,19 +264,20 @@ impl AkaveIpcSDK {
     }
 
     // Delete an existing file
+    // TODO: fixme
     pub async fn delete_file(
         &mut self,
-        transaction: Vec<u8>,
+        address: &str,
         bucket_name: &str,
         file_name: &str,
-    ) -> Result<IpcFileDeleteResponse, Box<dyn std::error::Error>> {
-        let request = IpcFileDeleteRequest {
-            transaction,
-            bucket_name: bucket_name.as_bytes().to_vec(),
-            name: file_name.to_string(),
-        };
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // let file = self.view_file_info(address, bucket_name, file_name).await?;
+        // let fileinfo = self.storage.get_file_by_name(bucket_id, file_name).await?;
+        let bucket = self.view_bucket(address, bucket_name).await?;
+        let bucket_id = hex::decode(bucket.id.clone())?;
+        self.storage.delete_file(file_name.to_string(), bucket_id).await?;
 
-        Ok(self.client.file_delete(request).await?.into_inner())
+        Ok(())
     }
 
     async fn create_file_upload(
@@ -798,6 +800,14 @@ mod tests {
         assert_ne!(files.len(), 0, "there should be files in this bucket");
         let has_test_file = files.iter().any(|file| file.name == FILE_NAME_TO_TEST);
         assert!(has_test_file, "Uploaded file not found in bucket");
+
+        // Test delete files and list
+        for file in files {
+            let _ = sdk.delete_file(ADDRESS, &bucket_name, &file.name).await.expect("failed to delete file");
+        }
+        let files = sdk.list_files(ADDRESS, &bucket_name).await.unwrap();
+        assert_eq!(files.len(), 0, "there should be no files in this bucket");
+        
         
         // Cleanup
         let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
@@ -921,9 +931,19 @@ mod tests {
             }
         }
         
-        // 3. Delete each test bucket
+        // 3. Empty each test bucket then delete.
         for bucket in test_buckets {
             println!("Deleting test bucket: {}", bucket.name);
+            // TODO: fixme
+            // let files = sdk.list_files(ADDRESS, &bucket.name).await.expect("Failed to list files for specified (address, bucket_name)");
+            
+            // for file in files {
+            //     println!("Deleting test file: {}, from bucket: {}", file.name, bucket.name);
+            //     match sdk.delete_file(ADDRESS, bucket.name.as_str(), file.name.as_str()).await {
+            //         Ok(_) => println!("Successfully deleted file: {}", file.name),
+            //         Err(e) => println!("Error deleting bucket {}: {:?}", bucket.name, e),
+            //     }
+            // }
             match sdk.delete_bucket(ADDRESS, &bucket.name).await {
                 Ok(_) => println!("Successfully deleted bucket: {}", bucket.name),
                 Err(e) => println!("Error deleting bucket {}: {:?}", bucket.name, e),
