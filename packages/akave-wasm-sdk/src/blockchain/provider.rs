@@ -6,7 +6,6 @@ use futures::StreamExt;
 use web3::{
     contract::{tokens::Tokenize, Contract, Options},
     error::TransportError,
-    signing::{Key, SecretKey, SecretKeyRef},
     types::{TransactionReceipt, H160, H256, U256},
     Error, Web3,
 };
@@ -26,6 +25,7 @@ use wasm_imports::*;
 #[cfg(not(target_arch = "wasm32"))]
 mod native_imports {
     pub use web3::transports::http::Http;
+    pub use web3::signing::{Key, SecretKey, SecretKeyRef};
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -53,9 +53,10 @@ const GET_FILE_BY_NAME: &str = "getFileByName";
 pub struct BlockchainProvider {
     pub web3_provider: Web3<ProviderType>,
     pub akave: Contract<ProviderType>,
-    key: Option<SecretKey>,
     poll_interval: Duration,
     confirmations: usize,
+    #[cfg(not(target_arch = "wasm32"))]
+    key: Option<SecretKey>,
 }
 
 impl BlockchainProvider {
@@ -91,9 +92,10 @@ impl BlockchainProvider {
                         Ok(Self {
                             web3_provider,
                             akave,
-                            key: None,
                             poll_interval: poll_interval_opt,
                             confirmations: confirmations_opt,
+                            #[cfg(not(target_arch = "wasm32"))]
+                            key: None,
                         })
                     }
                     None => Err(Error::Transport(TransportError::Message(format!(
@@ -144,7 +146,7 @@ impl BlockchainProvider {
         params: impl Tokenize,
     ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
         let eth = self.web3_provider.eth();
-
+    
         let filter_stream = self
             .web3_provider
             .eth_filter()
@@ -152,9 +154,15 @@ impl BlockchainProvider {
             .await?
             .stream(self.poll_interval)
             .skip(self.confirmations - 1);
-
+    
+        // Use tokio::pin! for native
+        #[cfg(not(target_arch = "wasm32"))]
         tokio::pin!(filter_stream);
 
+        // Use futures::pin_mut! for wasm
+        #[cfg(target_arch = "wasm32")]
+        futures::pin_mut!(filter_stream);
+    
         let hash = self.call_contract(function_name, params).await?;
 
         while let Some(result_log) = filter_stream.next().await {
@@ -224,9 +232,15 @@ impl BlockchainProvider {
     
 
     pub async fn get_address(&self) -> Result<H160, Box<dyn std::error::Error>> {
-        match self.key {
-            Some(key) => Ok(SecretKeyRef::new(&key).address()),
-            None => Ok(self.web3_provider.eth().accounts().await?[0]),
+        #[cfg(target_arch = "wasm32")] {
+           Ok(self.web3_provider.eth().accounts().await?[0])
+        }
+        
+        #[cfg(not(target_arch = "wasm32"))] {
+            match self.key {
+                Some(key) => Ok(SecretKeyRef::new(&key).address()),
+                None => Ok(self.web3_provider.eth().accounts().await?[0]),
+            }
         }
     }
 

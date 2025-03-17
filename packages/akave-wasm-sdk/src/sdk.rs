@@ -897,6 +897,7 @@ mod tests {
             .unwrap();
 
         // List files
+        println!("listing files in bucket {}", bucket_name);
         let files = sdk.list_files(ADDRESS, &bucket_name).await.unwrap();
         let has_test_file = files.iter().any(|file| file.name == FILE_NAME_TO_TEST);
         assert!(has_test_file, "Uploaded file not found in bucket");
@@ -919,9 +920,11 @@ mod tests {
         cleanup_download(&download_path);
         
         // Delete file
+        println!("deleting file {}", FILE_NAME_TO_TEST);
         let _ = sdk.delete_file(ADDRESS, &bucket_name, FILE_NAME_TO_TEST);
 
         // Delete bucket
+        println!("deleting bucket {}", bucket_name);
         let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
     }
 
