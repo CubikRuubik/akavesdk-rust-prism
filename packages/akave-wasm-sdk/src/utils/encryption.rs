@@ -77,7 +77,7 @@ impl Encryption {
         data: &[u8],
         info: &[u8],
     ) -> Result<Box<[u8]>, Box<dyn std::error::Error>> {
-        let mut gcm = self.make_gcm_cipher(info)?;
+        let gcm = self.make_gcm_cipher(info)?;
         let nonce = Self::generate_nonce();
         let nonce_array = Nonce::from_slice(&nonce);
 
@@ -91,12 +91,12 @@ impl Encryption {
 
                 Ok(result.into_boxed_slice())
             }
-            Err(e) => Err(Box::from("gcm encrypt error")),
+            Err(_) => Err(Box::from("gcm encrypt error")),
         }
     }
 
     pub fn decrypt(&self, data: &[u8], info: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        let mut gcm = self.make_gcm_cipher(info)?;
+        let gcm = self.make_gcm_cipher(info)?;
 
         if data.len() < GCM_NONCE_SIZE {
             return Err("Invalid encrypted data".into());

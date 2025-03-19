@@ -15,9 +15,16 @@ std = []
 vendored-protoc = ["protobuf-src"]
 vendored-protox = ["protox"]
 
+# [profile.release]
+# # Optimize for small binary size
+# opt-level = "s"
+
 [profile.release]
-# Optimize for small binary size
-opt-level = "s"
+opt-level = "z"    # Optimize for size
+lto = true         # Enable Link Time Optimization
+codegen-units = 1  # Reduce number of codegen units to increase optimizations
+panic = "abort"    # Remove panic unwinding code
+strip = true      # Strip symbols from binary
 
 # -----------------------------------------
 #         GENERAL DEPENDENCIES            |
@@ -75,7 +82,7 @@ tonic-build = { version = "0.12", default-features = false, features = [
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # WASM-specific dependencies
-wasm-bindgen = "0.2.84"
+wasm-bindgen = "0.2.100"
 wasm-bindgen-futures = "0.4.49"
 serde-wasm-bindgen = "0.4"
 tonic-web-wasm-client = "0.6"
@@ -133,5 +140,6 @@ hex-literal = "0.3.4"
 uuid = { version = "1.15.1", features = [ "v4",] }
 
 #[target.'cfg(not(target_arch = "wasm32"))'.build_dependencies]
+
 
 # -----------------------------------------

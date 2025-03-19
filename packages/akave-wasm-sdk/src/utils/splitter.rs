@@ -1,7 +1,5 @@
-use crate::utils::file_size::FileSize;
 use derivative::Derivative;
-#[cfg(not(target_arch = "wasm32"))]
-use std::fs::File;
+
 use std::{
     cmp,
     io::{Read, Seek, SeekFrom},
@@ -10,6 +8,12 @@ use std::{
 use wasm_bindgen_file_reader::WebSysFile as File;
 
 use super::encryption::Encryption;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::fs::File;
+#[cfg(not(target_arch = "wasm32"))]
+use super::file_size::FileSize;
+
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub struct Splitter {

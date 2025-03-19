@@ -1,5 +1,5 @@
 // Standard library imports
-use std::{str::FromStr, time::Duration};
+use std::time::Duration;
 
 // External crate imports (general)
 use futures::StreamExt;
@@ -11,7 +11,7 @@ use web3::{
 };
 
 // Internal imports
-use super::response_types::{BucketResponse, FileResponse};
+use super::ipc_types::{BucketResponse, FileResponse};
 
 // Target-specific imports
 #[cfg(target_arch = "wasm32")]
@@ -26,6 +26,7 @@ use wasm_imports::*;
 mod native_imports {
     pub use web3::transports::http::Http;
     pub use web3::signing::{Key, SecretKey, SecretKeyRef};
+    pub use std::str::FromStr;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -61,7 +62,7 @@ pub struct BlockchainProvider {
 
 impl BlockchainProvider {
     pub fn new(
-        rpc_url: &str,
+        _rpc_url: &str,
         access_address: &str,
         poll_interval: Option<Duration>,
         confirmations: Option<usize>,
@@ -111,7 +112,7 @@ impl BlockchainProvider {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let pvkey: &str = include_str!("user.akvf.key");
-            let transport = ProviderType::new(rpc_url);
+            let transport = ProviderType::new(_rpc_url);
 
             match transport {
                 Ok(transport_option) => {

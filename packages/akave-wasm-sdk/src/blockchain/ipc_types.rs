@@ -4,10 +4,16 @@ use web3::{
     types::{Address, U256},
 };
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
 pub struct DeleteBucketResponse {}
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
 pub struct BucketResponse {
     pub id: [u8; 32],
     pub name: String,
@@ -16,11 +22,19 @@ pub struct BucketResponse {
     pub files: Vec<[u8; 32]>,
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
 pub struct IStorageChunk {
     chunk_cids: Vec<Vec<u8>>,
     chunk_size: Vec<U256>,
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
 pub struct FileResponse {
     pub id: [u8; 32],
     pub file_cid: Vec<u8>,

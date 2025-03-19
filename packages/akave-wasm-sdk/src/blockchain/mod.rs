@@ -1,2 +1,2 @@
 pub mod provider;
-pub mod response_types;
+pub mod ipc_types;

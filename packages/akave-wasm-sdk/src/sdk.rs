@@ -1,10 +1,10 @@
 // Proto module definition
-pub mod ipcnodeapi {
+pub(crate) mod ipcnodeapi {
     tonic::include_proto!("ipcnodeapi");
 }
 
 // Standard library imports
-use std::{borrow::Cow, io::Write};
+use std::borrow::Cow;
 
 // External crate imports (general)
 use alloy::hex;
@@ -13,7 +13,6 @@ use cid::{
     multihash::{Code, MultihashDigest},
     Cid,
 };
-use prost_wkt_types::Timestamp;
 use quick_protobuf::BytesReader;
 use web3::types::{TransactionReceipt, U256};
 
@@ -22,18 +21,18 @@ use ipcnodeapi::{
     ipc_chunk::Block, ipc_file_download_create_response::Chunk,
     ipc_node_api_client::IpcNodeApiClient, ConnectionParamsRequest, IpcBucketListRequest,
     IpcBucketListResponse, IpcBucketViewRequest, IpcBucketViewResponse, IpcChunk, IpcFileBlockData,
-    IpcFileDeleteRequest, IpcFileDeleteResponse, IpcFileDownloadBlockRequest,
-    IpcFileDownloadChunkCreateRequest, IpcFileDownloadCreateRequest, IpcFileDownloadCreateResponse,
-    IpcFileListRequest, IpcFileUploadChunkCreateRequest, IpcFileViewRequest, IpcFileViewResponse,
+    IpcFileDownloadBlockRequest, IpcFileDownloadChunkCreateRequest, IpcFileDownloadCreateRequest,
+    IpcFileDownloadCreateResponse, IpcFileListRequest, IpcFileUploadChunkCreateRequest,
+    IpcFileViewRequest, IpcFileViewResponse,
 };
 
 // Internal crate imports
-use crate::{blockchain::provider::BlockchainProvider, utils};
-use crate::blockchain::response_types::BucketResponse;
-use crate::utils::dag::{ChunkDag, FileBlockUpload, DAG_PROTOBUF, RAW};
+use crate::{blockchain::ipc_types::BucketResponse, sdk_types::{IpcFileChunkUpload, IpcFileList, IpcFileListItem, FileChunkDownload, FileBlockDownload, AkaveBlockData}};
+use crate::utils::dag::{ChunkDag, DAG_PROTOBUF, RAW};
 use crate::utils::encryption::Encryption;
 use crate::utils::pb_data::PbData;
 use crate::utils::splitter::Splitter;
+use crate::{blockchain::provider::BlockchainProvider, utils};
 
 // Target-specific imports and types
 #[cfg(target_arch = "wasm32")]
@@ -71,42 +70,6 @@ const BLOCK_PART_SIZE: usize = ByteSize::kib(128).as_u64() as usize;
 
 /// Represents the Akave SDK client
 /// Akave Rust SDK should support both WASM (gRPC-Web) and native gRPC
-pub struct IpcFileListItem {
-    pub root_cid: String,
-    pub name: String,
-    pub encoded_size: i64,
-    pub created_at: Timestamp,
-}
-
-struct IpcFileChunkUpload {
-    pub index: usize,
-    pub chunk_cid: Cid,
-    pub actual_size: usize,
-    pub raw_data_size: usize,
-    pub proto_node_size: usize,
-    pub blocks: Vec<FileBlockUpload>,
-    pub bucket_id: [u8; 32],
-    pub file_name: String,
-}
-
-struct AkaveBlockData {
-    permit: String,
-    node_address: String,
-    node_id: String,
-}
-struct FileBlockDownload {
-    cid: String,
-    data: Vec<u8>,
-    akave: AkaveBlockData,
-}
-
-struct FileChunkDownload {
-    cid: String,
-    index: i64,
-    encoded_size: i64,
-    size: i64,
-    blocks: Vec<FileBlockDownload>,
-}
 
 pub struct AkaveIpcSDK {
     client: IpcNodeApiClient<ClientTransport>,
@@ -195,13 +158,13 @@ impl AkaveIpcSDK {
         &mut self,
         address: &str,
         bucket_name: &str,
-    ) -> Result<Vec<IpcFileListItem>, Box<dyn std::error::Error>> {
+    ) -> Result<IpcFileList, Box<dyn std::error::Error>> {
         let request = IpcFileListRequest {
             bucket_name: bucket_name.to_string(),
             address: address.to_string(),
         };
         let files = self.client.file_list(request).await?.into_inner();
-        Ok(files
+        Ok(IpcFileList{ files: files
             .list
             .iter()
             .map(|file| IpcFileListItem {
@@ -210,7 +173,7 @@ impl AkaveIpcSDK {
                 encoded_size: file.encoded_size,
                 name: file.name.clone(),
             })
-            .collect())
+            .collect()})
     }
 
     /// View file information
@@ -810,20 +773,20 @@ mod tests {
         );
 
         // Test list files
-        let files = sdk.list_files(ADDRESS, &bucket_name).await.unwrap();
-        assert_ne!(files.len(), 0, "there should be files in this bucket");
-        let has_test_file = files.iter().any(|file| file.name == FILE_NAME_TO_TEST);
+        let file_list = sdk.list_files(ADDRESS, &bucket_name).await.unwrap();
+        assert_ne!(file_list.files.len(), 0, "there should be files in this bucket");
+        let has_test_file = file_list.files.iter().any(|file| file.name == FILE_NAME_TO_TEST);
         assert!(has_test_file, "Uploaded file not found in bucket");
 
         // Test delete files and list
-        for file in files {
+        for file in file_list.files {
             let _ = sdk
                 .delete_file(ADDRESS, &bucket_name, &file.name)
                 .await
                 .expect("failed to delete file");
         }
-        let files = sdk.list_files(ADDRESS, &bucket_name).await.unwrap();
-        assert_eq!(files.len(), 0, "there should be no files in this bucket");
+        let file_list = sdk.list_files(ADDRESS, &bucket_name).await.unwrap();
+        assert_eq!(file_list.files.len(), 0, "there should be no files in this bucket");
 
         // Cleanup
         let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
@@ -898,8 +861,8 @@ mod tests {
 
         // List files
         println!("listing files in bucket {}", bucket_name);
-        let files = sdk.list_files(ADDRESS, &bucket_name).await.unwrap();
-        let has_test_file = files.iter().any(|file| file.name == FILE_NAME_TO_TEST);
+        let file_list = sdk.list_files(ADDRESS, &bucket_name).await.unwrap();
+        let has_test_file = file_list.files.iter().any(|file| file.name == FILE_NAME_TO_TEST);
         assert!(has_test_file, "Uploaded file not found in bucket");
 
         // Download file
@@ -918,7 +881,7 @@ mod tests {
 
         // Cleanup
         cleanup_download(&download_path);
-        
+
         // Delete file
         println!("deleting file {}", FILE_NAME_TO_TEST);
         let _ = sdk.delete_file(ADDRESS, &bucket_name, FILE_NAME_TO_TEST);

@@ -4,21 +4,13 @@ use cid::{
 };
 use ipfs_unixfs::file::adder::{BalancedCollector, Chunker, Collector, FileAdder};
 
+use crate::sdk_types::FileBlockUpload;
+
 pub const DAG_PROTOBUF: u64 = 0x70;
 pub const RAW: u64 = 0x55;
 
 #[derive(Debug)]
-pub struct FileBlockUpload {
-    pub cid: Cid,
-    pub data: Vec<u8>,
-
-    pub permit: String,
-    pub node_address: String,
-    pub node_id: String,
-}
-
-#[derive(Debug)]
-pub struct ChunkDag {
+pub(crate) struct ChunkDag {
     pub cid: Cid,
     pub raw_data_size: usize,
     pub proto_node_size: usize,

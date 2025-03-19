@@ -1,5 +1,7 @@
+use crate::blockchain::ipc_types::BucketResponse;
 use crate::sdk::ipcnodeapi;
-use crate::sdk::AkaveSDK;
+use crate::sdk::AkaveIpcSDK as AkaveSDK;
+use crate::sdk_types::IpcFileList;
 
 use std::sync::Once;
 
@@ -93,7 +95,7 @@ impl AkaveWebSDK {
         &mut self,
         address: &str,
         bucket_name: &str,
-    ) -> Result<ipcnodeapi::IpcFileListResponse, JsError> {
+    ) -> Result<IpcFileList, JsError> {
         let response = self.sdk.list_files(address, bucket_name).await;
 
         match response {
@@ -106,7 +108,7 @@ impl AkaveWebSDK {
     pub async fn create_bucket(
         &mut self,
         bucket_name: &str,
-    ) -> Result<ipcnodeapi::IpcBucketCreateResponse, JsError> {
+    ) -> Result<BucketResponse, JsError> {
         // TODO: this needs a blockchain transaction
         // FIXME: Although there's this call in the grpc, in akave code they dont use it to create a bucket?
         let response = self.sdk.create_bucket(bucket_name).await;
@@ -117,12 +119,12 @@ impl AkaveWebSDK {
     }
 
     #[wasm_bindgen(js_name = "deleteBucket")] // typescript convection is camelCase
-    pub async fn delete_bucket(&mut self) -> Result<ipcnodeapi::IpcBucketDeleteResponse, JsError> {
+    pub async fn delete_bucket(&mut self, address: &str, bucket_name: &str) -> Result<(), JsError> {
         // TODO: this needs a blockchain transaction
         // FIXME: Although there's this call in the grpc, in akave code they dont use it to create a bucket?
-        let response = self.sdk.delete_bucket().await;
+        let response = self.sdk.delete_bucket(address, bucket_name).await;
         match response {
-            Ok(bucket_delete_response) => Ok(bucket_delete_response),
+            Ok(_) => Ok(()),
             Err(e) => Err(JsError::new(e.to_string().as_str())),
         }
     }
@@ -130,18 +132,17 @@ impl AkaveWebSDK {
     #[wasm_bindgen(js_name = "deleteFile")] // typescript convection is camelCase
     pub async fn delete_file(
         &mut self,
-        bucket_id: Vec<u8>,
-        transaction: Vec<u8>,
+        address: &str,
+        bucket_name: &str,
         file_name: &str,
-    ) -> Result<ipcnodeapi::IpcFileDeleteResponse, JsError> {
-        // TODO: this needs a blockchain transaction
-        // FIXME: Although there's this call in the grpc, in akave code they dont use it to create a bucket?
+    ) -> Result<(), JsError> {
+
         let response = self
             .sdk
-            .delete_file(bucket_id, transaction, file_name)
+            .delete_file(address, bucket_name, file_name)
             .await;
         match response {
-            Ok(file_delete_response) => Ok(file_delete_response),
+            Ok(_) => Ok(()),
             Err(e) => Err(JsError::new(e.to_string().as_str())),
         }
     }
@@ -149,71 +150,35 @@ impl AkaveWebSDK {
     #[wasm_bindgen(js_name = "uploadFile")] // typescript convection is camelCase
     pub async fn upload_file(
         &mut self,
-        address: &str,
         bucket_name: &str,
         file: File,
-    ) -> Result<ipcnodeapi::IpcFileUploadBlockResponse, JsError> {
+        key: &str,
+    ) -> Result<String, JsError> {
+        let file_name = file.name().clone();
         let wf = WebSysFile::new(file);
 
-        let response = self.sdk.upload_file_basic(address, bucket_name, wf).await;
+        let response = self.sdk.upload_file(bucket_name, file_name.as_str(), wf, Some(key)).await;
 
-        // upload_file_basic
-        // TODO: this needs a blockchain transaction
-        // let response = self.sdk.upload_file_create(blocks, root_cid, size).await;
         match response {
-            Ok(upload_response) => Ok(upload_response),
+            Ok(upload_response) => Ok(upload_response.transaction_hash.to_string()),
             Err(e) => Err(JsError::new(e.to_string().as_str())),
         }
     }
 
-    /* #[wasm_bindgen(js_name = "uploadFileCreate")] // typescript convection is camelCase
-    pub async fn upload_file_create(
-        &mut self,
-        blocks: Vec<ipcnodeapi::ipc_file_upload_create_request::IpcBlock>,
-        root_cid: &str,
-        size: i64,
-    ) -> Result<ipcnodeapi::IpcFileUploadCreateResponse, JsError> {
-        // TODO: this needs a blockchain transaction
-        let response = self.sdk.upload_file_create(blocks, root_cid, size).await;
-        match response {
-            Ok(up_file_create_response) => Ok(up_file_create_response),
-            Err(e) => Err(JsError::new(e.to_string().as_str())),
-        }
-    }
-
-    // TODO: upload_file_block
-
-    #[wasm_bindgen(js_name = "downloadFileCreate")] // typescript convection is camelCase
-    pub async fn download_file_create(
-        &mut self,
-        address: &str,
-        bucket_name: &str,
-        file_name: &str,
-    ) -> Result<ipcnodeapi::IpcFileDownloadCreateResponse, JsError> {
-        let response = self
-            .sdk
-            .download_file_create(address, bucket_name, file_name)
-            .await;
-        match response {
-            Ok(file_download_create_response) => Ok(file_download_create_response),
-            Err(e) => Err(JsError::new(e.to_string().as_str())),
-        }
-    } */
-
-    #[wasm_bindgen(js_name = "downloadFile")] // typescript convection is camelCase
-    pub async fn download_file(
-        &mut self,
-        address: &str,
-        bucket_name: &str,
-        file_name: &str,
-        key: &str,
-    ) -> Result<File, JsValue> {
-        let data = self
-            .sdk
-            .download_file(address, bucket_name, file_name, key)
-            .await;
-        let js_data = JsValue::from(data);
-        let file = web_sys::File::new_with_u8_array_sequence(&js_data, file_name);
-        return file;
-    }
+    // #[wasm_bindgen(js_name = "downloadFile")] // typescript convection is camelCase
+    // pub async fn download_file(
+    //     &mut self,
+    //     address: &str,
+    //     bucket_name: &str,
+    //     file_name: &str,
+    //     key: &str,
+    // ) -> Result<File, JsValue> {
+    //     let data = self
+    //         .sdk
+    //         .download_file(address, bucket_name, file_name, key)
+    //         .await;
+    //     let js_data = JsValue::from(data);
+    //     let file = web_sys::File::new_with_u8_array_sequence(&js_data, file_name);
+    //     return file;
+    // }
 }
