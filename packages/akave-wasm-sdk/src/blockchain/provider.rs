@@ -6,7 +6,7 @@ use futures::StreamExt;
 use web3::{
     contract::{tokens::Tokenize, Contract, Options},
     error::TransportError,
-    types::{TransactionReceipt, H160, H256, U256},
+    types::{TransactionReceipt, TransactionRequest, H160, H256, U256},
     Error, Web3,
 };
 
@@ -166,66 +166,66 @@ impl BlockchainProvider {
     ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
         log_debug!("Calling contract function: {} with confirmations", function_name);
         let eth = self.web3_provider.eth();
-    
-        let filter_stream = self
-            .web3_provider
-            .eth_filter()
-            .create_blocks_filter()
-            .await?
-            .stream(self.poll_interval)
-            .skip(self.confirmations - 1);
-    
-        // Use tokio::pin! for native
-        #[cfg(not(target_arch = "wasm32"))]
-        tokio::pin!(filter_stream);
-
-        // Use futures::pin_mut! for wasm
-        #[cfg(target_arch = "wasm32")]
-        futures::pin_mut!(filter_stream);
-    
+        
+        // Send transaction and get hash
         let hash = self.call_contract(function_name, params).await?;
         log_debug!("Transaction hash: {}", hash);
 
-        while let Some(result_log) = filter_stream.next().await {
-            log_debug!("Received block log");
-            let log: H256 = match result_log {
-                Ok(log) => log,
-                Err(e) => {
-                    log_error!("Error receiving block log: {}", e);
-                    continue;
-                }
-            };
-            log_debug!("Block log: {}", log);
-            log_debug!("Current block number: {}", eth.block_number().await?);
+        // Initial backoff parameters
+        let mut backoff_ms = 1000; // Start with 1 second
+        let max_backoff_ms = 60000; // Max 1 minute
+        let max_attempts = 60; // 5 minutes total with max backoff
+        let mut attempts = 0;
 
+        loop {
+            // Check if we've exceeded max attempts
+            if attempts >= max_attempts {
+                log_error!("Transaction confirmation timeout after 5 minutes");
+                return Err("Transaction confirmation timeout".into());
+            }
+
+            // Get current block number
+            let current_block = eth.block_number().await?;
+            log_debug!("Current block number: {}", current_block);
+
+            // Get transaction receipt
             let receipt = eth.transaction_receipt(hash).await?;
-            let check = receipt.and_then(|receipt| receipt.block_number);
-
-            match check {
-                Some(confirmation_block_number) => {
-                    let block_number = eth.block_number().await?;
-                    log_debug!("Transaction block: {}, Current block: {}", confirmation_block_number, block_number);
-                    if confirmation_block_number.low_u64() + (self.confirmations - 1) as u64
-                        <= block_number.low_u64()
-                    {
-                        break;
+            
+            match receipt {
+                Some(receipt) => {
+                    if let Some(confirmation_block) = receipt.block_number {
+                        let blocks_since_confirmation = current_block.low_u64() - confirmation_block.low_u64();
+                        log_debug!("Blocks since confirmation: {}", blocks_since_confirmation);
+                        
+                        if blocks_since_confirmation >= self.confirmations as u64 {
+                            log_info!("Transaction confirmed with {} blocks", blocks_since_confirmation);
+                            return Ok(receipt);
+                        }
                     }
                 }
                 None => {
-                    log_warn!("No block number found in receipt");
+                    log_debug!("Transaction receipt not found yet");
                 }
             }
-        }
 
-        match eth.transaction_receipt(hash).await? {
-            Some(receipt_option) => {
-                log_info!("Transaction confirmed successfully");
-                Ok(receipt_option)
+            // Simple jitter using block number
+            let jitter = (current_block.low_u64() % 1000) as u64;
+            let sleep_duration = std::time::Duration::from_millis(backoff_ms + jitter);
+            
+            #[cfg(target_arch = "wasm32")]
+            {
+                use gloo_timers::future::sleep;
+                sleep(sleep_duration).await;
             }
-            None => {
-                log_error!("Failed to get transaction receipt");
-                Err("Error getting tx receipt")?
+
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                tokio::time::sleep(sleep_duration).await;
             }
+
+            // Increase backoff time, but cap it
+            backoff_ms = (backoff_ms * 2).min(max_backoff_ms);
+            attempts += 1;
         }
     }
 
@@ -255,7 +255,9 @@ impl BlockchainProvider {
     
         #[cfg(target_arch = "wasm32")]
         {
+            log_debug!("Calling contract function: {} with confsssirmations", function_name);
             let address = self.web3_provider.eth().accounts().await?[0];
+            log_debug!("Calling contract function: {} with confirmations, with address: {}", function_name, address);
             return Ok(self.akave.call(function_name, params, address, txopts).await?);
         }
     }
