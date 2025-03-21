@@ -1,34 +1,16 @@
 {
-  "name": "monorepo-akave-sdk",
-  "version": "1.0.0",
-  "description": "Akave Rust/Wasm SDK",
-  "workspaces": [
-    "packages/*"
+  "name": "akave-rs",
+  "type": "module",
+  "collaborators": [
+    "Gilberto Conde <gilberto.conde@lightshift.xyz>",
+    "Sam Hassan <sam.hassan@lightshift.xyz>"
   ],
+  "version": "0.8",
   "scripts": {
-    "test": "npm run test -w akave-wasm-sdk",
-    "dev": "npm run build:wasm && npm run dev:web",
-    "grpc-proxy": "npx @grpc-web/proxy --target http://connect.akave.ai:5500 --listen 3000",
-    "publish": "npm run publish -w akave-wasm-sdk",
-    "build": "npm run build-prod:wasm && npm run build:web",
-    "build:wasm": "npm run build -w akave-wasm-sdk",
-    "build-prod:wasm": "npm run build:prod -w akave-wasm-sdk",
-    "build:web": "npm run build -w frontend-akave-wasm-sdk",
-    "lint:web": "npm run lint -w frontend-akave-wasm-sdk",
-    "preview:web": "npm run preview -w frontend-akave-wasm-sdk",
-    "dev:web": "npm run dev -w frontend-akave-wasm-sdk"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/lightshiftdev/akave-rs.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "bugs": {
-    "url": "https://github.com/lightshiftdev/akave-rs/issues"
-  },
-  "homepage": "https://github.com/lightshiftdev/akave-rs#readme",
-  "main": "index.js"
+    "build:web": "wasm-pack build . --target web",
+    "build:nartive": "cargo build --release",
+    "test:web": "wasm-pack test --headless --firefox",
+    "test:native": "cargo test -- --nocapture",
+    "publish:web": "wasm-pack publish"
+  }
 }
