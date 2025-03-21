@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Akave WASM SDK Demo</title>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Akave WASM SDK Demo</h1>
+            <div class="wallet-section">
+                <button id="connectWallet" class="btn primary" disabled>Connect Wallet</button>
+                <span id="walletAddress" class="wallet-address"></span>
+            </div>
+        </header>
+
+        <main>
+            <section class="buckets-section">
+                <h2>Buckets</h2>
+                <div class="create-bucket">
+                    <input type="text" id="bucketName" placeholder="Enter bucket name" class="input">
+                    <button id="createBucket" class="btn">Create Bucket</button>
+                </div>
+                <div id="bucketsList" class="list"></div>
+            </section>
+
+            <section class="files-section">
+                <h2>Files</h2>
+                <div class="upload-file">
+                    <select id="bucketSelect" class="select" disabled>
+                        <option value="">Select a bucket</option>
+                    </select>
+                    <input type="file" id="fileInput" class="file-input">
+                    <button id="uploadFile" class="btn" disabled>Upload File</button>
+                </div>
+                <div id="filesList" class="list"></div>
+            </section>
+        </main>
+    </div>
+</body>
+</html> 
