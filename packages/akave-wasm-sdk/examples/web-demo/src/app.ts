@@ -151,7 +151,7 @@ class App {
 
             console.log(`Fetching buckets for address: ${this.state.currentAddress}`);
             const response = await this.state.sdk.listBuckets(this.state.currentAddress);
-            console.log(`Found ${response.buckets.length} buckets`);
+            console.log(`Found ${response.buckets.length} buckets`, response.buckets);
 
             this.bucketsList.innerHTML = '';
             this.bucketSelect.innerHTML = '<option value="">Select a bucket</option>';
