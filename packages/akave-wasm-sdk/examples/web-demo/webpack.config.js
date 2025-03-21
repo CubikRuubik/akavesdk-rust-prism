@@ -43,7 +43,9 @@ export default {
     },
     experiments: {
         asyncWebAssembly: true,
-        topLevelAwait: true
+        topLevelAwait: true,
+        layers: true,
+        syncWebAssembly: true
     },
     plugins: [
         new HtmlWebpackPlugin({

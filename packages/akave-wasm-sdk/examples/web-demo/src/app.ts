@@ -2,6 +2,16 @@ import init, { AkaveWebSDK } from '@akave/akave-wasm-sdk';
 import { AppState, Bucket, File, Notification } from './types';
 import './styles.css';
 
+// Enable WASM logging
+const originalConsoleLog = console.log;
+console.log = (...args) => {
+    originalConsoleLog.apply(console, args);
+    // Log WASM messages if they exist
+    if (args[0] && typeof args[0] === 'string' && args[0].includes('WASM')) {
+        originalConsoleLog('[WASM]', ...args);
+    }
+};
+
 class App {
     private state: AppState = {
         sdk: null,
@@ -52,7 +62,8 @@ class App {
             console.log('Creating SDK instance...');
             const sdk = await AkaveWebSDK.new();
             this.state.sdk = sdk;
-            console.log('SDK initialized successfully');
+            console.log('SDK instance created successfully');
+            
             this.connectWalletBtn.disabled = false;
         } catch (error) {
             console.error('Failed to initialize:', error);

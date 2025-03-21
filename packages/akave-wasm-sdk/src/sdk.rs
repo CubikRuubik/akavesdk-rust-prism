@@ -33,6 +33,7 @@ use crate::utils::encryption::Encryption;
 use crate::utils::pb_data::PbData;
 use crate::utils::splitter::Splitter;
 use crate::{blockchain::provider::BlockchainProvider, utils};
+use crate::{log_info, log_error, log_debug};
 
 // Target-specific imports and types
 #[cfg(target_arch = "wasm32")]
@@ -79,20 +80,25 @@ pub(crate) struct AkaveIpcSDK {
 impl AkaveIpcSDK {
     /// Creates a new AkaveSDK instance
     pub async fn new(server_address: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        log_info!("Initializing AkaveSDK with server address: {}", server_address);
+        
         #[cfg(target_arch = "wasm32")]
         {
             let grpc_web_client = ClientTransport::new(server_address.into());
             let mut client = IpcNodeApiClient::new(grpc_web_client);
+            log_debug!("Requesting connection parameters...");
             let connection_params = client
                 .connection_params(ConnectionParamsRequest {})
                 .await?
                 .into_inner();
+            log_debug!("Creating blockchain provider...");
             let storage = BlockchainProvider::new(
                 &connection_params.dial_uri,
                 &connection_params.storage_address,
                 None,
                 None,
             );
+            log_info!("AkaveSDK initialized successfully");
             Ok(Self {
                 client,
                 storage: storage.unwrap(),
@@ -110,11 +116,13 @@ impl AkaveIpcSDK {
             let mut client = IpcNodeApiClient::new(channel)
                 .max_decoding_message_size(usize::MAX)
                 .max_encoding_message_size(usize::MAX);
+            log_debug!("Requesting connection parameters...");
             let connection_params = client
                 .connection_params(ConnectionParamsRequest {})
                 .await?
                 .into_inner();
 
+            log_debug!("Creating blockchain provider...");
             let storage = BlockchainProvider::new(
                 &connection_params.dial_uri,
                 &connection_params.storage_address,
@@ -122,6 +130,7 @@ impl AkaveIpcSDK {
                 None,
             );
 
+            log_info!("AkaveSDK initialized successfully");
             Ok(Self {
                 client,
                 storage: storage.unwrap(),
@@ -134,10 +143,13 @@ impl AkaveIpcSDK {
         &mut self,
         address: &str,
     ) -> Result<IpcBucketListResponse, Box<dyn std::error::Error>> {
+        log_debug!("Listing buckets for address: {}", address);
         let request = IpcBucketListRequest {
             address: address.to_string(),
         };
-        Ok(self.client.bucket_list(request).await?.into_inner())
+        let response = self.client.bucket_list(request).await?.into_inner();
+        log_info!("Found {} buckets", response.buckets.len());
+        Ok(response)
     }
 
     /// View a bucket
@@ -146,11 +158,14 @@ impl AkaveIpcSDK {
         address: &str,
         bucket_name: &str,
     ) -> Result<IpcBucketViewResponse, Box<dyn std::error::Error>> {
+        log_debug!("Viewing bucket: {} for address: {}", bucket_name, address);
         let request = IpcBucketViewRequest {
             name: bucket_name.to_string(),
             address: address.to_string(),
         };
-        Ok(self.client.bucket_view(request).await?.into_inner())
+        let response = self.client.bucket_view(request).await?.into_inner();
+        log_info!("Retrieved bucket details for: {}", bucket_name);
+        Ok(response)
     }
 
     /// List files in a bucket
@@ -159,12 +174,13 @@ impl AkaveIpcSDK {
         address: &str,
         bucket_name: &str,
     ) -> Result<IpcFileList, Box<dyn std::error::Error>> {
+        log_debug!("Listing files in bucket: {} for address: {}", bucket_name, address);
         let request = IpcFileListRequest {
             bucket_name: bucket_name.to_string(),
             address: address.to_string(),
         };
         let files = self.client.file_list(request).await?.into_inner();
-        Ok(IpcFileList{ files: files
+        let file_list = IpcFileList{ files: files
             .list
             .iter()
             .map(|file| IpcFileListItem {
@@ -173,7 +189,9 @@ impl AkaveIpcSDK {
                 encoded_size: file.encoded_size,
                 name: file.name.clone(),
             })
-            .collect()})
+            .collect()};
+        log_info!("Found {} files in bucket: {}", file_list.files.len(), bucket_name);
+        Ok(file_list)
     }
 
     /// View file information
@@ -183,13 +201,15 @@ impl AkaveIpcSDK {
         bucket_name: &str,
         file_name: &str,
     ) -> Result<IpcFileViewResponse, Box<dyn std::error::Error>> {
+        log_debug!("Viewing file info: {} in bucket: {} for address: {}", file_name, bucket_name, address);
         let request = IpcFileViewRequest {
             bucket_name: bucket_name.to_string(),
             file_name: file_name.to_string(),
             address: address.to_string(),
         };
-        println!("request:  {:?}", request);
-        Ok(self.client.file_view(request).await?.into_inner())
+        let response = self.client.file_view(request).await?.into_inner();
+        log_info!("Retrieved file details for: {} in bucket: {}", file_name, bucket_name);
+        Ok(response)
     }
 
     // Create a new bucket
@@ -197,13 +217,18 @@ impl AkaveIpcSDK {
         &mut self,
         bucket_name: &str,
     ) -> Result<BucketResponse, Box<dyn std::error::Error>> {
+        log_debug!("Creating bucket: {}", bucket_name);
         if bucket_name.len() < MIN_BUCKET_NAME_LENGTH {
-            return Err(format!(
+            let error_msg = format!(
                 "Bucket name must have at least {} characters",
                 MIN_BUCKET_NAME_LENGTH
-            ))?;
+            );
+            log_error!("{}", error_msg);
+            return Err(error_msg)?;
         }
+        log_info!("Create bucket request to storage: {}", bucket_name);
         self.storage.create_bucket(bucket_name.into()).await?;
+        log_info!("Bucket created successfully: {}", bucket_name);
         self.storage.get_bucket_by_name(bucket_name.into()).await
     }
 
@@ -213,7 +238,7 @@ impl AkaveIpcSDK {
         address: &str,
         bucket_name: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // TODO: Check if bucket is empty
+        log_debug!("Deleting bucket: {} for address: {}", bucket_name, address);
         let bucket = self.view_bucket(address, bucket_name).await?;
         let bucket_id = hex::decode(bucket.id.clone())?;
         let bucket_idx = self
@@ -224,25 +249,24 @@ impl AkaveIpcSDK {
         self.storage
             .delete_bucket(bucket_id, bucket_name.into(), bucket_idx)
             .await?;
+        log_info!("Bucket deleted successfully: {}", bucket_name);
         Ok(())
     }
 
     // Delete an existing file
-    // TODO: fixme
     pub async fn delete_file(
         &mut self,
         address: &str,
         bucket_name: &str,
         file_name: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // let file = self.view_file_info(address, bucket_name, file_name).await?;
-        // let fileinfo = self.storage.get_file_by_name(bucket_id, file_name).await?;
+        log_debug!("Deleting file: {} from bucket: {} for address: {}", file_name, bucket_name, address);
         let bucket = self.view_bucket(address, bucket_name).await?;
         let bucket_id = hex::decode(bucket.id.clone())?;
         self.storage
             .delete_file(file_name.to_string(), bucket_id)
             .await?;
-
+        log_info!("File deleted successfully: {} from bucket: {}", file_name, bucket_name);
         Ok(())
     }
 
@@ -263,9 +287,11 @@ impl AkaveIpcSDK {
         file: File,
         passwd: Option<&str>,
     ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
-        // GET BUCKET
+        log_debug!("Starting file upload: {} to bucket: {}", file_name, bucket_name);
         if bucket_name.is_empty() {
-            return Err("Empty bucket name")?;
+            let error_msg = "Empty bucket name";
+            log_error!("{}", error_msg);
+            return Err(error_msg)?;
         }
 
         let bucket = self
@@ -276,9 +302,9 @@ impl AkaveIpcSDK {
         let resp = self.create_file_upload(bucket.id.to_vec(), file_name).await;
 
         if resp.is_ok() {
-            println!("File created successfully");
+            log_info!("File created successfully: {}", file_name);
         }
-        // SPLIT FILE INTO 32MB AND ENCRYPT DATA
+
         let info = vec![bucket_name, file_name].join("/");
 
         let encryption = match passwd {
@@ -289,9 +315,12 @@ impl AkaveIpcSDK {
         let chunk_size = (BLOCK_SIZE * MAX_BLOCKS_IN_CHUNK) as u64;
         let chunker = Splitter::new(file, chunk_size, encryption);
         if chunker.size() == 0 {
-            return Err("Empty file".into());
+            let error_msg = "Empty file";
+            log_error!("{}", error_msg);
+            return Err(error_msg.into());
         }
-        // ITERATE OVER 32MB CHUNKS
+
+        log_debug!("Starting chunk upload process");
         let mut enum_blocks = chunker.into_iter().enumerate();
 
         let root_hasher = Code::Sha2_256;
@@ -299,15 +328,12 @@ impl AkaveIpcSDK {
         let mut file_size: usize = 0;
 
         while let Some((idx, Ok(block_32m))) = enum_blocks.next() {
-            // CREATE CHUNK UPLOAD
+            log_debug!("Processing chunk {} for file: {}", idx, file_name);
             let (chunk, _, ipc_chunk) = self
                 .create_chunk_upload(idx, block_32m.to_vec(), bucket.id, file_name)
                 .await?;
-            // INCREMENT FILE SIZE
             file_size += chunk.actual_size;
-            // ADD CHUNK TO DAG ROOT
             root_hash = Some(root_hasher.digest(&chunk.chunk_cid.to_bytes()));
-            // UPLOAD CHUNK
 
             let mut chunks_iter = chunk.blocks.iter().enumerate();
             while let Some((index, block_1mb)) = chunks_iter.next() {
@@ -321,15 +347,9 @@ impl AkaveIpcSDK {
                 })
                 .await?;
             }
-
-            /* self.upload_chunk(chunk, bucket.id.to_vec(), file_name.to_string(), ipc_chunk)
-            .await?; */
         }
-        // GENERATES DAG ROOT CID
+
         let root_cid = Cid::new_v1(DAG_PROTOBUF, root_hash.unwrap());
-        // GET FILE METADATA FROM CONTRACT
-        // TODO: let file_meta = self.storage.get_file_by_name(bucket.id, file_name);
-        // COMMIT FILE TO CONTRACT
         let receipt = self
             .storage
             .commit_file(
@@ -339,8 +359,9 @@ impl AkaveIpcSDK {
                 root_cid.to_bytes(),
             )
             .await?;
-        // RETURN
-        Ok(receipt) // TODO: Improve response
+        
+        log_info!("File uploaded successfully: {} to bucket: {}", file_name, bucket_name);
+        Ok(receipt)
     }
 
     async fn create_chunk_upload(
@@ -349,17 +370,13 @@ impl AkaveIpcSDK {
         data: Vec<u8>,
         bucket_id: [u8; 32],
         file_name: &str,
-    ) -> Result<(IpcFileChunkUpload, TransactionReceipt, IpcChunk), Box<dyn std::error::Error>>
-    {
-        // BUILD A NEW DAG
+    ) -> Result<(IpcFileChunkUpload, TransactionReceipt, IpcChunk), Box<dyn std::error::Error>> {
+        log_debug!("Creating chunk upload for file: {}, chunk index: {}", file_name, index);
         let block_size = BLOCK_SIZE;
         let size = data.len();
-        // let mut dag = DagBuilder::new(data, block_size);
 
         let chunk_dag = ChunkDag::new(block_size, data);
         let mut dag = chunk_dag.blocks.iter();
-
-        // GET CIDS AND SIZES FROM to_ipc_proto_chunk
 
         let mut cids: Vec<[u8; 32]> = vec![];
         let mut sizes = vec![];
@@ -386,18 +403,20 @@ impl AkaveIpcSDK {
             size: size as i64,
             blocks: chunk_blocks,
         };
-        // CALL grpc FileUploadChunkCreate
+
         let chunk_create_request = IpcFileUploadChunkCreateRequest {
             chunk: Some(ipc_chunk.clone()),
             bucket_id: bucket_id.to_vec(),
             file_name: file_name.to_string(),
         };
+
+        log_debug!("Requesting chunk upload creation");
         let chunk_create_response = self
             .client
             .file_upload_chunk_create(chunk_create_request)
             .await?
             .into_inner();
-        // UPDATE DAG INFO WITH RESPONSE FROM GRPC
+
         let mut blocks = chunk_dag.blocks;
         chunk_create_response
             .blocks
@@ -408,7 +427,8 @@ impl AkaveIpcSDK {
                 blocks[idx].node_id = block.node_id.clone();
                 blocks[idx].permit = block.permit.clone();
             });
-        // CALL CONTRACT AddFileChunk
+
+        log_debug!("Adding file chunk to contract");
         let receipt = self
             .storage
             .add_file_chunk(
@@ -421,14 +441,15 @@ impl AkaveIpcSDK {
                 index.into(),
             )
             .await?;
-        // RETURN
+
+        log_debug!("Chunk upload created successfully for file: {}, chunk index: {}", file_name, index);
         Ok((
             IpcFileChunkUpload {
                 index,
                 chunk_cid,
                 actual_size: size,
-                raw_data_size: size,  // Kept for API compatibility
-                proto_node_size: size,  // Kept for API compatibility
+                raw_data_size: size,
+                proto_node_size: size,
                 blocks,
                 bucket_id,
                 file_name: file_name.to_string(),
@@ -449,8 +470,7 @@ impl AkaveIpcSDK {
         }
 
         let mut total = 0;
-
-        println!("{:#?}", chunk.cid);
+        log_debug!("Uploading chunk with CID: {}", chunk.cid);
 
         let mut blocks_upload = vec![];
 
@@ -488,6 +508,7 @@ impl AkaveIpcSDK {
             .file_upload_block(block_stream)
             .await?
             .into_inner();
+        log_debug!("Chunk uploaded successfully");
         Ok(())
     }
 
@@ -497,16 +518,19 @@ impl AkaveIpcSDK {
         bucket_name: &str,
         file_name: &str,
     ) -> Result<IpcFileDownloadCreateResponse, Box<dyn std::error::Error>> {
+        log_debug!("Creating file download for: {} in bucket: {} for address: {}", file_name, bucket_name, address);
         let request = IpcFileDownloadCreateRequest {
             address: address.to_string(),
             bucket_name: bucket_name.to_string(),
             file_name: file_name.to_string(),
         };
-        Ok(self
+        let response = self
             .client
             .file_download_create(request)
             .await?
-            .into_inner())
+            .into_inner();
+        log_info!("File download created successfully for: {}", file_name);
+        Ok(response)
     }
 
     pub async fn download_file(
@@ -517,6 +541,7 @@ impl AkaveIpcSDK {
         passwd: Option<&str>,
         destination_path: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        log_debug!("Starting file download: {} from bucket: {} for address: {}", file_name, bucket_name, address);
         let info = vec![bucket_name, file_name].join("/");
 
         let option_encryption = match passwd {
@@ -534,6 +559,7 @@ impl AkaveIpcSDK {
 
         let mut chunk_index = 0;
         for chunk in file_download.chunks {
+            log_debug!("Processing chunk {} for file: {}", chunk_index, file_name);
             let chunk_cid = chunk.cid.clone();
             let chunk_download = self
                 .create_chunk_download(bucket_name, file_name, address, chunk, chunk_index)
@@ -542,7 +568,6 @@ impl AkaveIpcSDK {
             let mut block_index = 0;
             for block in chunk_download.blocks {
                 let mut chunk_data = vec![];
-                // let mut retrieved_blocks = vec![];
                 let req = IpcFileDownloadBlockRequest {
                     address: address.to_string(),
                     chunk_cid: chunk_cid.clone(),
@@ -559,7 +584,7 @@ impl AkaveIpcSDK {
                 }
 
                 let final_data = match codec {
-                    0x55 => chunk_data, // RAW codec value
+                    0x55 => chunk_data,
                     DAG_PROTOBUF => {
                         let mut reader = BytesReader::from_bytes(&chunk_data);
 
@@ -593,7 +618,7 @@ impl AkaveIpcSDK {
             chunk_index += 1;
         }
         destination.finalize()?;
-
+        log_info!("File downloaded successfully: {} from bucket: {}", file_name, bucket_name);
         Ok(())
     }
 
@@ -605,6 +630,7 @@ impl AkaveIpcSDK {
         chunk: Chunk,
         index: i64,
     ) -> Result<FileChunkDownload, Box<dyn std::error::Error>> {
+        log_debug!("Creating chunk download for file: {}, chunk index: {}", file_name, index);
         let request = IpcFileDownloadChunkCreateRequest {
             bucket_name: bucket_name.to_string(),
             file_name: file_name.to_string(),
@@ -630,6 +656,7 @@ impl AkaveIpcSDK {
             });
         }
 
+        log_debug!("Chunk download created successfully for file: {}, chunk index: {}", file_name, index);
         Ok(FileChunkDownload {
             cid: chunk.cid,
             index,
