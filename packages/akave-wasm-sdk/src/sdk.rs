@@ -28,7 +28,7 @@ use ipcnodeapi::{
 
 // Internal crate imports
 use crate::{blockchain::ipc_types::BucketResponse, sdk_types::{IpcFileChunkUpload, IpcFileList, IpcFileListItem, FileChunkDownload, FileBlockDownload, AkaveBlockData}};
-use crate::utils::dag::{ChunkDag, DAG_PROTOBUF, RAW};
+use crate::utils::dag::{ChunkDag, DAG_PROTOBUF}; // Removed unused RAW import
 use crate::utils::encryption::Encryption;
 use crate::utils::pb_data::PbData;
 use crate::utils::splitter::Splitter;
@@ -61,17 +61,17 @@ type ClientTransport = GrpcWebClient;
 type ClientTransport = Channel;
 
 // Constants
-const ENCRYPTION_OVERHEAD: usize = 32;
+// const ENCRYPTION_OVERHEAD: usize = 32;  // Unused constant
 const BLOCK_SIZE: usize = MB as usize;
 const MIN_BUCKET_NAME_LENGTH: usize = 3;
-const MIN_FILE_SIZE: usize = 127;
+// const MIN_FILE_SIZE: usize = 127;  // Unused constant
 const MAX_BLOCKS_IN_CHUNK: usize = 32;
 const BLOCK_PART_SIZE: usize = ByteSize::kib(128).as_u64() as usize;
 
 /// Represents the Akave SDK client
 /// Akave Rust SDK should support both WASM (gRPC-Web) and native gRPC
 
-pub struct AkaveIpcSDK {
+pub(crate) struct AkaveIpcSDK {
     client: IpcNodeApiClient<ClientTransport>,
     storage: BlockchainProvider,
 }
@@ -427,8 +427,8 @@ impl AkaveIpcSDK {
                 index,
                 chunk_cid,
                 actual_size: size,
-                raw_data_size: size,
-                proto_node_size: size,
+                raw_data_size: size,  // Kept for API compatibility
+                proto_node_size: size,  // Kept for API compatibility
                 blocks,
                 bucket_id,
                 file_name: file_name.to_string(),
@@ -559,7 +559,7 @@ impl AkaveIpcSDK {
                 }
 
                 let final_data = match codec {
-                    RAW => chunk_data,
+                    0x55 => chunk_data, // RAW codec value
                     DAG_PROTOBUF => {
                         let mut reader = BytesReader::from_bytes(&chunk_data);
 

@@ -51,7 +51,7 @@ const DELETE_FILE: &str = "deleteFile";
 const GET_FILE_INDEX_BY_NAME: &str = "getFileIndexById";
 const GET_FILE_BY_NAME: &str = "getFileByName";
 
-pub struct BlockchainProvider {
+pub(crate) struct BlockchainProvider {
     pub web3_provider: Web3<ProviderType>,
     pub akave: Contract<ProviderType>,
     poll_interval: Duration,

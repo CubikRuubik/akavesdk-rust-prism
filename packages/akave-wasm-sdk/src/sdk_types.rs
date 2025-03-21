@@ -1,17 +1,17 @@
 use std::str::FromStr;
-
 use cid::Cid;
-use prost_wkt_types::Timestamp;
-
+use prost_types::Timestamp;
+use crate::utils::timestamp::timestamp_serde_direct;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub struct IpcFileListItem {
+pub(crate) struct IpcFileListItem {
     pub root_cid: String,
     pub name: String,
     pub encoded_size: i64,
+    #[serde(with = "timestamp_serde_direct")]
     pub created_at: Timestamp,
 }
 
@@ -20,7 +20,7 @@ pub struct IpcFileListItem {
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub struct IpcFileList {
+pub(crate) struct IpcFileList {
     pub files: Vec<IpcFileListItem>,
 }
 
@@ -45,7 +45,7 @@ where
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub struct FileBlockUpload {
+pub(crate) struct FileBlockUpload {
     #[serde(serialize_with = "serialize_cid", deserialize_with = "deserialize_cid")]
     pub cid: Cid,
     pub data: Vec<u8>,
@@ -58,7 +58,7 @@ pub struct FileBlockUpload {
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub struct IpcFileChunkUpload {
+pub(crate) struct IpcFileChunkUpload {
     pub index: usize,
     #[serde(serialize_with = "serialize_cid", deserialize_with = "deserialize_cid")]
     pub chunk_cid: Cid,
@@ -74,7 +74,7 @@ pub struct IpcFileChunkUpload {
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub struct AkaveBlockData {
+pub(crate) struct AkaveBlockData {
     pub permit: String,
     pub node_address: String,
     pub node_id: String,
@@ -84,7 +84,7 @@ pub struct AkaveBlockData {
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub struct FileBlockDownload {
+pub(crate) struct FileBlockDownload {
     pub cid: String,
     pub data: Vec<u8>,
     pub akave: AkaveBlockData,
@@ -94,7 +94,7 @@ pub struct FileBlockDownload {
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub struct FileChunkDownload {
+pub(crate) struct FileChunkDownload {
     pub cid: String,
     pub index: i64,
     pub encoded_size: i64,

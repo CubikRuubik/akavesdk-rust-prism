@@ -6,7 +6,7 @@ use quick_protobuf::sizeofs::*;
 use quick_protobuf::{BytesReader, MessageRead, MessageWrite, Result, Writer, WriterBackend};
 
 #[derive(Debug, Default, PartialEq, Clone)]
-pub struct PbData<'a> {
+pub(crate) struct PbData<'a> {
     pub data_type: mod_Data::DataType,
     pub data: Option<Cow<'a, [u8]>>,
     pub file_size: Option<u64>,
@@ -152,7 +152,7 @@ pub mod mod_Data {
 }
 
 #[derive(Debug, Default, PartialEq, Clone)]
-pub struct UnixTime {
+pub(crate) struct UnixTime {
     pub Seconds: i64,
     pub FractionalNanoseconds: Option<u32>,
 }
@@ -187,7 +187,7 @@ impl MessageWrite for UnixTime {
     }
 }
 #[derive(Debug, Default, PartialEq, Clone)]
-pub struct Metadata<'a> {
+pub(crate) struct Metadata<'a> {
     pub MimeType: Option<Cow<'a, str>>,
 }
 impl<'a> MessageRead<'a> for Metadata<'a> {

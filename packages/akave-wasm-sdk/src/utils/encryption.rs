@@ -9,7 +9,7 @@ pub const KEY_LEN: usize = 32;
 pub const GCM_NONCE_SIZE: usize = 12;
 
 #[derive(Debug)]
-pub struct Encryption {
+pub(crate) struct Encryption {
     key: Option<[u8; KEY_LEN]>,
 }
 

@@ -22,15 +22,17 @@ use wasm_imports::*;
 
 
 #[cfg(not(target_arch = "wasm32"))]
-pub struct Destination {
+pub(crate) struct Destination {
     file: File,
 }
 
 #[cfg(target_arch = "wasm32")]
-pub struct Destination {
+pub(crate) struct Destination {
     buffer: Vec<u8>,
     path: String,
 }
+
+// The Destination struct is used in sdk.rs and should not be removed
 
 impl Destination {
     #[cfg(not(target_arch = "wasm32"))]

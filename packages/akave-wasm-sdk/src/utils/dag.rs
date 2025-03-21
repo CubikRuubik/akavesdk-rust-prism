@@ -7,13 +7,13 @@ use ipfs_unixfs::file::adder::{BalancedCollector, Chunker, Collector, FileAdder}
 use crate::sdk_types::FileBlockUpload;
 
 pub const DAG_PROTOBUF: u64 = 0x70;
-pub const RAW: u64 = 0x55;
+// pub const RAW: u64 = 0x55;  // Unused constant
 
 #[derive(Debug)]
 pub(crate) struct ChunkDag {
     pub cid: Cid,
-    pub raw_data_size: usize,
-    pub proto_node_size: usize,
+    // pub raw_data_size: usize,  // Unused field
+    // pub proto_node_size: usize,  // Unused field
     pub blocks: Vec<FileBlockUpload>,
 }
 
@@ -47,15 +47,14 @@ impl ChunkDag {
         adder.finish().for_each(|block| {
             dag_blocks.push(block);
         });
-
         let mut blocks = vec![];
 
-        let mut raw_data_size = 0;
+        // let mut raw_data_size = 0;  // Unused variable
 
         dag_blocks.iter().for_each(|(_, block_data)| {
             let hash: Multihash = Code::Sha2_256.digest(&block_data);
             let cid = Cid::new_v1(DAG_PROTOBUF, hash);
-            raw_data_size += block_data.len();
+            // raw_data_size += block_data.len();  // Unused calculation
             blocks.push(FileBlockUpload {
                 cid,
                 data: block_data.to_owned(),
@@ -65,7 +64,7 @@ impl ChunkDag {
             });
         });
 
-        let proto_node_size = blocks.last().unwrap().data.len();
+        // let proto_node_size = blocks.last().unwrap().data.len();  // Unused variable
         let cid = blocks.last().unwrap().cid;
 
         if blocks.len() > 1 {
@@ -74,8 +73,8 @@ impl ChunkDag {
 
         return Self {
             cid,
-            raw_data_size,
-            proto_node_size,
+            // raw_data_size,  // Removed unused field
+            // proto_node_size,  // Removed unused field
             blocks,
         };
     }

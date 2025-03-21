@@ -8,13 +8,13 @@ use web3::{
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub struct DeleteBucketResponse {}
+pub(crate) struct DeleteBucketResponse {}
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub struct BucketResponse {
+pub(crate) struct BucketResponse {
     pub id: [u8; 32],
     pub name: String,
     pub created_at: U256,
@@ -26,7 +26,7 @@ pub struct BucketResponse {
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub struct IStorageChunk {
+pub(crate) struct IStorageChunk {
     chunk_cids: Vec<Vec<u8>>,
     chunk_size: Vec<U256>,
 }
@@ -35,7 +35,7 @@ pub struct IStorageChunk {
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub struct FileResponse {
+pub(crate) struct FileResponse {
     pub id: [u8; 32],
     pub file_cid: Vec<u8>,
     pub bucket_id: [u8; 32],

@@ -16,7 +16,7 @@ use super::file_size::FileSize;
 
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub struct Splitter {
+pub(crate) struct Splitter {
     #[derivative(Debug = "ignore")]
     file: File,
     chunk_size: u64,

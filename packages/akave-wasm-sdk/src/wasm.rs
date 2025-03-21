@@ -1,15 +1,12 @@
 use crate::blockchain::ipc_types::BucketResponse;
+use crate::panic_handler::initialize_panic_handler;
 use crate::sdk::ipcnodeapi;
 use crate::sdk::AkaveIpcSDK as AkaveSDK;
 use crate::sdk_types::IpcFileList;
 
-use std::sync::Once;
-
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_file_reader::WebSysFile;
 use web_sys::File;
-
-static INIT: Once = Once::new();
 
 #[wasm_bindgen]
 extern "C" {
@@ -20,26 +17,20 @@ extern "C" {
 }
 
 #[wasm_bindgen]
-pub struct AkaveWebSDK {
+pub(crate) struct AkaveWebSDK {
     sdk: AkaveSDK,
 }
 
 #[wasm_bindgen]
 impl AkaveWebSDK {
     pub async fn new() -> Result<AkaveWebSDK, JsError> {
-        // Initialize panic hook only once
-        INIT.call_once(|| {
-            console_error_panic_hook::set_once();
-        });
+        initialize_panic_handler();
         Self::new_with_endpoint("http://localhost:3000").await
     }
 
     #[wasm_bindgen(constructor)]
     pub async fn new_with_endpoint(endpoint: &str) -> Result<AkaveWebSDK, JsError> {
-        // Initialize panic hook only once
-        INIT.call_once(|| {
-            console_error_panic_hook::set_once();
-        });
+        initialize_panic_handler();
 
         match AkaveSDK::new(endpoint).await {
             Ok(sdk) => Ok(AkaveWebSDK { sdk }),
