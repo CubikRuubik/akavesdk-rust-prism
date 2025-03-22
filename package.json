@@ -8,7 +8,8 @@
   "version": "0.8",
   "scripts": {
     "build:web": "wasm-pack build . --target web",
-    "build:nartive": "cargo build --release",
+    "build:native": "cargo build --release",
+    "build:all": "cargo build --release && wasm-pack build . --target web",
     "test:web": "wasm-pack test --headless --firefox",
     "test:native": "cargo test -- --nocapture",
     "publish:web": "wasm-pack publish"

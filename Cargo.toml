@@ -17,19 +17,15 @@ vendored-protoc = ["protobuf-src"]
 vendored-protox = ["protox"]
 debug = ["console_error_panic_hook"]
 
-# [profile.release]
-# # Optimize for small binary size
-# opt-level = "s"
-
 [profile.release]
-# opt-level = "z"        # Optimize for size
-# lto = true             # Enable Link Time Optimization
-# codegen-units = 1      # Reduce parallel code generation units to increase optimizations
-# panic = "abort"        # Remove panic unwinding code
-# strip = true           # Strip symbols from binary
-# debug = false          # Remove debug symbols
-# debug-assertions = false # Remove debug assertions
-# overflow-checks = false # Remove overflow checks
+opt-level = "z"        # Optimize for size
+lto = true             # Enable Link Time Optimization
+codegen-units = 1      # Reduce parallel code generation units to increase optimizations
+panic = "abort"        # Remove panic unwinding code
+strip = true           # Strip symbols from binary
+debug = false          # Remove debug symbols
+debug-assertions = false # Remove debug assertions
+overflow-checks = false # Remove overflow checks
 
 # -----------------------------------------
 #         GENERAL DEPENDENCIES            |

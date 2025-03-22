@@ -1,8 +1,31 @@
+# Rust build directories
 /target
+**/target/
+
+# Rust backup files
 **/*.rs.bk
+
+# Cargo lock file (uncomment if this is a library)
 Cargo.lock
-bin/
-pkg/
+
+# Binary and package directories
+/bin/
+/pkg/
+**/pkg/
+
+# WASM build logs
 wasm-pack.log
+
+# Node.js
+/node_modules
+**/node_modules/
+
+# Build outputs
+/dist
+**/dist/
+/build
+**/build/
+
+# Downloaded files
 downloaded
 user.akvf.key
