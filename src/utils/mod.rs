@@ -7,7 +7,3 @@ pub mod splitter;
 pub mod destination;
 pub mod timestamp;
 pub mod erasure;
-
-
-// Tests
-pub mod erasure_test;
