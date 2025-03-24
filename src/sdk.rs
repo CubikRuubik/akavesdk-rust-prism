@@ -31,7 +31,6 @@ use crate::{blockchain::ipc_types::BucketResponse, sdk_types::{IpcFileChunkUploa
 use crate::utils::dag::{ChunkDag, DAG_PROTOBUF}; // Removed unused RAW import
 use crate::utils::encryption::Encryption;
 use crate::utils::pb_data::PbData;
-use crate::utils::splitter::Splitter;
 use crate::{blockchain::provider::BlockchainProvider, utils};
 use crate::{log_info, log_error, log_debug};
 
