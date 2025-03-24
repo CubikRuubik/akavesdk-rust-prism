@@ -7,6 +7,8 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_file_reader::WebSysFile as File;
 
+use crate::log_info;
+
 use super::encryption::Encryption;
 
 #[cfg(not(target_arch = "wasm32"))]
