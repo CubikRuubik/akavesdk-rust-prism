@@ -674,10 +674,23 @@ mod tests {
     use std::fs::{self, File};
     use std::path::Path;
     use uuid::Uuid;
+    use log::LevelFilter;
+    use env_logger::Builder;
+    use ctor::ctor;
 
     const ADDRESS: &str = "0x7975eD6b732D1A4748516F66216EE703f4856759";
     const FILE_NAME_TO_TEST: &str = "5MB.txt";
     const DOWNLOAD_DESTINATION: &str = "/tmp/akave-tests/";
+
+    // This runs before any tests are executed
+    #[ctor]
+    fn init_test_logger() {
+        Builder::new()
+            .filter_level(LevelFilter::Debug)
+            .is_test(true)
+            .try_init()
+            .ok(); // Ignore errors if logger is already initialized
+    }
 
     async fn get_sdk() -> Result<AkaveIpcSDK, Box<(dyn std::error::Error + 'static)>> {
         AkaveIpcSDK::new("http://connect.akave.ai:5500").await
@@ -876,10 +889,12 @@ mod tests {
         let mut sdk = get_sdk().await.unwrap();
 
         // Create bucket
+        println!("Creating bucket: {}", bucket_name);
         let bucket_resp = sdk.create_bucket(&bucket_name).await.unwrap();
         assert_eq!(bucket_resp.name, bucket_name);
 
         // Upload file
+        println!("Uploading file: {}", FILE_NAME_TO_TEST);
         let file = File::open(format!("test_files/{}", FILE_NAME_TO_TEST)).unwrap();
         let _ = sdk
             .upload_file(&bucket_name, FILE_NAME_TO_TEST, file, None)
