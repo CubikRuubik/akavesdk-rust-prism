@@ -15,6 +15,7 @@ use cid::{
 };
 use quick_protobuf::BytesReader;
 use web3::types::{TransactionReceipt, U256};
+use crate::utils::splitter::Splitter;
 
 // Proto-related imports
 use ipcnodeapi::{
@@ -166,15 +167,10 @@ impl AkaveSDKBuilder {
 
 impl AkaveSDK {
     /// Creates a new AkaveSDK instance with default parameters
-    pub async fn new(server_address: &str, data_blocks: Option<usize>, parity_blocks: Option<usize>) -> Result<Self, Box<dyn std::error::Error>> {
-        let erasure_code = match (data_blocks, parity_blocks) {
-            (Some(data), Some(parity)) => Some(utils::erasure::ErasureCode::new(data, parity)?),
-            _ => None,
-        };
-        
+    pub async fn new(server_address: &str) -> Result<Self, Box<dyn std::error::Error>> {
         Self::new_with_params(
             server_address, 
-            erasure_code, 
+            None, 
             None, 
             BLOCK_SIZE, 
             MIN_BUCKET_NAME_LENGTH, 
@@ -409,7 +405,7 @@ impl AkaveSDK {
         &mut self,
         bucket_name: &str,
         file_name: &str,
-        mut file: File,
+        file: File,
         passwd: Option<&str>,
     ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
         log_debug!("Starting file upload: {} to bucket: {}", file_name, bucket_name);
@@ -456,43 +452,36 @@ impl AkaveSDK {
         buffer_size -= encryption_overhead;
         
         let chunk_size = buffer_size as u64;
-        let mut buffer = vec![0u8; buffer_size];
         
         let mut file_size: usize = 0;
         let root_hasher = Code::Sha2_256;
         let mut root_hash = None;
         let mut idx = 0;
         let mut is_empty_file = true;
-
-        #[cfg(not(target_arch = "wasm32"))]
-        use std::io::Read;
         
-        loop {
-            #[cfg(not(target_arch = "wasm32"))]
-            let bytes_read = match file.read(&mut buffer) {
-                Ok(n) => n,
-                Err(e) => return Err(Box::new(e)),
+        // Initialize the splitter with file and chunk_size
+        let mut splitter = Splitter::new(file, chunk_size);
+        
+        while let Some(chunk_result) = splitter.next() {
+            let buffer = match chunk_result {
+                Ok(data) => data,
+                Err(e) => return Err(e),
             };
             
-            #[cfg(target_arch = "wasm32")]
-            let bytes_read = file.read(&mut buffer).await?;
-            
-            if bytes_read == 0 {
-                if is_empty_file {
-                    let error_msg = "Empty file";
-                    log_error!("{}", error_msg);
-                    return Err(error_msg.into());
-                }
-                break;
+            if buffer.is_empty() && is_empty_file {
+                let error_msg = "Empty file";
+                log_error!("{}", error_msg);
+                return Err(error_msg.into());
             }
-            is_empty_file = false;
+            
+            is_empty_file = false; // future flag: not needed.
             
             log_debug!("Processing chunk {} for file: {}", idx, file_name);
             
             // First encrypt if encryption is enabled (matches Go implementation)
             let encrypted_data = match &encryption {
-                Some(encryption) => encryption.encrypt(&buffer[..bytes_read], format!("block_{}", idx).as_bytes())?,
-                None => buffer[..bytes_read].to_vec().into(),
+                Some(encryption) => encryption.encrypt(&buffer[..], format!("block_{}", idx).as_bytes())?,
+                None => buffer[..].to_vec().into(),
             };
             
             // Then apply erasure coding if enabled (matches Go implementation)

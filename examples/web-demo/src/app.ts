@@ -1,4 +1,4 @@
-import init, { AkaveWebSDK } from '@akave/akave-wasm-sdk';
+import { AkaveWebSDK } from '@akave/akave-wasm-sdk';
 import { AppState, Bucket, File, Notification } from './types';
 import './styles.css';
 
@@ -55,7 +55,7 @@ class App {
         try {
             console.log('Starting SDK initialization...');
             // Initialize the WASM module
-            await init();
+            // await init();
             console.log('WASM module initialized');
             
             // Create SDK instance

@@ -1,7 +1,7 @@
 use crate::blockchain::ipc_types::BucketResponse;
 use crate::panic_handler::initialize_panic_handler;
 use crate::sdk::ipcnodeapi;
-use crate::sdk::AkaveIpcSDK as AkaveSDK;
+use crate::sdk::AkaveSDK;
 use crate::sdk_types::IpcFileList;
 use crate::{log_info, log_error, log_debug};
 
