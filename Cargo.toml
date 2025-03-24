@@ -54,6 +54,8 @@ bytesize = "2.0.1"
 cid = "0.7.0"
 ipfs-unixfs = "0.2.0"
 quick-protobuf = "0.8.0"
+reed-solomon-erasure = "6.0.0"
+thiserror = "1.0"
 
 
 [dev-dependencies]

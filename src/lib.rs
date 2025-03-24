@@ -1,3 +1,6 @@
+#[macro_use(shards)]
+extern crate reed_solomon_erasure;
+
 mod allocator;
 mod blockchain;
 mod sdk;
