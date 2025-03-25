@@ -1,9 +1,7 @@
 use crate::blockchain::ipc_types::BucketResponse;
 use crate::panic_handler::initialize_panic_handler;
-use crate::sdk::ipcnodeapi;
-use crate::sdk::AkaveSDK;
-use crate::sdk::AkaveSDKBuilder;
-use crate::sdk_types::IpcFileList;
+use crate::sdk::{AkaveSDK, AkaveSDKBuilder};
+use crate::sdk_types::{BucketListResponse, BucketViewResponse, FileListResponse, FileViewResponse};
 use crate::{log_debug, log_error, log_info};
 
 use wasm_bindgen::prelude::*;
@@ -102,7 +100,7 @@ impl AkaveWebSDK {
     pub async fn list_buckets(
         &mut self,
         address: &str,
-    ) -> Result<ipcnodeapi::IpcBucketListResponse, JsError> {
+    ) -> Result<BucketListResponse, JsError> {
         log_debug!("Listing buckets for address: {}", address);
         let response = self.sdk.list_buckets(address).await;
         match response {
@@ -122,7 +120,7 @@ impl AkaveWebSDK {
         &mut self,
         address: &str,
         bucket_name: &str,
-    ) -> Result<ipcnodeapi::IpcBucketViewResponse, JsError> {
+    ) -> Result<BucketViewResponse, JsError> {
         log_debug!("Viewing bucket: {} for address: {}", bucket_name, address);
         let response = self.sdk.view_bucket(address, bucket_name).await;
         match response {
@@ -143,7 +141,7 @@ impl AkaveWebSDK {
         address: &str,
         bucket_name: &str,
         file_name: &str,
-    ) -> Result<ipcnodeapi::IpcFileViewResponse, JsError> {
+    ) -> Result<FileViewResponse, JsError> {
         log_debug!(
             "Viewing file info: {} in bucket: {} for address: {}",
             file_name,
@@ -172,7 +170,7 @@ impl AkaveWebSDK {
         &mut self,
         address: &str,
         bucket_name: &str,
-    ) -> Result<IpcFileList, JsError> {
+    ) -> Result<FileListResponse, JsError> {
         log_debug!(
             "Listing files in bucket: {} for address: {}",
             bucket_name,
