@@ -61,6 +61,8 @@ pub(crate) struct BlockchainProvider {
     key: Option<SecretKey>,
 }
 
+
+//TODO(samhassan): use sdk specific errors instead of dyn Error.
 impl BlockchainProvider {
     pub fn new(
         _rpc_url: &str,
