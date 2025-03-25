@@ -79,7 +79,7 @@ impl BlockchainProvider {
 
         let confirmations_opt = match confirmations {
             Some(value) => value,
-            None => 1,
+            None => 0,
         };
 
         #[cfg(target_arch = "wasm32")]
@@ -175,14 +175,14 @@ impl BlockchainProvider {
 
         // Initial backoff parameters
         let mut backoff_ms = 1000; // Start with 1 second
-        let max_backoff_ms = 60000; // Max 1 minute
-        let max_attempts = 60; // 5 minutes total with max backoff
+        let max_backoff_ms = 10000; // Max 10 seconds
+        let max_attempts = 60; // 1 minute total with max backoff
         let mut attempts = 0;
 
         loop {
             // Check if we've exceeded max attempts
             if attempts >= max_attempts {
-                log_error!("Transaction confirmation timeout after 5 minutes");
+                log_error!("Transaction confirmation timeout after 1 minute");
                 return Err("Transaction confirmation timeout".into());
             }
 
@@ -196,6 +196,10 @@ impl BlockchainProvider {
             match receipt {
                 Some(receipt) => {
                     if let Some(confirmation_block) = receipt.block_number {
+                        if current_block.low_u64() < confirmation_block.low_u64() {
+                            log_debug!("Current block number is less than confirmation block number, waiting for confirmation");
+                            continue;
+                        }
                         let blocks_since_confirmation = current_block.low_u64() - confirmation_block.low_u64();
                         log_debug!("Blocks since confirmation: {}", blocks_since_confirmation);
                         

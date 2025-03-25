@@ -37,7 +37,7 @@ akave-sdk = "1.0.0"
 Install the WASM package via npm:
 
 ```bash
-npm install @akave/akave-wasm-sdk
+npm install @akave/akave-web-sdk
 ```
 
 ## Usage
@@ -73,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### WebAssembly (Browser)
 
 ```javascript
-import init, { AkaveWebSDK } from '@akave/akave-wasm-sdk';
+import init, { AkaveWebSDK } from '@akave/akave-web-sdk';
 
 async function initialize() {
     // Initialize WASM

@@ -6,6 +6,7 @@ use web_sys::console;
 #[cfg(not(target_arch = "wasm32"))]
 use log::{info, error, warn, debug};
 
+
 pub struct Logger;
 
 impl Logger {

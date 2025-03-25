@@ -7,8 +7,6 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_file_reader::WebSysFile as File;
 
-use super::encryption::Encryption;
-
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
 #[cfg(not(target_arch = "wasm32"))]
@@ -21,17 +19,15 @@ pub(crate) struct Splitter {
     file: File,
     chunk_size: u64,
     counter: u64,
-    encryption: Option<Encryption>,
 }
 
 impl Splitter {
     /// Create a new FileChunker
-    pub fn new(file: File, chunk_size: u64, encryption: Option<Encryption>) -> Self {
+    pub fn new(file: File, chunk_size: u64) -> Self {
         return Self {
             file,
             chunk_size,
             counter: 0,
-            encryption,
         };
     }
 
@@ -67,15 +63,7 @@ impl Iterator for Splitter {
         self.file
             .read(&mut chunk_data)
             .expect("Failed to read the file");
-
-        let encrypted_data = match &self.encryption {
-            Some(some_encryption) => {
-                let info = format!("block_{}", self.counter);
-                Some(some_encryption.encrypt(&chunk_data, info.as_bytes()))
-            }
-            None => Some(Ok(chunk_data)),
-        };
         self.counter += buf_size;
-        encrypted_data
+        Some(Ok(chunk_data))
     }
 }
