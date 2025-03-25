@@ -1,4 +1,4 @@
-import init, { AkaveWebSDK } from '@akave/akave-wasm-sdk';
+import init, { AkaveWebSDK } from '@akave/akave-web-sdk';
 import { AppState, Bucket, File, Notification } from './types';
 import './styles.css';
 

@@ -74,13 +74,13 @@ The project uses webpack for bundling and development. The main files are:
 This demo is configured to use the local SDK from the parent directory for development and testing purposes. The dependency is specified in `package.json` as:
 
 ```json
-"@akave/akave-wasm-sdk": "file:.."
+"@akave/akave-web-sdk": "file:.."
 ```
 
 For production use, you should replace this with the published version from npm:
 
 ```json
-"@akave/akave-wasm-sdk": "^1.0.0"
+"@akave/akave-web-sdk": "^1.0.0"
 ```
 
 ## Notes

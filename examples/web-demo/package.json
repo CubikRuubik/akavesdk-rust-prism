@@ -1,7 +1,7 @@
 {
-  "name": "akave-wasm-sdk-demo",
+  "name": "akave-web-sdk-demo",
   "version": "1.0.0",
-  "description": "Demo application showcasing Akave WASM SDK functionality",
+  "description": "Demo application showcasing Akave Web SDK functionality",
   "type": "module",
   "scripts": {
     "start": "webpack serve --mode development",
@@ -9,7 +9,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@akave/akave-wasm-sdk": "file:../../pkg"
+    "@akave/akave-web-sdk": "file:../../pkg"
   },
   "devDependencies": {
     "@types/node": "^20.11.24",

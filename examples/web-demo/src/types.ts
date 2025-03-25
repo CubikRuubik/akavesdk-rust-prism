@@ -1,4 +1,4 @@
-import { AkaveWebSDK } from '@akave/akave-wasm-sdk';
+import { AkaveWebSDK } from '@akave/akave-web-sdk';
 
 declare global {
     interface Window {
