@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Akave WASM SDK Demo</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Akave WASM SDK Demo</h1>
+            <div class="wallet-section">
+                <button id="connectWallet" class="btn primary">Connect Wallet</button>
+                <span id="walletAddress" class="wallet-address"></span>
+            </div>
+        </header>
+
+        <main>
+            <section class="bucket-section">
+                <h2>Bucket Management</h2>
+                <div class="form-group">
+                    <input type="text" id="bucketName" placeholder="Enter bucket name">
+                    <button id="createBucket" class="btn">Create Bucket</button>
+                </div>
+                <div class="buckets-list">
+                    <h3>Your Buckets</h3>
+                    <div id="bucketsList" class="list"></div>
+                </div>
+            </section>
+
+            <section class="file-section">
+                <h2>File Management</h2>
+                <div class="form-group">
+                    <select id="bucketSelect" class="select">
+                        <option value="">Select a bucket</option>
+                    </select>
+                    <input type="file" id="fileInput" class="file-input">
+                    <button id="uploadFile" class="btn" disabled>Upload File</button>
+                </div>
+                <div class="files-list">
+                    <h3>Files in Bucket</h3>
+                    <div id="filesList" class="list"></div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script type="module" src="dist/bundle.js"></script>
+</body>
+</html> 
