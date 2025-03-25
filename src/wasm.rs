@@ -3,7 +3,7 @@ use crate::panic_handler::initialize_panic_handler;
 use crate::sdk::ipcnodeapi;
 use crate::sdk::AkaveSDK;
 use crate::sdk_types::IpcFileList;
-use crate::{log_info, log_error, log_debug};
+use crate::{log_debug, log_error, log_info};
 
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_file_reader::WebSysFile;
@@ -85,7 +85,12 @@ impl AkaveWebSDK {
         bucket_name: &str,
         file_name: &str,
     ) -> Result<ipcnodeapi::IpcFileViewResponse, JsError> {
-        log_debug!("Viewing file info: {} in bucket: {} for address: {}", file_name, bucket_name, address);
+        log_debug!(
+            "Viewing file info: {} in bucket: {} for address: {}",
+            file_name,
+            bucket_name,
+            address
+        );
         let response = self
             .sdk
             .view_file_info(address, bucket_name, file_name)
@@ -109,7 +114,11 @@ impl AkaveWebSDK {
         address: &str,
         bucket_name: &str,
     ) -> Result<IpcFileList, JsError> {
-        log_debug!("Listing files in bucket: {} for address: {}", bucket_name, address);
+        log_debug!(
+            "Listing files in bucket: {} for address: {}",
+            bucket_name,
+            address
+        );
         let response = self.sdk.list_files(address, bucket_name).await;
 
         match response {
@@ -125,10 +134,7 @@ impl AkaveWebSDK {
     }
 
     #[wasm_bindgen(js_name = "createBucket")]
-    pub async fn create_bucket(
-        &mut self,
-        bucket_name: &str,
-    ) -> Result<BucketResponse, JsError> {
+    pub async fn create_bucket(&mut self, bucket_name: &str) -> Result<BucketResponse, JsError> {
         log_debug!("Creating bucket: {}", bucket_name);
         let response = self.sdk.create_bucket(bucket_name).await;
         match response {
@@ -144,11 +150,7 @@ impl AkaveWebSDK {
     }
 
     #[wasm_bindgen(js_name = "deleteBucket")]
-    pub async fn delete_bucket(
-        &mut self,
-        address: &str,
-        bucket_name: &str,
-    ) -> Result<(), JsError> {
+    pub async fn delete_bucket(&mut self, address: &str, bucket_name: &str) -> Result<(), JsError> {
         log_debug!("Deleting bucket: {} for address: {}", bucket_name, address);
         let response = self.sdk.delete_bucket(address, bucket_name).await;
         match response {
@@ -170,11 +172,20 @@ impl AkaveWebSDK {
         bucket_name: &str,
         file_name: &str,
     ) -> Result<(), JsError> {
-        log_debug!("Deleting file: {} from bucket: {} for address: {}", file_name, bucket_name, address);
+        log_debug!(
+            "Deleting file: {} from bucket: {} for address: {}",
+            file_name,
+            bucket_name,
+            address
+        );
         let response = self.sdk.delete_file(address, bucket_name, file_name).await;
         match response {
             Ok(_) => {
-                log_info!("Successfully deleted file: {} from bucket: {}", file_name, bucket_name);
+                log_info!(
+                    "Successfully deleted file: {} from bucket: {}",
+                    file_name,
+                    bucket_name
+                );
                 Ok(())
             }
             Err(e) => {
@@ -192,10 +203,17 @@ impl AkaveWebSDK {
         file: File,
     ) -> Result<(), JsError> {
         log_debug!("Uploading file: {} to bucket: {}", file_name, bucket_name);
-        let response = self.sdk.upload_file(bucket_name, file_name, WebSysFile::new(file), None).await;
+        let response = self
+            .sdk
+            .upload_file(bucket_name, file_name, WebSysFile::new(file), None)
+            .await;
         match response {
             Ok(_) => {
-                log_info!("Successfully uploaded file: {} to bucket: {}", file_name, bucket_name);
+                log_info!(
+                    "Successfully uploaded file: {} to bucket: {}",
+                    file_name,
+                    bucket_name
+                );
                 Ok(())
             }
             Err(e) => {
@@ -213,14 +231,23 @@ impl AkaveWebSDK {
         file_name: &str,
         destination_path: &str,
     ) -> Result<(), JsError> {
-        log_debug!("Downloading file: {} from bucket: {} for address: {}", file_name, bucket_name, address);
+        log_debug!(
+            "Downloading file: {} from bucket: {} for address: {}",
+            file_name,
+            bucket_name,
+            address
+        );
         let response = self
             .sdk
             .download_file(address, bucket_name, file_name, None, destination_path)
             .await;
         match response {
             Ok(_) => {
-                log_info!("Successfully downloaded file: {} from bucket: {}", file_name, bucket_name);
+                log_info!(
+                    "Successfully downloaded file: {} from bucket: {}",
+                    file_name,
+                    bucket_name
+                );
                 Ok(())
             }
             Err(e) => {

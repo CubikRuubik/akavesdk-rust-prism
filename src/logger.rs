@@ -4,8 +4,7 @@ use std::fmt::Arguments;
 use web_sys::console;
 
 #[cfg(not(target_arch = "wasm32"))]
-use log::{info, error, warn, debug};
-
+use log::{debug, error, info, warn};
 
 pub struct Logger;
 
@@ -81,4 +80,4 @@ macro_rules! log_debug {
     ($($arg:tt)*) => {
         crate::logger::Logger::debug(format_args!($($arg)*))
     };
-} 
+}

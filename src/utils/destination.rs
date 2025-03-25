@@ -1,4 +1,3 @@
-
 #[cfg(not(target_arch = "wasm32"))]
 mod native_imports {
     pub use std::fs::{File, OpenOptions};
@@ -8,18 +7,15 @@ mod native_imports {
 #[cfg(not(target_arch = "wasm32"))]
 use native_imports::*;
 
-
-
 #[cfg(target_arch = "wasm32")]
 mod wasm_imports {
+    pub use js_sys::Uint8Array;
     pub use wasm_bindgen::prelude::*;
     pub use web_sys::{Blob, Url};
-    pub use js_sys::Uint8Array;
 }
 
 #[cfg(target_arch = "wasm32")]
 use wasm_imports::*;
-
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) struct Destination {
@@ -42,20 +38,19 @@ impl Destination {
             .create(true)
             .write(true)
             .open(full_path)?;
-        Ok(Destination {
-            file: file,
-        })
+        Ok(Destination { file: file })
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn new(destination_path: &str, file_name: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(
+        destination_path: &str,
+        file_name: &str,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let full_path = format!("{}{}", destination_path, file_name);
-        Ok(
-            Destination {
+        Ok(Destination {
             buffer: Vec::new(),
             path: full_path,
-            }
-        )
+        })
     }
 
     pub fn write(&mut self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
@@ -104,7 +99,8 @@ impl Destination {
             .unwrap()
             .document()
             .unwrap()
-            .create_element("a").unwrap();
+            .create_element("a")
+            .unwrap();
         link.set_attribute("href", &url).unwrap();
         link.set_attribute("download", &self.path).unwrap();
         link.dyn_into::<web_sys::HtmlElement>().unwrap().click();

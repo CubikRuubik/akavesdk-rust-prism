@@ -3,7 +3,7 @@ use hkdf::Hkdf;
 use sha2::Sha256;
 
 #[cfg(not(target_arch = "wasm32"))]
-use aes_gcm::aead::{OsRng, rand_core::RngCore};
+use aes_gcm::aead::{rand_core::RngCore, OsRng};
 
 pub const KEY_LEN: usize = 32;
 pub const GCM_NONCE_SIZE: usize = 12;

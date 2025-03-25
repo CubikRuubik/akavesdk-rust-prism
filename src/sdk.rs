@@ -7,6 +7,7 @@ pub(crate) mod ipcnodeapi {
 use std::borrow::Cow;
 
 // External crate imports (general)
+use crate::utils::splitter::Splitter;
 use alloy::hex;
 use bytesize::{ByteSize, MB};
 use cid::{
@@ -15,7 +16,6 @@ use cid::{
 };
 use quick_protobuf::BytesReader;
 use web3::types::{TransactionReceipt, U256};
-use crate::utils::splitter::Splitter;
 
 // Proto-related imports
 use ipcnodeapi::{
@@ -28,12 +28,18 @@ use ipcnodeapi::{
 };
 
 // Internal crate imports
-use crate::{blockchain::ipc_types::BucketResponse, sdk_types::{IpcFileChunkUpload, IpcFileList, IpcFileListItem, FileChunkDownload, FileBlockDownload, AkaveBlockData}};
 use crate::utils::dag::{ChunkDag, DAG_PROTOBUF}; // Removed unused RAW import
 use crate::utils::encryption::Encryption;
 use crate::utils::pb_data::PbData;
+use crate::{
+    blockchain::ipc_types::BucketResponse,
+    sdk_types::{
+        AkaveBlockData, FileBlockDownload, FileChunkDownload, IpcFileChunkUpload, IpcFileList,
+        IpcFileListItem,
+    },
+};
 use crate::{blockchain::provider::BlockchainProvider, utils};
-use crate::{log_info, log_error, log_debug};
+use crate::{log_debug, log_error, log_info};
 
 // Target-specific imports and types
 #[cfg(target_arch = "wasm32")]
@@ -65,7 +71,7 @@ type ClientTransport = Channel;
 const ENCRYPTION_OVERHEAD: usize = 32;
 const BLOCK_SIZE: usize = MB as usize;
 const MIN_BUCKET_NAME_LENGTH: usize = 3;
-const MIN_FILE_SIZE: usize = 127;  
+const MIN_FILE_SIZE: usize = 127;
 const MAX_BLOCKS_IN_CHUNK: usize = 32;
 const BLOCK_PART_SIZE: usize = ByteSize::kib(128).as_u64() as usize;
 
@@ -152,16 +158,17 @@ impl AkaveSDKBuilder {
             (Some(data), Some(parity)) => Some(utils::erasure::ErasureCode::new(data, parity)?),
             _ => None,
         };
-        
+
         AkaveSDK::new_with_params(
-            &self.server_address, 
-            erasure_code, 
+            &self.server_address,
+            erasure_code,
             self.default_encryption_key,
             self.block_size,
             self.min_bucket_name_length,
             self.max_blocks_in_chunk,
-            self.block_part_size
-        ).await
+            self.block_part_size,
+        )
+        .await
     }
 }
 
@@ -169,19 +176,20 @@ impl AkaveSDK {
     /// Creates a new AkaveSDK instance with default parameters
     pub async fn new(server_address: &str) -> Result<Self, Box<dyn std::error::Error>> {
         Self::new_with_params(
-            server_address, 
-            None, 
-            None, 
-            BLOCK_SIZE, 
-            MIN_BUCKET_NAME_LENGTH, 
-            MAX_BLOCKS_IN_CHUNK, 
-            BLOCK_PART_SIZE
-        ).await
+            server_address,
+            None,
+            None,
+            BLOCK_SIZE,
+            MIN_BUCKET_NAME_LENGTH,
+            MAX_BLOCKS_IN_CHUNK,
+            BLOCK_PART_SIZE,
+        )
+        .await
     }
 
     /// Creates a new AkaveSDK instance with custom parameters
     async fn new_with_params(
-        server_address: &str, 
+        server_address: &str,
         erasure_code: Option<utils::erasure::ErasureCode>,
         default_encryption_key: Option<String>,
         block_size: usize,
@@ -189,8 +197,11 @@ impl AkaveSDK {
         max_blocks_in_chunk: usize,
         block_part_size: usize,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        log_info!("Initializing AkaveSDK with server address: {}", server_address);
-        
+        log_info!(
+            "Initializing AkaveSDK with server address: {}",
+            server_address
+        );
+
         #[cfg(target_arch = "wasm32")]
         {
             let grpc_web_client = ClientTransport::new(server_address.into());
@@ -241,7 +252,6 @@ impl AkaveSDK {
             let storage = BlockchainProvider::new(
                 &connection_params.dial_uri,
                 &connection_params.storage_address,
-                None,
                 None,
             );
 
@@ -295,23 +305,33 @@ impl AkaveSDK {
         address: &str,
         bucket_name: &str,
     ) -> Result<IpcFileList, Box<dyn std::error::Error>> {
-        log_debug!("Listing files in bucket: {} for address: {}", bucket_name, address);
+        log_debug!(
+            "Listing files in bucket: {} for address: {}",
+            bucket_name,
+            address
+        );
         let request = IpcFileListRequest {
             bucket_name: bucket_name.to_string(),
             address: address.to_string(),
         };
         let files = self.client.file_list(request).await?.into_inner();
-        let file_list = IpcFileList{ files: files
-            .list
-            .iter()
-            .map(|file| IpcFileListItem {
-                root_cid: file.root_cid.clone(),
-                created_at: file.created_at.unwrap(),
-                encoded_size: file.encoded_size,
-                name: file.name.clone(),
-            })
-            .collect()};
-        log_info!("Found {} files in bucket: {}", file_list.files.len(), bucket_name);
+        let file_list = IpcFileList {
+            files: files
+                .list
+                .iter()
+                .map(|file| IpcFileListItem {
+                    root_cid: file.root_cid.clone(),
+                    created_at: file.created_at.unwrap(),
+                    encoded_size: file.encoded_size,
+                    name: file.name.clone(),
+                })
+                .collect(),
+        };
+        log_info!(
+            "Found {} files in bucket: {}",
+            file_list.files.len(),
+            bucket_name
+        );
         Ok(file_list)
     }
 
@@ -322,14 +342,23 @@ impl AkaveSDK {
         bucket_name: &str,
         file_name: &str,
     ) -> Result<IpcFileViewResponse, Box<dyn std::error::Error>> {
-        log_debug!("Viewing file info: {} in bucket: {} for address: {}", file_name, bucket_name, address);
+        log_debug!(
+            "Viewing file info: {} in bucket: {} for address: {}",
+            file_name,
+            bucket_name,
+            address
+        );
         let request = IpcFileViewRequest {
             bucket_name: bucket_name.to_string(),
             file_name: file_name.to_string(),
             address: address.to_string(),
         };
         let response = self.client.file_view(request).await?.into_inner();
-        log_info!("Retrieved file details for: {} in bucket: {}", file_name, bucket_name);
+        log_info!(
+            "Retrieved file details for: {} in bucket: {}",
+            file_name,
+            bucket_name
+        );
         Ok(response)
     }
 
@@ -381,13 +410,22 @@ impl AkaveSDK {
         bucket_name: &str,
         file_name: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        log_debug!("Deleting file: {} from bucket: {} for address: {}", file_name, bucket_name, address);
+        log_debug!(
+            "Deleting file: {} from bucket: {} for address: {}",
+            file_name,
+            bucket_name,
+            address
+        );
         let bucket = self.view_bucket(address, bucket_name).await?;
         let bucket_id = hex::decode(bucket.id.clone())?;
         self.storage
             .delete_file(file_name.to_string(), bucket_id)
             .await?;
-        log_info!("File deleted successfully: {} from bucket: {}", file_name, bucket_name);
+        log_info!(
+            "File deleted successfully: {} from bucket: {}",
+            file_name,
+            bucket_name
+        );
         Ok(())
     }
 
@@ -408,7 +446,11 @@ impl AkaveSDK {
         file: File,
         passwd: Option<&str>,
     ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
-        log_debug!("Starting file upload: {} to bucket: {}", file_name, bucket_name);
+        log_debug!(
+            "Starting file upload: {} to bucket: {}",
+            file_name,
+            bucket_name
+        );
         if bucket_name.is_empty() {
             let error_msg = "Empty bucket name";
             log_error!("{}", error_msg);
@@ -446,44 +488,50 @@ impl AkaveSDK {
             buffer_size = erasure_code.data_blocks * self.block_size;
         }
         log_debug!("Buffer size: {}", buffer_size);
-        
+
         // Subtract encryption overhead if encryption is enabled
-        let encryption_overhead = if encryption.is_some() { ENCRYPTION_OVERHEAD } else { 0 }; 
+        let encryption_overhead = if encryption.is_some() {
+            ENCRYPTION_OVERHEAD
+        } else {
+            0
+        };
         buffer_size -= encryption_overhead;
-        
+
         let chunk_size = buffer_size as u64;
-        
+
         let mut file_size: usize = 0;
         let root_hasher = Code::Sha2_256;
         let mut root_hash = None;
         let mut idx = 0;
         let mut is_empty_file = true;
-        
+
         // Initialize the splitter with file and chunk_size
         let mut splitter = Splitter::new(file, chunk_size);
-        
+
         while let Some(chunk_result) = splitter.next() {
             let buffer = match chunk_result {
                 Ok(data) => data,
                 Err(e) => return Err(e),
             };
-            
+
             if buffer.is_empty() && is_empty_file {
                 let error_msg = "Empty file";
                 log_error!("{}", error_msg);
                 return Err(error_msg.into());
             }
-            
+
             is_empty_file = false; // future flag: not needed.
-            
+
             log_debug!("Processing chunk {} for file: {}", idx, file_name);
-            
+
             // First encrypt if encryption is enabled (matches Go implementation)
             let encrypted_data = match &encryption {
-                Some(encryption) => encryption.encrypt(&buffer[..], format!("block_{}", idx).as_bytes())?,
+                Some(encryption) => {
+                    encryption.encrypt(&buffer[..], format!("block_{}", idx).as_bytes())?
+                }
                 None => buffer[..].to_vec().into(),
             };
-            
+
             // Then apply erasure coding if enabled (matches Go implementation)
             let processed_data = if let Some(erasure_code) = &self.erasure_code {
                 erasure_code.encode(&encrypted_data)?
@@ -509,7 +557,7 @@ impl AkaveSDK {
                 })
                 .await?;
             }
-            
+
             idx += 1;
         }
 
@@ -523,8 +571,12 @@ impl AkaveSDK {
                 root_cid.to_bytes(),
             )
             .await?;
-        
-        log_info!("File uploaded successfully: {} to bucket: {}", file_name, bucket_name);
+
+        log_info!(
+            "File uploaded successfully: {} to bucket: {}",
+            file_name,
+            bucket_name
+        );
         Ok(receipt)
     }
 
@@ -534,10 +586,15 @@ impl AkaveSDK {
         data: Vec<u8>,
         bucket_id: [u8; 32],
         file_name: &str,
-    ) -> Result<(IpcFileChunkUpload, TransactionReceipt, IpcChunk), Box<dyn std::error::Error>> {
-        log_debug!("Creating chunk upload for file: {}, chunk index: {}", file_name, index);
+    ) -> Result<(IpcFileChunkUpload, TransactionReceipt, IpcChunk), Box<dyn std::error::Error>>
+    {
+        log_debug!(
+            "Creating chunk upload for file: {}, chunk index: {}",
+            file_name,
+            index
+        );
         let size = data.len();
-        
+
         // Calculate block size based on erasure coding settings
         // If erasure coding is enabled, determine block size from data length divided by total blocks
         // Otherwise use standard BLOCK_SIZE
@@ -615,7 +672,11 @@ impl AkaveSDK {
             )
             .await?;
 
-        log_debug!("Chunk upload created successfully for file: {}, chunk index: {}", file_name, index);
+        log_debug!(
+            "Chunk upload created successfully for file: {}, chunk index: {}",
+            file_name,
+            index
+        );
         Ok((
             IpcFileChunkUpload {
                 index,
@@ -643,7 +704,11 @@ impl AkaveSDK {
         }
 
         let mut total = 0;
-        log_debug!("Uploading chunk with CID: {}, length: {}", chunk.cid, data_len);
+        log_debug!(
+            "Uploading chunk with CID: {}, length: {}",
+            chunk.cid,
+            data_len
+        );
 
         let mut blocks_upload = vec![];
 
@@ -691,7 +756,12 @@ impl AkaveSDK {
         bucket_name: &str,
         file_name: &str,
     ) -> Result<IpcFileDownloadCreateResponse, Box<dyn std::error::Error>> {
-        log_debug!("Creating file download for: {} in bucket: {} for address: {}", file_name, bucket_name, address);
+        log_debug!(
+            "Creating file download for: {} in bucket: {} for address: {}",
+            file_name,
+            bucket_name,
+            address
+        );
         let request = IpcFileDownloadCreateRequest {
             address: address.to_string(),
             bucket_name: bucket_name.to_string(),
@@ -714,7 +784,12 @@ impl AkaveSDK {
         passwd: Option<&str>,
         destination_path: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        log_debug!("Starting file download: {} from bucket: {} for address: {}", file_name, bucket_name, address);
+        log_debug!(
+            "Starting file download: {} from bucket: {} for address: {}",
+            file_name,
+            bucket_name,
+            address
+        );
         let info = vec![bucket_name, file_name].join("/");
 
         // Use default encryption if provided and no password was specified
@@ -748,7 +823,7 @@ impl AkaveSDK {
 
             let mut block_index = 0;
             let mut blocks_data = vec![];
-            
+
             for block in chunk_download.blocks {
                 let mut chunk_data = vec![];
                 let req = IpcFileDownloadBlockRequest {
@@ -819,7 +894,11 @@ impl AkaveSDK {
             chunk_index += 1;
         }
         destination.finalize()?;
-        log_info!("File downloaded successfully: {} from bucket: {}", file_name, bucket_name);
+        log_info!(
+            "File downloaded successfully: {} from bucket: {}",
+            file_name,
+            bucket_name
+        );
         Ok(())
     }
 
@@ -831,7 +910,11 @@ impl AkaveSDK {
         chunk: Chunk,
         index: i64,
     ) -> Result<FileChunkDownload, Box<dyn std::error::Error>> {
-        log_debug!("Creating chunk download for file: {}, chunk index: {}", file_name, index);
+        log_debug!(
+            "Creating chunk download for file: {}, chunk index: {}",
+            file_name,
+            index
+        );
         let request = IpcFileDownloadChunkCreateRequest {
             bucket_name: bucket_name.to_string(),
             file_name: file_name.to_string(),
@@ -857,7 +940,11 @@ impl AkaveSDK {
             });
         }
 
-        log_debug!("Chunk download created successfully for file: {}, chunk index: {}", file_name, index);
+        log_debug!(
+            "Chunk download created successfully for file: {}, chunk index: {}",
+            file_name,
+            index
+        );
         Ok(FileChunkDownload {
             cid: chunk.cid,
             index,
@@ -872,14 +959,14 @@ impl AkaveSDK {
 mod tests {
     use crate::sdk::{AkaveSDK, AkaveSDKBuilder};
     use crate::utils::file_size::FileSize;
+    use ctor::ctor;
+    use env_logger::Builder;
+    use log::LevelFilter;
     use pretty_assertions::{assert_eq, assert_ne};
     use std::fs::{self, File};
     use std::io::Read;
     use std::path::Path;
     use uuid::Uuid;
-    use log::LevelFilter;
-    use env_logger::Builder;
-    use ctor::ctor;
 
     const ADDRESS: &str = "0x7975eD6b732D1A4748516F66216EE703f4856759";
     const FILE_NAME_TO_TEST: &str = "1MB.txt";
@@ -898,7 +985,9 @@ mod tests {
 
     // Get basic SDK with no erasure coding or encryption
     async fn get_sdk() -> Result<AkaveSDK, Box<(dyn std::error::Error + 'static)>> {
-        AkaveSDKBuilder::new("http://connect.akave.ai:5500").build().await
+        AkaveSDKBuilder::new("http://connect.akave.ai:5500")
+            .build()
+            .await
     }
 
     // Get SDK with erasure coding only
@@ -918,7 +1007,8 @@ mod tests {
     }
 
     // Get SDK with both erasure coding and encryption
-    async fn get_sdk_with_erasure_and_encryption() -> Result<AkaveSDK, Box<(dyn std::error::Error + 'static)>> {
+    async fn get_sdk_with_erasure_and_encryption(
+    ) -> Result<AkaveSDK, Box<(dyn std::error::Error + 'static)>> {
         AkaveSDKBuilder::new("http://connect.akave.ai:5500")
             .with_erasure_coding(3, 2)
             .with_default_encryption(TEST_PASSWORD)
@@ -1044,8 +1134,15 @@ mod tests {
 
         // Test list files
         let file_list = sdk.list_files(ADDRESS, &bucket_name).await.unwrap();
-        assert_ne!(file_list.files.len(), 0, "there should be files in this bucket");
-        let has_test_file = file_list.files.iter().any(|file| file.name == FILE_NAME_TO_TEST);
+        assert_ne!(
+            file_list.files.len(),
+            0,
+            "there should be files in this bucket"
+        );
+        let has_test_file = file_list
+            .files
+            .iter()
+            .any(|file| file.name == FILE_NAME_TO_TEST);
         assert!(has_test_file, "Uploaded file not found in bucket");
 
         // Test delete files and list
@@ -1056,7 +1153,11 @@ mod tests {
                 .expect("failed to delete file");
         }
         let file_list = sdk.list_files(ADDRESS, &bucket_name).await.unwrap();
-        assert_eq!(file_list.files.len(), 0, "there should be no files in this bucket");
+        assert_eq!(
+            file_list.files.len(),
+            0,
+            "there should be no files in this bucket"
+        );
 
         // Cleanup
         let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
@@ -1111,7 +1212,10 @@ mod tests {
     #[tokio::test]
     async fn test_download_file_with_erasure() {
         let bucket_name = generate_test_bucket_name();
-        println!("Testing download file with erasure coding from bucket: {}", bucket_name);
+        println!(
+            "Testing download file with erasure coding from bucket: {}",
+            bucket_name
+        );
 
         // Setup
         ensure_download_dir();
@@ -1157,7 +1261,10 @@ mod tests {
     #[tokio::test]
     async fn test_download_file_with_encryption() {
         let bucket_name = generate_test_bucket_name();
-        println!("Testing download file with encryption from bucket: {}", bucket_name);
+        println!(
+            "Testing download file with encryption from bucket: {}",
+            bucket_name
+        );
 
         // Setup
         ensure_download_dir();
@@ -1203,7 +1310,10 @@ mod tests {
     #[tokio::test]
     async fn test_full_lifecycle() {
         let bucket_name = generate_test_bucket_name();
-        println!("Testing full lifecycle with erasure coding and encryption with bucket: {}", bucket_name);
+        println!(
+            "Testing full lifecycle with erasure coding and encryption with bucket: {}",
+            bucket_name
+        );
 
         // Setup
         ensure_download_dir();
@@ -1226,7 +1336,10 @@ mod tests {
         // List files
         println!("listing files in bucket {}", bucket_name);
         let file_list = sdk.list_files(ADDRESS, &bucket_name).await.unwrap();
-        let has_test_file = file_list.files.iter().any(|file| file.name == FILE_NAME_TO_TEST);
+        let has_test_file = file_list
+            .files
+            .iter()
+            .any(|file| file.name == FILE_NAME_TO_TEST);
         assert!(has_test_file, "Uploaded file not found in bucket");
 
         // Download file (using default encryption from SDK)
