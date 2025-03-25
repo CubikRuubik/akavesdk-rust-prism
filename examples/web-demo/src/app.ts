@@ -1,4 +1,4 @@
-import init, { AkaveWebSDK } from '@akave/akave-web-sdk';
+import init, { AkaveWebSDKBuilder } from '@akave/akave-web-sdk';
 import { AppState, Bucket, File, Notification } from './types';
 import './styles.css';
 
@@ -60,7 +60,7 @@ class App {
             
             // Create SDK instance
             console.log('Creating SDK instance...');
-            const sdk = await AkaveWebSDK.new();
+            const sdk = await new AkaveWebSDKBuilder('http://localhost:3000').build();
             this.state.sdk = sdk;
             console.log('SDK instance created successfully');
             

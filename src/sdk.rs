@@ -216,7 +216,6 @@ impl AkaveSDK {
                 &connection_params.dial_uri,
                 &connection_params.storage_address,
                 None,
-                None,
             );
             log_info!("AkaveSDK initialized successfully");
             Ok(Self {
