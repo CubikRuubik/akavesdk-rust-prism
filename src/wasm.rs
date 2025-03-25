@@ -9,7 +9,7 @@ use wasm_bindgen_file_reader::WebSysFile;
 use web_sys::File;
 
 #[wasm_bindgen]
-pub(crate) struct AkaveWebSDK {
+pub struct AkaveWebSDK {
     sdk: AkaveSDK,
 }
 
