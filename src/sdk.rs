@@ -1020,7 +1020,6 @@ mod tests {
     use log::LevelFilter;
     use pretty_assertions::{assert_eq, assert_ne};
     use std::fs::{self, File};
-    use std::io::Read;
     use std::path::Path;
     use uuid::Uuid;
 
@@ -1028,6 +1027,7 @@ mod tests {
     const FILE_NAME_TO_TEST: &str = "1MB.txt";
     const DOWNLOAD_DESTINATION: &str = "/tmp/akave-tests/";
     const TEST_PASSWORD: &str = "testkey123";
+    const TEST_KEY: &str = include_str!("blockchain/user.akvf.key");
 
     // This runs before any tests are executed
     #[ctor]
@@ -1037,6 +1037,12 @@ mod tests {
             .is_test(true)
             .try_init()
             .ok(); // Ignore errors if logger is already initialized
+    }
+
+    #[ctor]
+    fn init_test_env() {
+        // setting private key for testing
+        std::env::set_var("AKAVE_PRIVATE_KEY", TEST_KEY);
     }
 
     // Get basic SDK with no erasure coding or encryption

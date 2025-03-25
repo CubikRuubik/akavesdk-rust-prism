@@ -123,7 +123,8 @@ impl BlockchainProvider {
         #[cfg(not(target_arch = "wasm32"))]
         {
             log_debug!("Creating native HTTP transport");
-            let pvkey: &str = include_str!("user.akvf.key");
+            let pvkey = std::env::var("AKAVE_PRIVATE_KEY")
+                .expect("AKAVE_PRIVATE_KEY environment variable not set");
             let transport = ProviderType::new(_rpc_url);
 
             match transport {
@@ -137,7 +138,7 @@ impl BlockchainProvider {
                     )
                     .unwrap();
 
-                    let key = SecretKey::from_str(pvkey).unwrap();
+                    let key = SecretKey::from_str(pvkey.as_str()).unwrap();
 
                     log_info!("BlockchainProvider initialized successfully for native");
                     Ok(Self {
