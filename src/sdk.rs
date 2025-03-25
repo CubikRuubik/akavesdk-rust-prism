@@ -81,7 +81,7 @@ const BLOCK_PART_SIZE: usize = ByteSize::kib(128).as_u64() as usize;
 
 /// Represents the Akave SDK client
 /// Akave SDK should support both WASM (gRPC-Web) and native gRPC
-pub(crate) struct AkaveSDK {
+pub struct AkaveSDK {
     client: IpcNodeApiClient<ClientTransport>,
     storage: BlockchainProvider,
     erasure_code: Option<utils::erasure::ErasureCode>,
