@@ -1,5 +1,4 @@
 // Standard library imports
-use std::time::Duration;
 
 // External crate imports (general)
 use web3::{
