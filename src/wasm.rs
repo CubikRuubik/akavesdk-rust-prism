@@ -2,6 +2,7 @@ use crate::blockchain::ipc_types::BucketResponse;
 use crate::panic_handler::initialize_panic_handler;
 use crate::sdk::ipcnodeapi;
 use crate::sdk::AkaveSDK;
+use crate::sdk::AkaveSDKBuilder;
 use crate::sdk_types::IpcFileList;
 use crate::{log_debug, log_error, log_info};
 
@@ -15,19 +16,61 @@ pub(crate) struct AkaveWebSDK {
 }
 
 #[wasm_bindgen]
-impl AkaveWebSDK {
-    pub async fn new() -> Result<AkaveWebSDK, JsError> {
-        log_info!("Initializing AkaveWebSDK");
-        initialize_panic_handler();
-        Self::new_with_endpoint("http://localhost:3000").await
-    }
+pub struct AkaveWebSDKBuilder {
+    inner_builder: AkaveSDKBuilder,
+}
 
+#[wasm_bindgen]
+impl AkaveWebSDKBuilder {
     #[wasm_bindgen(constructor)]
-    pub async fn new_with_endpoint(endpoint: &str) -> Result<AkaveWebSDK, JsError> {
-        log_info!("Initializing AkaveWebSDK with endpoint: {}", endpoint);
+    pub fn new(server_address: &str) -> Self {
         initialize_panic_handler();
-
-        match AkaveSDK::new(endpoint).await {
+        Self {
+            inner_builder: AkaveSDKBuilder::new(server_address),
+        }
+    }
+    
+    #[wasm_bindgen(js_name = "withErasureCoding")]
+    pub fn with_erasure_coding(mut self, data_blocks: usize, parity_blocks: usize) -> Self {
+        self.inner_builder = self.inner_builder.with_erasure_coding(data_blocks, parity_blocks);
+        self
+    }
+    
+    #[wasm_bindgen(js_name = "withDefaultEncryption")]
+    pub fn with_default_encryption(mut self, encryption_key: &str) -> Self {
+        self.inner_builder = self.inner_builder.with_default_encryption(encryption_key);
+        self
+    }
+    
+    #[wasm_bindgen(js_name = "withBlockSize")]
+    pub fn with_block_size(mut self, block_size: usize) -> Self {
+        self.inner_builder = self.inner_builder.with_block_size(block_size);
+        self
+    }
+    
+    #[wasm_bindgen(js_name = "withMinBucketLength")]
+    pub fn with_min_bucket_length(mut self, min_bucket_name_length: usize) -> Self {
+        self.inner_builder = self.inner_builder.with_min_bucket_length(min_bucket_name_length);
+        self
+    }
+    
+    #[wasm_bindgen(js_name = "withMaxBlocksInChunk")]
+    pub fn with_max_blocks_in_chunk(mut self, max_blocks_in_chunk: usize) -> Self {
+        self.inner_builder = self.inner_builder.with_max_blocks_in_chunk(max_blocks_in_chunk);
+        self
+    }
+    
+    #[wasm_bindgen(js_name = "withBlockPartSize")]
+    pub fn with_block_part_size(mut self, block_part_size: usize) -> Self {
+        self.inner_builder = self.inner_builder.with_block_part_size(block_part_size);
+        self
+    }
+    
+    #[wasm_bindgen(js_name = "build")]
+    pub async fn build(self) -> Result<AkaveWebSDK, JsError> {
+        log_info!("Building AkaveWebSDK with configured options");
+        
+        match self.inner_builder.build().await {
             Ok(sdk) => {
                 log_info!("AkaveWebSDK initialized successfully");
                 Ok(AkaveWebSDK { sdk })
@@ -37,6 +80,22 @@ impl AkaveWebSDK {
                 Err(JsError::new(&format!("Failed to initialize SDK: {}", e)))
             }
         }
+    }
+}
+
+#[wasm_bindgen]
+impl AkaveWebSDK {
+    pub async fn new() -> Result<AkaveWebSDK, JsError> {
+        log_info!("Initializing AkaveWebSDK with default settings");
+        initialize_panic_handler();
+        AkaveWebSDKBuilder::new("http://localhost:3000").build().await
+    }
+
+    #[wasm_bindgen(constructor)]
+    pub async fn new_with_endpoint(endpoint: &str) -> Result<AkaveWebSDK, JsError> {
+        log_info!("Initializing AkaveWebSDK with endpoint: {}", endpoint);
+        initialize_panic_handler();
+        AkaveWebSDKBuilder::new(endpoint).build().await
     }
 
     #[wasm_bindgen(js_name = "listBuckets")]
