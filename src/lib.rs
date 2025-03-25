@@ -1,4 +1,5 @@
 #[macro_use(shards)]
+// #[cfg(not(target_arch = "wasm32"))]
 extern crate reed_solomon_erasure;
 
 mod allocator;
