@@ -1,10 +1,16 @@
-use akave_rs::sdk::{AkaveSDK, AkaveSDKBuilder};
+use akave_rs::sdk::AkaveSDKBuilder;
 use std::fs::File;
-use std::io::Read;
-use std::path::Path;
+use env_logger::Builder;
+use log::LevelFilter;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logging
+    Builder::new()
+        .filter_level(LevelFilter::Debug) // Set to Debug to see all logs
+        .format_timestamp(None)
+        .init();
+
     // Initialize the SDK
     let mut sdk = AkaveSDKBuilder::new("http://connect.akave.ai:5500")
         .with_default_encryption("testkey123")

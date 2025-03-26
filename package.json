@@ -13,6 +13,7 @@
     "test:web": "wasm-pack test --headless --firefox",
     "test:native": "cargo test -- --nocapture",
     "publish:web": "wasm-pack publish",
-    "example:web": "npm run build:web && (cd examples/web-demo && npm install && npm start)"
+    "example:web": "npm run build:web && (cd examples/web-demo && npm install && npm start)",
+    "example:native": "npm run build:native && (cd examples/native-demo && cargo run)"
   }
 }
