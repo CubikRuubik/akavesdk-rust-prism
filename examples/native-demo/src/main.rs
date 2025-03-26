@@ -2,6 +2,11 @@ use akave_rs::sdk::AkaveSDKBuilder;
 use std::fs::File;
 use env_logger::Builder;
 use log::LevelFilter;
+use std::path::Path;
+
+const TEST_PASSWORD: &str = "testkey123";
+const FILE_NAME_TO_TEST: &str = "test.txt";
+const TEST_ADDRESS: &str = "0x7975eD6b732D1A4748516F66216EE703f4856759";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,38 +18,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize the SDK
     let mut sdk = AkaveSDKBuilder::new("http://connect.akave.ai:5500")
-        .with_default_encryption("testkey123")
+        .with_default_encryption(TEST_PASSWORD)
         .with_erasure_coding(4, 2)
         .build()
         .await?;
-
-    // Test address (replace with your test address)
-    let test_address = "0x7975eD6b732D1A4748516F66216EE703f4856759";
-    let bucket_name = "demo_bucket";
-    let file_name = "test.txt";
-
     println!("Starting Akave SDK demo...");
-
+    let bucket_name = format!("demo_bucket_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs());
     // Create a bucket
     println!("Creating bucket: {}", bucket_name);
-    sdk.create_bucket(bucket_name).await?;
+    sdk.create_bucket(&bucket_name).await?;
 
     // View bucket details
     println!("Viewing bucket details...");
-    let bucket_view = sdk.view_bucket(test_address, bucket_name).await?;
+    let bucket_view = sdk.view_bucket(TEST_ADDRESS, &bucket_name).await?;
     println!("Bucket name: {}", bucket_view.name);
 
     // Read the test file
     println!("Reading test file...");
-    let mut file = File::open("./src/test.txt")?;
+    let test_file_path = format!("test_files/{}", FILE_NAME_TO_TEST);
+    if !Path::new(&test_file_path).exists() {
+        return Err(format!("Test file not found at: {}", test_file_path).into());
+    }
+    let mut file = File::open(&test_file_path)?;
 
     // Upload the file
     println!("Uploading file to bucket...");
-    sdk.upload_file(bucket_name, file_name, file, None).await?;
+    sdk.upload_file(&bucket_name, FILE_NAME_TO_TEST, file, None).await?;
 
     // List files in the bucket
     println!("Listing files in bucket...");
-    let file_list = sdk.list_files(test_address, bucket_name).await?;
+    let file_list = sdk.list_files(TEST_ADDRESS, &bucket_name).await?;
     println!("Files in bucket:");
     for file in file_list.files {
         println!("- {}", file.name);
@@ -52,17 +55,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // View file info
     println!("Viewing file info...");
-    let file_info = sdk.view_file_info(test_address, bucket_name, file_name).await?;
+    let file_info = sdk.view_file_info(TEST_ADDRESS, &bucket_name, FILE_NAME_TO_TEST).await?;
     println!("File info: {:?}", file_info);
+
+    // Create downloads directory if it doesn't exist
+    std::fs::create_dir_all("test_files/downloads")?;
 
     // Download the file
     println!("Downloading file...");
-    sdk.download_file(test_address, bucket_name, file_name, None, "downloads").await?;
-    println!("File downloaded to 'downloads' directory");
+    sdk.download_file(TEST_ADDRESS, &bucket_name, FILE_NAME_TO_TEST, None, "test_files/downloads/").await?;
+    println!("File downloaded successfully!");
 
     // Clean up
     println!("Cleaning up...");
-    sdk.delete_bucket(test_address, bucket_name).await?;
+    sdk.delete_bucket(TEST_ADDRESS, &bucket_name).await?;
     println!("Demo completed successfully!");
 
     Ok(())

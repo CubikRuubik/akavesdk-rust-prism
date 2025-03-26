@@ -504,9 +504,15 @@ impl AkaveSDK {
         };
 
         let encryption = match password {
-            Some(key) => Some(Encryption::new(key.as_bytes(), info.as_bytes())
-                .map_err(|e| AkaveError::EncryptionError(e.to_string()))?),
-            None => None,
+            Some(key) => {
+                log_debug!("Setting up encryption");
+                Some(Encryption::new(key.as_bytes(), info.as_bytes())
+                    .map_err(|e| AkaveError::EncryptionError(e.to_string()))?)
+            }
+            None => {
+                log_debug!("No encryption key provided");
+                None
+            }
         };
 
         // Calculate buffer size based on erasure coding settings
@@ -840,9 +846,15 @@ impl AkaveSDK {
         };
 
         let option_encryption = match password {
-            Some(key) => Some(Encryption::new(key.as_bytes(), info.as_bytes())
-                .map_err(|e| AkaveError::EncryptionError(e.to_string()))?),
-            None => None,
+            Some(key) => {
+                log_debug!("Setting up decryption key");
+                Some(Encryption::new(key.as_bytes(), info.as_bytes())
+                    .map_err(|e| AkaveError::EncryptionError(e.to_string()))?)
+            }
+            None => {
+                log_debug!("No decryption key provided");
+                None
+            }
         };
 
         let file_download = self
