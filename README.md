@@ -45,12 +45,12 @@ npm install @akave/akave-web-sdk
 ### Native Rust
 
 ```rust
-use akave_sdk::AkaveIpcSDK;
+use akave_rs::AkaveSDK;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize SDK
-    let mut sdk = AkaveIpcSDK::new("http://connect.akave.ai:5500").await?;
+    let mut sdk = AkaveSDK::new("http://connect.akave.ai:5500").await?;
     
     // Create a bucket
     let bucket_name = "my-bucket";
@@ -64,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let files = sdk.list_files("your-address", bucket_name).await?;
     
     // Download a file
-    sdk.download_file("your-address", bucket_name, "file.txt", None, "/path/to/save").await?;
+    sdk.download_file("your-address", bucket_name, "file.txt", None, "/path/to/save/").await?;
     
     Ok(())
 }
