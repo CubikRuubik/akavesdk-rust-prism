@@ -1,5 +1,5 @@
 {
-  "rust-analyzer.linkedProjects": ["./Cargo.toml"],
+  "rust-analyzer.linkedProjects": ["./Cargo.toml", "./examples/native-demo/Cargo.toml"],
   "rust-analyzer.diagnostics.disabled": ["inactive-code"],
   // bottom line helps setting rust-analyzer to analyze code using correct targets.
   // This cfg should be switched depending on which targets we are developing against

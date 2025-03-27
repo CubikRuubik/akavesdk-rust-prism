@@ -14,7 +14,7 @@ pub(crate) struct DeleteBucketResponse {}
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub(crate) struct BucketResponse {
+pub struct BucketResponse {
     pub id: [u8; 32],
     pub name: String,
     pub created_at: U256,

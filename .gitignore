@@ -28,4 +28,5 @@ wasm-pack.log
 
 # Downloaded files
 downloaded
+**/test_files/downloads/**
 user.akvf.key

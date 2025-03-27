@@ -159,7 +159,7 @@ The SDK provides comprehensive error handling for both platforms:
 
 See the `examples` directory for complete usage examples:
 - `web-demo/` - Browser-based example application
-- Native Rust examples (coming soon)
+- `native-demo/` Native Rust e2e example
 
 ## Contributing
 
@@ -167,4 +167,4 @@ Contributions are welcome! Please read our contributing guidelines before submit
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+TODO

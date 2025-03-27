@@ -1,7 +1,41 @@
-use std::str::FromStr;
+use crate::utils::timestamp::timestamp_serde_direct;
 use cid::Cid;
 use prost_types::Timestamp;
-use crate::utils::timestamp::timestamp_serde_direct;
+use std::str::FromStr;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum AkaveError {
+    #[error("blockchain error: {0}")]
+    BlockchainError(String),
+
+    #[error("grpc error: {0}")]
+    GrpcError(String),
+
+    #[error("file error: {0}")]
+    FileError(String),
+
+    #[error("encryption error: {0}")]
+    EncryptionError(String),
+
+    #[error("erasure coding error: {0}")]
+    ErasureCodeError(String),
+
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
+
+    #[error("not found: {0}")]
+    NotFound(String),
+
+    #[error("already exists: {0}")]
+    AlreadyExists(String),
+
+    #[error("permission denied: {0}")]
+    PermissionDenied(String),
+
+    #[error("internal error: {0}")]
+    Internal(String),
+}
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
@@ -100,4 +134,95 @@ pub(crate) struct FileChunkDownload {
     pub encoded_size: i64,
     pub size: i64,
     pub blocks: Vec<FileBlockDownload>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct BucketListResponse {
+    pub buckets: Vec<BucketListItem>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct BucketListItem {
+    pub id: String,
+    pub name: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct BucketViewResponse {
+    pub id: String,
+    pub name: String,
+    pub created_at: i64,
+    pub file_count: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct FileListResponse {
+    pub files: Vec<FileListItem>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct FileListItem {
+    pub root_cid: String,
+    pub created_at: i64,
+    pub encoded_size: i64,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct FileViewResponse {
+    pub root_cid: String,
+    pub created_at: i64,
+    pub encoded_size: i64,
+    pub name: String,
+    pub bucket_name: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct FileDownloadResponse {
+    pub chunks: Vec<FileChunk>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct FileChunk {
+    pub cid: String,
+    pub size: i64,
+    pub encoded_size: i64,
+    pub blocks: Vec<FileBlock>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct FileBlock {
+    pub cid: String,
+    pub size: i64,
+    pub node_id: String,
+    pub node_address: String,
+    pub permit: String,
 }

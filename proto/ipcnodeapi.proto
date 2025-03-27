@@ -125,7 +125,6 @@ message IPCFileViewResponse {
   string file_name = 2;
   string root_cid = 3;
   int64 encoded_size = 4;
-  bool is_public = 5;
   google.protobuf.Timestamp created_at = 6;
 }
 
