@@ -109,20 +109,20 @@ async function initialize() {
 ### Common Methods
 
 #### Bucket Operations
-- `create_bucket(name: &str) -> Result<BucketResponse>`
-- `delete_bucket(address: &str, name: &str) -> Result<()>`
-- `list_buckets(address: &str) -> Result<IpcBucketListResponse>`
-- `view_bucket(address: &str, name: &str) -> Result<IpcBucketViewResponse>`
+- `create_bucket(name: &str) -> Result<BucketResponse>` - Creates a new bucket with the specified name.
+- `delete_bucket(address: &str, name: &str) -> Result<()>` - Deletes the specified bucket for the given address.
+- `list_buckets(address: &str) -> Result<BucketListResponse>` - Lists all buckets associated with the specified address.
+- `view_bucket(address: &str, name: &str) -> Result<BucketViewResponse>` - Retrieves details of the specified bucket for the given address.
 
 #### File Operations
-- `upload_file(bucket_name: &str, file_name: &str, file: File, password: Option<&str>) -> Result<TransactionReceipt>`
-- `download_file(address: &str, bucket_name: &str, file_name: &str, password: Option<&str>, destination: &str) -> Result<()>`
-- `list_files(address: &str, bucket_name: &str) -> Result<IpcFileList>`
-- `delete_file(address: &str, bucket_name: &str, file_name: &str) -> Result<()>`
+- `upload_file(bucket_name: &str, file_name: &str, file: File, password: Option<&str>) -> Result<TransactionReceipt>` - Uploads a file to the specified bucket with optional encryption.
+- `download_file(address: &str, bucket_name: &str, file_name: &str, password: Option<&str>, destination: &str) -> Result<()>` - Downloads the specified file from the bucket to the given destination path with optional decryption.
+- `list_files(address: &str, bucket_name: &str) -> Result<FileListResponse>` - Lists all files within the specified bucket for the given address.
+- `delete_file(address: &str, bucket_name: &str, file_name: &str) -> Result<()>` - Deletes the specified file from the given bucket for the address.
 
 ### WASM-Specific Methods
-- `connectWallet() -> Promise<string>` - Connects to MetaMask and returns the wallet address
-- `new_with_endpoint(endpoint: string) -> Promise<AkaveWebSDK>` - Creates SDK instance with custom endpoint
+- `connectWallet() -> Promise<string>` - Connects to MetaMask and returns the wallet address.
+- `new_with_endpoint(endpoint: string) -> Promise<AkaveWebSDK>` - Creates an SDK instance with a custom endpoint.
 
 ## Configuration
 
