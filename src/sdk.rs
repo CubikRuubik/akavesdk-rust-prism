@@ -774,13 +774,27 @@ impl AkaveSDK {
             total += self.block_part_size;
         }
 
-        let block_stream = futures::stream::iter(blocks_upload);
 
-        self.client
-            .file_upload_block(block_stream)
-            .await
-            .map_err(|e| AkaveError::GrpcError(e.to_string()))?
-            .into_inner();
+        // WASM does not support server side streaming (yet) so we need to send blocks in a series of unary requests.
+        #[cfg(target_arch = "wasm32")]
+        for block in blocks_upload {
+            self.client
+                .file_upload_block_unary(block)
+                .await
+                .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+                .into_inner();
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let block_stream = futures::stream::iter(blocks_upload);
+
+            self.client
+                .file_upload_block(block_stream)
+                .await
+                .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+                .into_inner();
+        }
         log_debug!("Chunk uploaded successfully");
         Ok(())
     }

@@ -260,10 +260,14 @@ impl AkaveWebSDK {
         file: File,
     ) -> Result<(), JsError> {
         log_debug!("Uploading file: {} to bucket: {}", file_name, bucket_name);
+        
+        let web_sys_file = WebSysFile::new(file);
+        
         let response = self
             .sdk
-            .upload_file(bucket_name, file_name, WebSysFile::new(file), None)
+            .upload_file(bucket_name, file_name, web_sys_file, None)
             .await;
+        
         match response {
             Ok(_) => {
                 log_info!(

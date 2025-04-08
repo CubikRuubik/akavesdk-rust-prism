@@ -28,6 +28,7 @@ service IPCNodeAPI {
       returns (stream IPCFileBlockData) {}
   rpc FileList(IPCFileListRequest) returns (IPCFileListResponse) {}
   rpc FileDelete(IPCFileDeleteRequest) returns (IPCFileDeleteResponse) {}
+  rpc FileUploadBlockUnary (IPCFileBlockData) returns (IPCFileUploadBlockResponse) {}
 }
 
 message ConnectionParamsRequest {}
