@@ -4,6 +4,5 @@ pub mod encryption;
 pub mod erasure;
 pub mod file_size;
 pub mod pb_data;
-pub mod split_vec;
 pub mod splitter;
 pub mod timestamp;
