@@ -52,7 +52,7 @@ const GET_FILE_BY_NAME: &str = "getFileByName";
 
 pub(crate) struct BlockchainProvider {
     pub web3_provider: Web3<ProviderType>,
-    pub akave: Contract<ProviderType>,
+    pub akave_storage: Contract<ProviderType>,
     confirmations: usize,
     #[cfg(not(target_arch = "wasm32"))]
     key: Option<SecretKey>,
@@ -85,16 +85,16 @@ impl BlockchainProvider {
                         let transport = web3::transports::eip_1193::Eip1193::new(provider);
                         let web3_provider = web3::Web3::new(transport);
                         log_debug!("Creating contract instance");
-                        let akave = Contract::from_json(
+                        let akave_storage = Contract::from_json(
                             web3_provider.eth(),
                             access_address.parse::<H160>().unwrap(),
-                            include_bytes!("contract.json"),
+                            include_bytes!("storage.json"),
                         )
                         .unwrap();
                         log_info!("BlockchainProvider initialized successfully for WASM");
                         Ok(Self {
                             web3_provider,
-                            akave,
+                            akave_storage,
                             confirmations: confirmations_opt,
                             #[cfg(not(target_arch = "wasm32"))]
                             key: None,
@@ -131,10 +131,10 @@ impl BlockchainProvider {
                 Ok(transport_option) => {
                     let web3_provider = Web3::new(transport_option);
                     log_debug!("Creating contract instance");
-                    let akave = Contract::from_json(
+                    let akave_storage = Contract::from_json(
                         web3_provider.eth(),
                         access_address.parse::<H160>().unwrap(),
-                        include_bytes!("contract.json"),
+                        include_bytes!("storage.json"),
                     )
                     .unwrap();
 
@@ -143,7 +143,7 @@ impl BlockchainProvider {
                     log_info!("BlockchainProvider initialized successfully for native");
                     Ok(Self {
                         web3_provider,
-                        akave,
+                        akave_storage,
                         key: Some(key),
                         confirmations: confirmations_opt,
                     })
@@ -256,7 +256,7 @@ impl BlockchainProvider {
             let key_ref = SecretKeyRef::new(key);
 
             let hash = self
-                .akave
+                .akave_storage
                 .signed_call(function_name, params, txopts, key_ref)
                 .await?;
 
@@ -276,7 +276,7 @@ impl BlockchainProvider {
                 address
             );
             return Ok(self
-                .akave
+                .akave_storage
                 .call(function_name, params, address, txopts)
                 .await?);
         }
@@ -422,7 +422,7 @@ impl BlockchainProvider {
         log_debug!("Getting bucket by name: {}", bucket_name_clone);
         let address = self.get_address().await?;
         let result: BucketResponse = self
-            .akave
+            .akave_storage
             .query(
                 GET_BUCKET_BY_NAME,
                 (bucket_name,),
@@ -444,7 +444,7 @@ impl BlockchainProvider {
         log_debug!("Getting bucket index for name: {}", bucket_name_clone);
         let address = self.get_address().await?;
         let result: U256 = self
-            .akave
+            .akave_storage
             .query(
                 GET_BUCKET_INDEX_BY_NAME,
                 (bucket_name, address),
@@ -499,7 +499,7 @@ impl BlockchainProvider {
         let address = self.get_address().await?;
         let parsed_id: [u8; 32] = file_id.try_into().expect("file_id error");
         let result: U256 = self
-            .akave
+            .akave_storage
             .query(
                 GET_FILE_INDEX_BY_NAME,
                 (file_name, parsed_id),
@@ -526,7 +526,7 @@ impl BlockchainProvider {
         let address = self.get_address().await?;
         let parsed_id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
         let result = self
-            .akave
+            .akave_storage
             .query(
                 GET_FILE_BY_NAME,
                 (parsed_id, file_name),

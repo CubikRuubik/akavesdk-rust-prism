@@ -19,12 +19,12 @@ use web3::types::{TransactionReceipt, U256};
 
 // Proto-related imports
 use ipcnodeapi::{
-    ipc_chunk::Block, ipc_file_download_create_response::Chunk,
+    ipc_chunk::Block,
     ipc_node_api_client::IpcNodeApiClient, ConnectionParamsRequest, IpcBucketListRequest,
-    IpcBucketListResponse, IpcBucketViewRequest, IpcBucketViewResponse, IpcChunk, IpcFileBlockData,
+    IpcBucketViewRequest, IpcChunk, IpcFileBlockData,
     IpcFileDownloadBlockRequest, IpcFileDownloadChunkCreateRequest, IpcFileDownloadCreateRequest,
-    IpcFileDownloadCreateResponse, IpcFileListRequest, IpcFileUploadChunkCreateRequest,
-    IpcFileViewRequest, IpcFileViewResponse,
+    IpcFileListRequest, IpcFileUploadChunkCreateRequest,
+    IpcFileViewRequest,
 };
 
 // Internal crate imports
@@ -34,15 +34,14 @@ use crate::utils::pb_data::PbData;
 use crate::{
     blockchain::ipc_types::BucketResponse,
     sdk_types::{
-        AkaveBlockData, FileBlockDownload, FileChunkDownload, IpcFileChunkUpload, IpcFileList,
-        IpcFileListItem,
+        AkaveBlockData, FileBlockDownload, FileChunkDownload, IpcFileChunkUpload
     },
 };
 use crate::{blockchain::provider::BlockchainProvider, utils};
 use crate::{log_debug, log_error, log_info};
 use crate::sdk_types::{
     AkaveError, BucketListResponse, BucketViewResponse, FileListResponse, FileViewResponse,
-    FileDownloadResponse, BucketListItem, FileListItem, FileChunk, FileBlock,
+    FileDownloadResponse, BucketListItem, FileListItem, FileChunk,
 };
 
 // Target-specific imports and types
