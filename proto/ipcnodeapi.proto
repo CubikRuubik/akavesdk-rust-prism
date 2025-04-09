@@ -7,27 +7,20 @@ import "google/protobuf/timestamp.proto";
 package ipcnodeapi;
 
 service IPCNodeAPI {
-  rpc ConnectionParams(ConnectionParamsRequest)
-      returns (ConnectionParamsResponse) {}
+  rpc ConnectionParams (ConnectionParamsRequest) returns (ConnectionParamsResponse) {}
   // Bucket APIs.
-  rpc BucketCreate(IPCBucketCreateRequest) returns (IPCBucketCreateResponse) {}
-  rpc BucketView(IPCBucketViewRequest) returns (IPCBucketViewResponse) {}
-  rpc BucketList(IPCBucketListRequest) returns (IPCBucketListResponse) {}
-  rpc BucketDelete(IPCBucketDeleteRequest) returns (IPCBucketDeleteResponse) {}
+  rpc BucketView (IPCBucketViewRequest) returns (IPCBucketViewResponse) {}
+  rpc BucketList (IPCBucketListRequest) returns (IPCBucketListResponse) {}
   // File APIs.
-  rpc FileUploadChunkCreate(IPCFileUploadChunkCreateRequest)
-      returns (IPCFileUploadChunkCreateResponse) {}
-  rpc FileUploadBlock(stream IPCFileBlockData)
-      returns (IPCFileUploadBlockResponse) {}
-  rpc FileView(IPCFileViewRequest) returns (IPCFileViewResponse) {}
-  rpc FileDownloadCreate(IPCFileDownloadCreateRequest)
-      returns (IPCFileDownloadCreateResponse) {}
-  rpc FileDownloadChunkCreate(IPCFileDownloadChunkCreateRequest)
-      returns (IPCFileDownloadChunkCreateResponse) {}
-  rpc FileDownloadBlock(IPCFileDownloadBlockRequest)
-      returns (stream IPCFileBlockData) {}
-  rpc FileList(IPCFileListRequest) returns (IPCFileListResponse) {}
-  rpc FileDelete(IPCFileDeleteRequest) returns (IPCFileDeleteResponse) {}
+  rpc FileUploadChunkCreate (IPCFileUploadChunkCreateRequest) returns (IPCFileUploadChunkCreateResponse) {}
+  rpc FileUploadBlock (stream IPCFileBlockData) returns (IPCFileUploadBlockResponse) {}
+  rpc FileView (IPCFileViewRequest) returns (IPCFileViewResponse) {}
+  rpc FileDownloadCreate (IPCFileDownloadCreateRequest) returns (IPCFileDownloadCreateResponse) {}
+  rpc FileDownloadChunkCreate (IPCFileDownloadChunkCreateRequest) returns (IPCFileDownloadChunkCreateResponse) {}
+  rpc FileDownloadBlock (IPCFileDownloadBlockRequest) returns (stream IPCFileBlockData) {}
+  rpc FileList (IPCFileListRequest) returns (IPCFileListResponse) {}
+  rpc FileListChunks (IPCFileListChunksRequest) returns (IPCFileListChunksResponse) {}
+  
   rpc FileUploadBlockUnary (IPCFileBlockData) returns (IPCFileUploadBlockResponse) {}
 }
 
@@ -39,26 +32,20 @@ message ConnectionParamsResponse {
   string access_address = 3;
 }
 
-message IPCBucketCreateRequest { string name = 1; }
-
-message IPCBucketCreateResponse {
-  string name = 1;
-  google.protobuf.Timestamp created_at = 2;
-}
-
 message IPCBucketViewRequest {
   string name = 1;
   string address = 2;
 }
 
 message IPCBucketViewResponse {
-  string id = 1; // todo: remove this when contract removes id from deleteBucket
-                 // endpoint
+  string id = 1;
   string name = 2;
   google.protobuf.Timestamp created_at = 3;
 }
 
-message IPCBucketListRequest { string address = 1; }
+message IPCBucketListRequest {
+  string address = 1;
+}
 
 message IPCBucketListResponse {
   repeated IPCBucket buckets = 1;
@@ -68,10 +55,6 @@ message IPCBucketListResponse {
     google.protobuf.Timestamp created_at = 2;
   }
 }
-
-message IPCBucketDeleteRequest {}
-
-message IPCBucketDeleteResponse {}
 
 message IPCChunk {
   string cid = 1;
@@ -85,7 +68,7 @@ message IPCChunk {
   }
 }
 
-message IPCFileUploadChunkCreateRequest {
+message IPCFileUploadChunkCreateRequest{
   IPCChunk chunk = 1;
   bytes bucket_id = 2;
   string file_name = 3;
@@ -102,15 +85,20 @@ message IPCFileUploadChunkCreateResponse {
   }
 }
 
-message IPCFileBlockDataRequest { repeated bytes transaction = 1; }
+message IPCFileBlockDataRequest {
+  repeated bytes transaction = 1;
+}
 
 message IPCFileBlockData {
   bytes data = 1;
-  string cid = 2;     // only present in first msg of request stream
-  int64 index = 3;    // only present in first msg of request stream
+  string cid = 2; // only present in first msg of request stream
+  int64 index = 3; // only present in first msg of request stream
   IPCChunk chunk = 4; // only present in first msg of request stream
   bytes bucket_id = 5;
   string file_name = 6;
+  bytes nonce = 7;
+  bytes node_id = 8;
+  string signature = 9;
 }
 
 message IPCFileUploadBlockResponse {}
@@ -126,6 +114,7 @@ message IPCFileViewResponse {
   string file_name = 2;
   string root_cid = 3;
   int64 encoded_size = 4;
+  bool is_public = 5;
   google.protobuf.Timestamp created_at = 6;
 }
 
@@ -191,10 +180,11 @@ message IPCFileListResponse {
   }
 }
 
-message IPCFileDeleteRequest {
-  bytes transaction = 1;
-  bytes bucket_name = 2;
-  string name = 3;
+message IPCFileListChunksRequest {
+  string stream_id = 1;
 }
 
-message IPCFileDeleteResponse {}
+message IPCFileListChunksResponse {
+  string stream_id = 1;
+  repeated string cids = 2;
+}
