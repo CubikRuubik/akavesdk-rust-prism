@@ -587,6 +587,10 @@ impl AkaveSDK {
                     chunk: Some(ipc_chunk.to_owned()),
                     bucket_id: bucket.id.to_vec(),
                     file_name: file_name.to_string(),
+                    //TODO fix
+                    signature: String::from(""),
+                    node_id: Vec::new(),
+                    nonce: Vec::new(),
                 })
                 .await
                 .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
@@ -768,6 +772,10 @@ impl AkaveSDK {
                 },
                 file_name: chunk.file_name.clone(),
                 index: chunk.index as i64,
+                //TODO fix
+                signature: String::from(""),
+                node_id: Vec::new(),
+                nonce: Vec::new(),
             });
 
             total += self.block_part_size;
