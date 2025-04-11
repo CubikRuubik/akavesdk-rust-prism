@@ -1,16 +1,15 @@
 // Standard library imports
 
+use std::collections::HashMap;
+
 // External crate imports (general)
-use serde_json::Value;
 use web3::{
-    contract::{tokens::Tokenize, Contract, Options},
-    error::TransportError,
-    types::{TransactionReceipt, H160, H256, U256},
-    Error, Web3,
+    contract::{tokens::Tokenize, Contract, Options}, error::TransportError, helpers, types::{TransactionReceipt, H160, H256, U256}, Error, Transport, Web3
 };
 
 // Internal imports
 use super::ipc_types::{BucketResponse, FileResponse};
+use crate::blockchain::eip712_types::{Domain, TypedData};
 use crate::{log_debug, log_error, log_info};
 
 // Target-specific imports
@@ -550,4 +549,77 @@ impl BlockchainProvider {
         Ok(result)
     }
 
+    /// Signs a message using EIP-712 typed data signing
+    /// 
+    /// For native environments, it uses the private key directly
+    /// For WASM environments, it forwards the request to the Ethereum provider
+    pub async fn eip712_sign(
+        &self,
+        domain: Domain,
+        message: HashMap<String, serde_json::Value>,
+        types: HashMap<String, Vec<TypedData>>
+    ) -> Result<[u8; 65], Box<dyn std::error::Error>> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Native implementation using the EIP-712 module
+            if let Some(key) = &self.key {
+                log_debug!("Using native EIP-712 signing with private key");
+                let signature = crate::blockchain::eip712::sign_typed_data(
+                    key,
+                    &domain,
+                    &message,
+                    &types
+                )?;
+                Ok(signature)
+            } else {
+                Err("No private key available for signing".into())
+            }
+        }
+        
+        #[cfg(target_arch = "wasm32")]
+        {
+            // WASM implementation using the web3 provider's eth_signTypedData_v4 method
+            log_debug!("Using WASM EIP-712 signing via provider");
+            
+            // Format the request according to EIP-712
+            let eip712_request = serde_json::json!({
+                "domain": domain,
+                "message": message,
+                "primaryType": "StorageData", // TODO: could be parameterized
+                "types": types
+            });
+            
+            // Get the current account
+            let accounts = self.web3_provider.eth().accounts().await?;
+            if accounts.is_empty() {
+                return Err("No accounts available".into());
+            }
+            
+            // Call the provider's eth_signTypedData_v4 method
+            // Prepare parameters for the JSON-RPC call
+            let account = accounts[0].to_string();
+            let typed_data_json = serde_json::to_string(&eip712_request)?;
+            
+            // Call the RPC method with proper parameters
+            let params = vec![helpers::serialize(&account), helpers::serialize(&typed_data_json)];
+            let signature_hex: String = self.web3_provider
+                .transport()
+                .execute("eth_signTypedData_v4", params)
+                .await?.to_string();
+            
+            // Convert hex signature to bytes (handle potential 0x prefix)
+            let clean_sig = signature_hex.trim_start_matches("0x").to_string();
+            let signature_bytes = hex::decode(&clean_sig)?;
+            if signature_bytes.len() != 65 {
+                return Err(format!("Invalid signature length: {}, signature: {}", 
+                             signature_bytes.len(), signature_hex).into());
+            }
+            
+            // Convert to fixed-length array
+            let mut signature = [0u8; 65];
+            signature.copy_from_slice(&signature_bytes);
+            
+            Ok(signature)
+        }
+    }
 }

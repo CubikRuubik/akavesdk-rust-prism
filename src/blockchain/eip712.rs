@@ -1,17 +1,10 @@
-// Copyright (C) 2025 Akave
-// See LICENSE for copying information.
-
-//! Module providing EIP-712 signing functionality using web3
-
 use std::{collections::HashMap, fmt, str::FromStr};
-use web3::{
-    signing::{keccak256, recover, Key, SecretKey},
-    types::{Address, H256, U256},
-};
+use web3::types::{Address, H256, U256};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use web3::signing::{keccak256, Key, SecretKey};
 
-use crate::log_debug;
+use crate::{blockchain::eip712_types::{Domain, TypedData}, log_debug};
 
 /// Error type for EIP-712 signing operations
 #[derive(Error, Debug)]
@@ -27,24 +20,6 @@ pub enum Error {
     
     #[error("recovery error: {0}")]
     RecoveryError(String),
-}
-
-/// TypedData contains data type and name.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TypedData {
-    pub name: String,
-    pub r#type: String,
-}
-
-/// Domain represents the domain separator.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Domain {
-    pub name: String,
-    pub version: String,
-    #[serde(rename = "chainId")]
-    pub chain_id: U256,
-    #[serde(rename = "verifyingContract")]
-    pub verifying_contract: Address,
 }
 
 impl fmt::Display for Domain {
