@@ -45,7 +45,7 @@ class App {
         this.connectWalletBtn.addEventListener('click', () => this.connectWallet());
         this.createBucketBtn.addEventListener('click', () => this.createBucket());
         this.bucketSelect.addEventListener('change', (e) => this.handleBucketSelect(e));
-        // this.uploadFileBtn.addEventListener('click', () => this.uploadFile());
+        this.uploadFileBtn.addEventListener('click', () => this.uploadFile());
 
         // Initialize the application
         this.initialize();
@@ -274,38 +274,38 @@ class App {
         }
     }
 
-    // private async uploadFile(): Promise<void> {
-    //     try {
-    //         const bucketName = this.bucketSelect.value;
-    //         const file = this.fileInput.files?.[0];
+    private async uploadFile(): Promise<void> {
+        try {
+            const bucketName = this.bucketSelect.value;
+            const file = this.fileInput.files?.[0];
             
-    //         if (!bucketName || !file || !this.state.sdk) {
-    //             this.showNotification({
-    //                 message: 'Please select both a bucket and a file',
-    //                 type: 'error'
-    //             });
-    //             return;
-    //         }
+            if (!bucketName || !file || !this.state.sdk) {
+                this.showNotification({
+                    message: 'Please select both a bucket and a file',
+                    type: 'error'
+                });
+                return;
+            }
 
-    //         console.log(`Uploading file: ${file.name} to bucket: ${bucketName}`);
-    //         await this.state.sdk.uploadFile(bucketName, file);
-    //         console.log(`File "${file.name}" uploaded successfully`);
+            console.log(`Uploading file: ${file.name} to bucket: ${bucketName}`);
+            await this.state.sdk.uploadFile(bucketName, file.name, file);
+            console.log(`File "${file.name}" uploaded successfully`);
             
-    //         this.showNotification({
-    //             message: `File "${file.name}" uploaded successfully!`,
-    //             type: 'success'
-    //         });
+            this.showNotification({
+                message: `File "${file.name}" uploaded successfully!`,
+                type: 'success'
+            });
             
-    //         console.log('Reloading files list...');
-    //         await this.loadFiles(bucketName);
-    //     } catch (error) {
-    //         console.error('Failed to upload file:', error);
-    //         this.showNotification({
-    //             message: 'Failed to upload file. Please check the console for details.',
-    //             type: 'error'
-    //         });
-    //     }
-    // }
+            console.log('Reloading files list...');
+            await this.loadFiles(bucketName);
+        } catch (error) {
+            console.error('Failed to upload file:', error);
+            this.showNotification({
+                message: 'Failed to upload file. Please check the console for details.',
+                type: 'error'
+            });
+        }
+    }
 
     private handleBucketSelect(event: Event): void {
         const select = event.target as HTMLSelectElement;

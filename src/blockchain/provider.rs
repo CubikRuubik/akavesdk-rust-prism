@@ -1,6 +1,7 @@
 // Standard library imports
 
 // External crate imports (general)
+use serde_json::Value;
 use web3::{
     contract::{tokens::Tokenize, Contract, Options},
     error::TransportError,
@@ -54,6 +55,11 @@ pub(crate) struct BlockchainProvider {
     pub web3_provider: Web3<ProviderType>,
     pub akave_storage: Contract<ProviderType>,
     confirmations: usize,
+    // Storage contract address for EIP712 signing
+    storage_address: String,
+    // Chain ID for EIP712 signing
+    chain_id: u64,
+    // Native environment private key for signing
     #[cfg(not(target_arch = "wasm32"))]
     key: Option<SecretKey>,
 }
@@ -96,6 +102,8 @@ impl BlockchainProvider {
                             web3_provider,
                             akave_storage,
                             confirmations: confirmations_opt,
+                            storage_address: access_address.to_string(),
+                            chain_id: 31337, // Default to local hardhat
                             #[cfg(not(target_arch = "wasm32"))]
                             key: None,
                         })
@@ -144,6 +152,8 @@ impl BlockchainProvider {
                     Ok(Self {
                         web3_provider,
                         akave_storage,
+                        storage_address: access_address.to_string(),
+                        chain_id: 31337, // Default to local hardhat
                         key: Some(key),
                         confirmations: confirmations_opt,
                     })
@@ -540,16 +550,4 @@ impl BlockchainProvider {
         Ok(result)
     }
 
-    async fn sign_message(&self, str: String) -> Result<String, Error> {
-        log_debug!("Signing message");
-        let accounts = self.web3_provider.eth().accounts().await?;
-        log_debug!("Got accounts: {:?}", accounts);
-        let signed = self
-            .web3_provider
-            .personal()
-            .sign(str.into(), accounts[0], "".into())
-            .await?;
-        log_info!("Message signed successfully");
-        Ok(signed.to_string().into())
-    }
 }
