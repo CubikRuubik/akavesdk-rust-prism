@@ -39,7 +39,9 @@ pub fn sign_typed_data(
     data_message: &HashMap<String, serde_json::Value>,
     data_types: &HashMap<String, Vec<TypedData>>,
 ) -> Result<[u8; 65], Error> {
-    log_debug!("hashing data {:?}, domain: {:?}, types: {:?}", data_message, domain, data_types);
+    log_debug!("hashing data {:?}, domain {:?}, types: {:?}", data_message, domain, data_types);
+
+    log_debug!("data messages before hashing: chunkID: {:?}, blockCID: {:?}, chunkIndex: {:?}, blockIndex: {:?}, nodeId: {:?}, nonce: {:?}", data_message.get("chunkCID"), data_message.get("blockCID"), data_message.get("chunkIndex"), data_message.get("blockIndex"), data_message.get("nodeId"), data_message.get("nonce"));
     let hash = hash_typed_data(domain, data_message, data_types)?;
     log_debug!("full hash: encoded: {:?}, raw: {:?}", hash, hash.as_bytes());
     
@@ -237,6 +239,7 @@ fn encode_value(value: &serde_json::Value, type_name: &str) -> Result<Vec<u8>, E
             })?;
             let bytes = hex::decode(&bytes_str.trim_start_matches("0x"))
                 .map_err(|_| Error::EncodingError("Invalid bytes format".to_string()))?;
+            log_debug!("bytes: {:?}, keccak256: {:?}", bytes, keccak256(&bytes).to_vec());
             Ok(keccak256(&bytes).to_vec())
         }
         
@@ -303,13 +306,15 @@ fn encode_value(value: &serde_json::Value, type_name: &str) -> Result<Vec<u8>, E
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cid::multibase::Base;
+    use libp2p::PeerId;
     use web3::signing::SecretKeyRef;
 
     #[test]
-    fn test_sign_and_recover_with_specific_input() {
+    fn test_sign_and_recover() {
         // Private key from the test vector
         let private_key = SecretKey::from_str(
-            "4fdee5a3f9362020dd747162674ada0ca9a0f90f6fd2fc69b03e0f932fc4216c"
+            "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
         ).unwrap();
         
         // Create domain based on the provided test data
@@ -317,7 +322,7 @@ mod tests {
             name: "Storage".to_string(),
             version: "1".to_string(),
             chain_id: U256::from(31337),
-            verifying_contract: Address::from_str("e7f1725E7734CE288F8367e1Bb143E90bb3F0512").unwrap(),
+            verifying_contract: Address::from_str("1234567890123456789012345678901234567890").unwrap(),
         };
         
         // Create data types for StorageData
@@ -338,34 +343,37 @@ mod tests {
         let mut data_message = HashMap::new();
         
         // Convert hex string to bytes for chunkCID
-        let chunk_cid_hex = "01701220f3f1253834109022674bf317f0991c42f71474ab99acabe8a158b3d77f46209f";
-        let chunk_cid_bytes = hex::decode(chunk_cid_hex).unwrap();
+        let chunk_cid = cid::Cid::from_str("bafybeicccfs4u5nmkosg57m4a5k3h4yfuyhk3ftwrgyl4wpsq5maanokiu").unwrap();
+        let chunk_cid_hex = hex::encode(chunk_cid.to_bytes());
         data_message.insert(
             "chunkCID".to_string(), 
-            serde_json::json!(chunk_cid_hex));
-        log_debug!("chunk cid bytes: {:?}", chunk_cid_bytes);
+            serde_json::json!(format!("0x{}", chunk_cid_hex)));
+        log_debug!("chunk cidstr: {}, hex: {:?}, bytes: {:?}, encoded: {:?}", chunk_cid.to_string(), chunk_cid_hex, chunk_cid.to_bytes(), encode_value(&serde_json::json!(format!("0x{}", chunk_cid_hex)), "bytes").unwrap());
         
         // Convert hex string to bytes for blockCID
-        let block_cid_hex = "f3f1253834109022674bf317f0991c42f71474ab99acabe8a158b3d77f46209f";
-        let block_cid_bytes = hex::decode(block_cid_hex).unwrap();
+        let block_cid = cid::Cid::from_str("bafybeia3hparel3smf5n5lw6glchwi7e7olkzhwvh6uuj2tmojtexfr2cu").unwrap();
+        let block_cid_hex = block_cid.to_string_of_base(Base::Base16Lower).unwrap();
+        let mut bcid = [0u8; 32];
+        let bytes = block_cid.to_bytes();
+        bcid.copy_from_slice(&bytes[4..]); // trim prefix 4 bytes
         data_message.insert(
             "blockCID".to_string(), 
-            serde_json::json!(format!("0x{}", block_cid_hex)));
-        log_debug!("block cid bytes: {:?}", block_cid_bytes);
+            serde_json::json!(format!("0x{}", hex::encode(bcid))));
+        log_debug!("block cid str: {}, hex: {:?}, bytes: {:?}, encoded: {:?}", block_cid.to_string(), block_cid_hex, bcid, encode_value(&serde_json::json!(format!("0x{}", hex::encode(bcid))), "bytes32").unwrap());
         
-        // Numeric values are straightforward
-        data_message.insert("chunkIndex".to_string(), serde_json::Value::Number(serde_json::Number::from(0)));
-        data_message.insert("blockIndex".to_string(), serde_json::Value::Number(serde_json::Number::from(0)));
+        // Numeric values are straightforward√
+        data_message.insert("chunkIndex".to_string(), serde_json::Value::Number(serde_json::Number::from(1)));
+        data_message.insert("blockIndex".to_string(), serde_json::Value::Number(serde_json::Number::from(1)));
         
         // Convert hex string to bytes for nodeId
-        let node_id_hex = "002408011220f3b11f9768c269198a4f6524989b2b10973adb619d3c3f31f8a83ce3dc405709";
-        let node_id_bytes = hex::decode(node_id_hex).unwrap();
+        let node_id = PeerId::from_str("12D3KooWBPkG43Vjb3Rp2PFHYRgKkhAaMZCXAMRVb3M7PrQN2fC5").unwrap();
+        let node_id_hex =  hex::encode(node_id.to_bytes());
         data_message.insert(
             "nodeId".to_string(), 
             serde_json::json!(format!("0x{}", node_id_hex)));
-        log_debug!("node id bytes: {:?}", node_id_bytes);
+        log_debug!("node id str: {}, hex: {:?}, bytes: {:?}, encoded: {:?}", node_id.to_string(), node_id_hex, node_id.to_bytes(), encode_value(&serde_json::json!(format!("0x{}", node_id_hex)), "bytes").unwrap());
         
-        data_message.insert("nonce".to_string(), serde_json::Value::Number(serde_json::Number::from(3)));
+        data_message.insert("nonce".to_string(), serde_json::Value::Number(serde_json::Number::from(1234567890)));
         
         // Sign the message
         log::info!("Signing message: {:?} with pk: {:?}", data_message, private_key);
@@ -386,107 +394,5 @@ mod tests {
         
         // Verify that the recovered address matches the expected one
         assert_eq!(recovered_address, expected_address, "Recovered address doesn't match the expected address");
-    }
-
-    #[test]
-    fn test_hash_verification() {
-        // Create domain based on the provided test data
-        let domain = Domain {
-            name: "Storage".to_string(),
-            version: "1".to_string(),
-            chain_id: U256::from(31337),
-            verifying_contract: Address::from_str("e7f1725E7734CE288F8367e1Bb143E90bb3F0512").unwrap(),
-        };
-        
-        // Create data types for StorageData
-        let mut data_types = HashMap::new();
-        data_types.insert(
-            "StorageData".to_string(),
-            vec![
-                TypedData { name: "chunkCID".to_string(), r#type: "bytes".to_string() },
-                TypedData { name: "blockCID".to_string(), r#type: "bytes32".to_string() },
-                TypedData { name: "chunkIndex".to_string(), r#type: "uint256".to_string() },
-                TypedData { name: "blockIndex".to_string(), r#type: "uint8".to_string() },
-                TypedData { name: "nodeId".to_string(), r#type: "bytes".to_string() },
-                TypedData { name: "nonce".to_string(), r#type: "uint256".to_string() },
-            ],
-        );
-        
-        // Create data message with the test data
-        let mut data_message = HashMap::new();
-        data_message.insert(
-            "chunkCID".to_string(), 
-            serde_json::Value::String("0x01701220f3f1253834109022674bf317f0991c42f71474ab99acabe8a158b3d77f46209f".to_string())
-        );
-        data_message.insert(
-            "blockCID".to_string(), 
-            serde_json::Value::String("0xf3f1253834109022674bf317f0991c42f71474ab99acabe8a158b3d77f46209f".to_string())
-        );
-        data_message.insert("chunkIndex".to_string(), serde_json::Value::Number(serde_json::Number::from(0)));
-        data_message.insert("blockIndex".to_string(), serde_json::Value::Number(serde_json::Number::from(0)));
-        data_message.insert(
-            "nodeId".to_string(), 
-            serde_json::Value::String("0x002408011220f3b11f9768c269198a4f6524989b2b10973adb619d3c3f31f8a83ce3dc405709".to_string())
-        );
-        data_message.insert("nonce".to_string(), serde_json::Value::Number(serde_json::Number::from(3)));
-        
-        // Get the hash
-        let hash = hash_typed_data(&domain, &data_message, &data_types).unwrap();
-        
-        println!("EIP-712 Hash: 0x{}", hex::encode(hash.as_bytes()));
-        
-        // Test individual encodings for debugging
-        let domain_types: HashMap<String, Vec<TypedData>> = {
-            let mut map = HashMap::new();
-            map.insert(
-                "EIP712Domain".to_string(),
-                vec![
-                    TypedData {
-                        name: "name".to_string(),
-                        r#type: "string".to_string(),
-                    },
-                    TypedData {
-                        name: "version".to_string(),
-                        r#type: "string".to_string(),
-                    },
-                    TypedData {
-                        name: "chainId".to_string(),
-                        r#type: "uint256".to_string(),
-                    },
-                    TypedData {
-                        name: "verifyingContract".to_string(),
-                        r#type: "address".to_string(),
-                    },
-                ],
-            );
-            map
-        };
-
-        let domain_message: HashMap<String, serde_json::Value> = {
-            let mut map = HashMap::new();
-            map.insert("name".to_string(), serde_json::Value::String(domain.name.clone()));
-            map.insert("version".to_string(), serde_json::Value::String(domain.version.clone()));
-            map.insert("chainId".to_string(), serde_json::json!(domain.chain_id.to_string()));
-            map.insert("verifyingContract".to_string(), serde_json::json!(Address::from_str("e7f1725E7734CE288F8367e1Bb143E90bb3F0512").unwrap()));
-            map
-        };
-
-        // Print encoded domain
-        let encoded_domain_type = encode_type("EIP712Domain", &domain_types);
-        println!("Encoded domain type: {}", encoded_domain_type);
-        
-        println!("Domain type hash: 0x{}", hex::encode(type_hash("EIP712Domain", &domain_types).as_bytes()));
-        
-        let domain_hash = encode_data("EIP712Domain", &domain_message, &domain_types).unwrap();
-        println!("Domain hash: 0x{}", hex::encode(&domain_hash));
-        
-        // Print encoded data type
-        let encoded_data_type = encode_type("StorageData", &data_types);
-        println!("Encoded data type: {}", encoded_data_type);
-        
-        println!("StorageData type hash: 0x{}", hex::encode(type_hash("StorageData", &data_types).as_bytes()));
-        
-        let data_hash = encode_data("StorageData", &data_message, &data_types).unwrap();
-        println!("Data hash: 0x{}", hex::encode(&data_hash));
     }
 }
