@@ -1,6 +1,5 @@
 use std::{collections::HashMap, fmt, str::FromStr};
 use web3::types::{Address, H256, U256};
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use web3::signing::{keccak256, Key, SecretKey};
 
@@ -308,7 +307,7 @@ mod tests {
     use super::*;
     use cid::multibase::Base;
     use libp2p::PeerId;
-    use web3::signing::SecretKeyRef;
+    use web3::{signing::SecretKeyRef, types::H160};
 
     #[test]
     fn test_sign_and_recover() {
@@ -374,6 +373,19 @@ mod tests {
         log_debug!("node id str: {}, hex: {:?}, bytes: {:?}, encoded: {:?}", node_id.to_string(), node_id_hex, node_id.to_bytes(), encode_value(&serde_json::json!(format!("0x{}", node_id_hex)), "bytes").unwrap());
         
         data_message.insert("nonce".to_string(), serde_json::Value::Number(serde_json::Number::from(1234567890)));
+
+        let (auto_data_message, auto_domain, auto_data_types) = crate::blockchain::eip712_utils::create_block_eip712_data(
+            &block_cid,
+            &chunk_cid,
+            &node_id,
+            H160::from_str("0x1234567890123456789012345678901234567890").unwrap(),
+            1,
+            1,
+            U256::from(1234567890),
+        ).unwrap();
+        assert_eq!(data_message, auto_data_message, "qData message does not match");
+        assert_eq!(domain, auto_domain, "Domain does not match");
+        assert_eq!(data_types, auto_data_types, "Data types do not match");
         
         // Sign the message
         log::info!("Signing message: {:?} with pk: {:?}", data_message, private_key);
@@ -388,9 +400,6 @@ mod tests {
         // Expected address from the private key
         let skref = SecretKeyRef::new(&private_key);
         let expected_address = skref.address();
-        
-        println!("Recovered address: {}", recovered_address);
-        println!("Expected address: {}", expected_address);
         
         // Verify that the recovered address matches the expected one
         assert_eq!(recovered_address, expected_address, "Recovered address doesn't match the expected address");

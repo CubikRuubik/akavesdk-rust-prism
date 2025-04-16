@@ -4,10 +4,11 @@ pub(crate) mod ipcnodeapi {
 }
 
 // Standard library imports
-use std::borrow::Cow;
+use std::{borrow::Cow, io::Write, str::FromStr};
+use libp2p::PeerId;
 
 // External crate imports (general)
-use crate::utils::splitter::Splitter;
+use crate::{blockchain::eip712_utils::create_block_eip712_data, utils::splitter::Splitter};
 use alloy::hex;
 use bytesize::{ByteSize, MB};
 use cid::{
@@ -43,6 +44,11 @@ use crate::sdk_types::{
     AkaveError, BucketListResponse, BucketViewResponse, FileListResponse, FileViewResponse,
     FileDownloadResponse, BucketListItem, FileListItem, FileChunk,
 };
+
+use crate::blockchain::eip712_types::{Domain, TypedData};
+use web3::types::{Address};
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // Target-specific imports and types
 #[cfg(target_arch = "wasm32")]
@@ -580,19 +586,48 @@ impl AkaveSDK {
 
             let mut chunks_iter = chunk.blocks.iter().enumerate();
             while let Some((index, block_1mb)) = chunks_iter.next() {
-                self.upload_chunk(IpcFileBlockData {
-                    data: block_1mb.data.to_owned(),
-                    cid: block_1mb.cid.to_string(),
-                    index: index as i64,
-                    chunk: Some(ipc_chunk.to_owned()),
-                    bucket_id: bucket.id.to_vec(),
-                    file_name: file_name.to_string(),
-                    //TODO fix
-                    signature: String::from(""),
-                    node_id: Vec::new(),
-                    nonce: Vec::new(),
-                })
-                .await
+                
+                // Generate a nonce based on current time
+                let nonce = {
+                    let timestamp = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .expect("Time went backwards")
+                        .as_micros();
+                    // timestamp.to_le_bytes()
+                    U256::from(timestamp)
+                };
+                let chunk_cid = cid::Cid::from_str(&ipc_chunk.cid).map_err(|e| AkaveError::Internal(e.to_string()))?;
+                let node_id = PeerId::from_str(&block_1mb.node_id).map_err(|e| AkaveError::Internal(e.to_string()))?;
+                let (data_message, domain, data_types) = create_block_eip712_data(&block_1mb.cid, &chunk_cid, &node_id, self.storage.akave_storage.address(), index as i64, ipc_chunk.index, nonce).map_err(|e| AkaveError::Internal(e.to_string()))?;
+                // Sign the message
+
+                log_debug!("Signing data for chunk {}, block {}", ipc_chunk.index, index);
+                let signature = match self.storage.eip712_sign(domain.clone(), data_message.clone(), data_types.clone()).await {
+                    Ok(sig) => {
+                        // Recover signer from the signature
+                        let recovered_address = crate::blockchain::eip712::recover_signer_address(&sig, &domain, &data_message, &data_types).unwrap();
+                        println!("Recovered address: {}, signature: {}", recovered_address, hex::encode(sig));
+                        hex::encode(sig)
+                    }
+                    Err(e) => {
+                        log_error!("Failed to sign data: {}", e);
+                        return Err(AkaveError::BlockchainError(format!("Failed to sign data: {}", e)));
+                    }
+                };
+                let mut bytes = [0u8; 32];
+                nonce.to_big_endian(&mut bytes);
+                self.upload_block_segments(
+                    block_1mb.data.to_owned(),
+                    bucket.id.to_vec(),
+                    file_name.to_string(),
+                    block_1mb.cid.to_string(),
+                    index as i64,
+                    ipc_chunk.index,
+                    signature,
+                    node_id.to_bytes(),
+                    bytes.to_vec(),
+                    Some(ipc_chunk.to_owned()),
+                ).await
                 .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
             }
 
@@ -730,79 +765,124 @@ impl AkaveSDK {
         ))
     }
 
-    async fn upload_chunk(
+    /// Upload a block in segments, similar to uploadIpcBlockSegments in the Go implementation
+    /// 
+    /// The function splits the data into smaller segments based on block_part_size
+    /// and only includes metadata with the first segment.
+    /// 
+    /// For WASM environments, it sends requests sequentially.
+    /// For native environments, it processes blocks concurrently.
+    async fn upload_block_segments(
         &mut self,
-        chunk: IpcFileBlockData,
+        data: Vec<u8>,
+        bucket_id: Vec<u8>,
+        file_name: String,
+        block_cid: String,
+        block_index: i64,
+        chunk_index: i64,
+        signature: String,
+        node_id: Vec<u8>,
+        nonce: Vec<u8>,
+        chunk: Option<IpcChunk>,
     ) -> Result<(), AkaveError> {
-        let data = chunk.data;
         let data_len = data.len();
         if data_len == 0 {
             return Ok(());
         }
 
-        let mut total = 0;
         log_debug!(
-            "Uploading chunk with CID: {}, length: {}",
-            chunk.cid,
-            data_len
+            "Uploading block segments. CID: {}, length: {}, block index: {}",
+            block_cid,
+            data_len,
+            block_index
         );
 
-        let mut blocks_upload = vec![];
-
-        while total < data_len {
-            let mut end = total + self.block_part_size;
-            if end > data_len {
-                end = data_len;
-            }
-
-            let new_bock_part = data[total..end].to_vec();
-
-            blocks_upload.push(IpcFileBlockData {
-                bucket_id: chunk.bucket_id.clone(),
-                data: new_bock_part,
-                cid: if total == 0 {
-                    chunk.cid.to_string()
-                } else {
-                    String::from("")
-                },
-                chunk: if total == 0 {
-                    chunk.chunk.clone()
-                } else {
-                    None
-                },
-                file_name: chunk.file_name.clone(),
-                index: chunk.index as i64,
-                //TODO fix
-                signature: String::from(""),
-                node_id: Vec::new(),
-                nonce: Vec::new(),
-            });
-
-            total += self.block_part_size;
-        }
-
-
-        // WASM does not support server side streaming (yet) so we need to send blocks in a series of unary requests.
         #[cfg(target_arch = "wasm32")]
-        for block in blocks_upload {
-            self.client
-                .file_upload_block_unary(block)
-                .await
-                .map_err(|e| AkaveError::GrpcError(e.to_string()))?
-                .into_inner();
+        {
+            // WASM implementation: sequential upload of segments
+            let mut i = 0;
+            while i < data_len {
+                let mut end = i + self.block_part_size;
+                if end > data_len {
+                    end = data_len;
+                }
+
+                let segment_data = data[i..end].to_vec();
+
+                let block_data = IpcFileBlockData {
+                    bucket_id: bucket_id.clone(),
+                    data: segment_data,
+                    cid: block_cid.clone(),
+                    chunk: chunk.clone(),
+                    file_name: file_name.clone(),
+                    index: block_index,
+                    signature: signature.clone(),
+                    node_id: node_id.clone(),
+                    nonce: nonce.clone(),
+                };
+
+                log_debug!("Uploading segment {} for block {}", i/self.block_part_size, block_index);
+                log_debug!("Block data: {:#?}", block_data);
+                self.client
+                    .file_upload_block_unary(block_data)
+                    .await
+                    .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+                    .into_inner();
+
+                i += self.block_part_size;
+            }
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let block_stream = futures::stream::iter(blocks_upload);
+            use futures::stream::{self, StreamExt};
 
-            self.client
-                .file_upload_block(block_stream)
-                .await
-                .map_err(|e| AkaveError::GrpcError(e.to_string()))?
-                .into_inner();
+            // Non-WASM implementation: concurrent upload of segments
+            let tasks = stream::iter(0..((data_len + self.block_part_size - 1) / self.block_part_size))
+                .map(|segment_index| {
+                    let start = segment_index * self.block_part_size;
+                    let mut end = start + self.block_part_size;
+                    if end > data_len {
+                        end = data_len;
+                    }
+
+                    let segment_data = data[start..end].to_vec();
+                    
+                    let block_data = IpcFileBlockData {
+                        bucket_id: bucket_id.clone(),
+                        data: segment_data,
+                        cid: block_cid.clone(),
+                        chunk: chunk.clone(),
+                        file_name: file_name.clone(),
+                        index: block_index,
+                        signature: hex::encode(&signature),
+                        node_id: node_id.clone(),
+                        nonce: nonce.clone(),
+                    };
+
+                    let mut client = self.client.clone();
+                    log_debug!("bucket_id: {:?}, file_name: {:?}, block_index: {:?}, chunk_index: {:?}, signature: {:?}, node_id: {:?}, nonce: {:?}", bucket_id, file_name, block_index, chunk_index, signature, node_id, nonce);
+                    // log_debug!("Block data: {:#?}", block_data);
+                    async move {
+                        log_debug!("Uploading segment {} for block {} concurrently", segment_index, block_index);
+                        client
+                            .file_upload_block_unary(block_data)
+                            .await
+                            .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+                            .into_inner();
+                        Ok::<_, AkaveError>(())
+                    }
+                })
+                .buffer_unordered(1);
+
+            // Wait for all tasks to complete
+            let results: Vec<Result<_, AkaveError>> = tasks.collect().await;
+            for result in results {
+                result?; // Propagate any errors
+            }
         }
-        log_debug!("Chunk uploaded successfully");
+        
+        log_debug!("Block segments uploaded successfully");
         Ok(())
     }
 

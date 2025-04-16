@@ -2,14 +2,14 @@ use web3::types::{Address, U256};
 use serde::{Deserialize, Serialize};
 
 /// TypedData contains data type and name.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TypedData {
     pub name: String,
     pub r#type: String,
 }
 
 /// Domain represents the domain separator.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Domain {
     pub name: String,
     pub version: String,
