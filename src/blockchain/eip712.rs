@@ -394,5 +394,6 @@ mod tests {
         
         // Verify that the recovered address matches the expected one
         assert_eq!(recovered_address, expected_address, "Recovered address doesn't match the expected address");
+        assert_eq!(hex::encode(&signature), "4434bb85d7de04944a3aafc3ce1575d6ba9993b4d942567d2c2983e6e651553212ee487d5418df0fe768caadd9a08d964660518ae2b06c970ddcf8cf872adfd51c", "Signature doesn't match the expected signature");
     }
 }
