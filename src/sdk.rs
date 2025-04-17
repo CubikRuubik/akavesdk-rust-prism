@@ -5,6 +5,7 @@ pub(crate) mod ipcnodeapi {
 
 // Standard library imports
 use std::{borrow::Cow, io::Write, str::FromStr};
+use futures::Stream;
 use libp2p::PeerId;
 
 // External crate imports (general)
@@ -598,7 +599,7 @@ impl AkaveSDK {
                 };
                 let chunk_cid = cid::Cid::from_str(&ipc_chunk.cid).map_err(|e| AkaveError::Internal(e.to_string()))?;
                 let node_id = PeerId::from_str(&block_1mb.node_id).map_err(|e| AkaveError::Internal(e.to_string()))?;
-                let (data_message, domain, data_types) = create_block_eip712_data(&block_1mb.cid, &chunk_cid, &node_id, self.storage.akave_storage.address(), index as i64, ipc_chunk.index, nonce).map_err(|e| AkaveError::Internal(e.to_string()))?;
+                let (data_message, domain, data_types) = create_block_eip712_data(&block_1mb.cid, &chunk_cid, &node_id, self.storage.akave_storage.address(),  ipc_chunk.index,index as i64, nonce).map_err(|e| AkaveError::Internal(e.to_string()))?;
                 // Sign the message
 
                 log_debug!("Signing data for chunk {}, block {}", ipc_chunk.index, index);
@@ -617,16 +618,15 @@ impl AkaveSDK {
                 let mut bytes = [0u8; 32];
                 nonce.to_big_endian(&mut bytes);
                 self.upload_block_segments(
-                    block_1mb.data.to_owned(),
+                    block_1mb.data.clone(),
                     bucket.id.to_vec(),
                     file_name.to_string(),
                     block_1mb.cid.to_string(),
                     index as i64,
-                    ipc_chunk.index,
                     signature,
                     node_id.to_bytes(),
                     bytes.to_vec(),
-                    Some(ipc_chunk.to_owned()),
+                    Some(ipc_chunk.clone()),
                 ).await
                 .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
             }
@@ -779,7 +779,6 @@ impl AkaveSDK {
         file_name: String,
         block_cid: String,
         block_index: i64,
-        chunk_index: i64,
         signature: String,
         node_id: Vec<u8>,
         nonce: Vec<u8>,
@@ -812,8 +811,8 @@ impl AkaveSDK {
                 let block_data = IpcFileBlockData {
                     bucket_id: bucket_id.clone(),
                     data: segment_data,
-                    cid: block_cid.clone(),
-                    chunk: chunk.clone(),
+                    cid: if i==0 { block_cid.clone() } else { None },
+                    chunk: if i==0 { chunk.clone() } else { None },
                     file_name: file_name.clone(),
                     index: block_index,
                     signature: signature.clone(),
@@ -837,48 +836,40 @@ impl AkaveSDK {
         {
             use futures::stream::{self, StreamExt};
 
-            // Non-WASM implementation: concurrent upload of segments
-            let tasks = stream::iter(0..((data_len + self.block_part_size - 1) / self.block_part_size))
-                .map(|segment_index| {
-                    let start = segment_index * self.block_part_size;
-                    let mut end = start + self.block_part_size;
-                    if end > data_len {
-                        end = data_len;
-                    }
-
+            // Simplified implementation: streaming upload of segments directly
+            let block_part_size = self.block_part_size;
+            
+            // Create a stream that generates block data on demand
+            let stream = stream::iter(0..((data_len + block_part_size - 1) / block_part_size))
+                .map(move |segment_index| {
+                    let start = segment_index * block_part_size;
+                    let end = std::cmp::min(start + block_part_size, data_len);
                     let segment_data = data[start..end].to_vec();
                     
-                    let block_data = IpcFileBlockData {
+                    IpcFileBlockData {
                         bucket_id: bucket_id.clone(),
                         data: segment_data,
                         cid: block_cid.clone(),
                         chunk: chunk.clone(),
                         file_name: file_name.clone(),
                         index: block_index,
-                        signature: hex::encode(&signature),
+                        signature: signature.clone(),
                         node_id: node_id.clone(),
                         nonce: nonce.clone(),
-                    };
-
-                    let mut client = self.client.clone();
-                    log_debug!("bucket_id: {:?}, file_name: {:?}, block_index: {:?}, chunk_index: {:?}, signature: {:?}, node_id: {:?}, nonce: {:?}", bucket_id, file_name, block_index, chunk_index, signature, node_id, nonce);
-                    // log_debug!("Block data: {:#?}", block_data);
-                    async move {
-                        log_debug!("Uploading segment {} for block {} concurrently", segment_index, block_index);
-                        client
-                            .file_upload_block_unary(block_data)
-                            .await
-                            .map_err(|e| AkaveError::GrpcError(e.to_string()))?
-                            .into_inner();
-                        Ok::<_, AkaveError>(())
                     }
-                })
-                .buffer_unordered(1);
-
-            // Wait for all tasks to complete
-            let results: Vec<Result<_, AkaveError>> = tasks.collect().await;
-            for result in results {
-                result?; // Propagate any errors
+                });
+            
+            // Send the stream to the server
+            log_debug!("Streaming block segments for block {}", block_index);
+            match self.client.file_upload_block(stream).await {
+                Ok(response) => {
+                    log_debug!("Block upload completed successfully");
+                    response.into_inner();
+                }
+                Err(e) => {
+                    log_error!("Error uploading block: {}", e);
+                    return Err(AkaveError::GrpcError(e.to_string()));
+                }
             }
         }
         

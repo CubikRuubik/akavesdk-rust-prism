@@ -20,7 +20,7 @@ pub fn create_block_eip712_data(
     let domain = Domain {
         name: "Storage".to_string(),
         version: "1".to_string(),
-        chain_id: U256::from(31337),
+        chain_id: U256::from(78964),
         verifying_contract: verifying_contract,
     };
     

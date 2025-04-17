@@ -5,7 +5,7 @@ use log::LevelFilter;
 use std::path::Path;
 
 const TEST_PASSWORD: &str = "testkey123";
-const FILE_NAME_TO_TEST: &str = "test.txt";
+const FILE_NAME_TO_TEST: &str = "1MB.txt";
 const TEST_ADDRESS: &str = "0x7975eD6b732D1A4748516F66216EE703f4856759";
 
 #[tokio::main]

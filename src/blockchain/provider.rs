@@ -204,6 +204,18 @@ impl BlockchainProvider {
 
             match receipt {
                 Some(receipt) => {
+                    match receipt.status {
+                        Some(status) => {
+                            if status.low_u64() == 0 {
+                                log_error!("Transaction failed with status 0");
+                                return Err("Transaction failed with status 0".into());
+                            }
+                        }
+                        None => {
+                            log_error!("Transaction failed with unknown status");
+                            return Err("Transaction failed with unknown status".into());
+                        }
+                    }
                     if let Some(confirmation_block) = receipt.block_number {
                         if current_block.low_u64() < confirmation_block.low_u64() {
                             log_debug!("Current block number is less than confirmation block number, waiting for confirmation");
