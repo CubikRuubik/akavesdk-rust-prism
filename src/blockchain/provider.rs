@@ -609,23 +609,33 @@ impl BlockchainProvider {
             
             // Call the provider's eth_signTypedData_v4 method
             // Prepare parameters for the JSON-RPC call
-            let account = accounts[0].to_string();
+            let account = format!("{:?}", accounts[0]);
             let typed_data_json = serde_json::to_string(&eip712_request)?;
             
             // Call the RPC method with proper parameters
-            let params = vec![helpers::serialize(&account), helpers::serialize(&typed_data_json)];
+            let params = vec![serde_json::Value::String(account), serde_json::Value::String(typed_data_json)];
+
+            log_debug!("Calling eth_signTypedData_v4 with params: {:?}", params);
+            
             let signature_hex: String = self.web3_provider
                 .transport()
                 .execute("eth_signTypedData_v4", params)
                 .await?.to_string();
+            log_debug!("Received signature hex: {}", signature_hex);
+
+            // comes back with "" for some weird reason.
+            let trimmed = signature_hex[1..signature_hex.len() - 1].to_string();
+            log_debug!("Trimmed signature hex: {}", trimmed);
             
             // Convert hex signature to bytes (handle potential 0x prefix)
-            let clean_sig = signature_hex.trim_start_matches("0x").to_string();
+            let clean_sig = trimmed.trim_start_matches("0x").to_string();
             let signature_bytes = hex::decode(&clean_sig)?;
             if signature_bytes.len() != 65 {
                 return Err(format!("Invalid signature length: {}, signature: {}", 
                              signature_bytes.len(), signature_hex).into());
             }
+
+            log_debug!("Clean Signature: {}, Decoded signature bytes: {:?}", clean_sig, signature_bytes);
             
             // Convert to fixed-length array
             let mut signature = [0u8; 65];

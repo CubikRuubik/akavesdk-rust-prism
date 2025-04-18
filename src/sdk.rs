@@ -9,7 +9,7 @@ use futures::Stream;
 use libp2p::PeerId;
 
 // External crate imports (general)
-use crate::{blockchain::eip712_utils::create_block_eip712_data, utils::splitter::Splitter};
+use crate::{blockchain::eip712_utils::create_block_eip712_data, get_nonce, utils::splitter::Splitter};
 use alloy::hex;
 use bytesize::{ByteSize, MB};
 use cid::{
@@ -46,16 +46,13 @@ use crate::sdk_types::{
     FileDownloadResponse, BucketListItem, FileListItem, FileChunk,
 };
 
-use crate::blockchain::eip712_types::{Domain, TypedData};
-use web3::types::{Address};
-use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // Target-specific imports and types
 #[cfg(target_arch = "wasm32")]
 mod wasm_imports {
     pub use tonic_web_wasm_client::Client as GrpcWebClient;
-    pub use wasm_bindgen_file_reader::WebSysFile as File;
+    pub use crate::utils::seekable_web_file::SeekableWebFile as File;
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -547,11 +544,11 @@ impl AkaveSDK {
         // Initialize the splitter with file and chunk_size
         let mut splitter = Splitter::new(file, chunk_size);
 
-        while let Some(chunk_result) = splitter.next() {
+        while let Some(chunk_result) = splitter.next_chunk().await {
             let buffer = match chunk_result {
                 Ok(data) => data,
                 Err(e) => return Err(AkaveError::FileError(e.to_string())),
-            };
+            };  
 
             if buffer.is_empty() && is_empty_file {
                 return Err(AkaveError::InvalidInput("Empty file".to_string()));
@@ -589,13 +586,7 @@ impl AkaveSDK {
             while let Some((index, block_1mb)) = chunks_iter.next() {
                 
                 // Generate a nonce based on current time
-                let nonce = {
-                    let timestamp = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .expect("Time went backwards")
-                        .as_micros();
-                    U256::from(timestamp)
-                };
+                let nonce = crate::get_nonce();
                 let chunk_cid = cid::Cid::from_str(&ipc_chunk.cid).map_err(|e| AkaveError::Internal(e.to_string()))?;
                 let node_id = PeerId::from_str(&block_1mb.node_id).map_err(|e| AkaveError::Internal(e.to_string()))?;
                 let (data_message, domain, data_types) = create_block_eip712_data(&block_1mb.cid, &chunk_cid, &node_id, self.storage.akave_storage.address(),  ipc_chunk.index,index as i64, nonce).map_err(|e| AkaveError::Internal(e.to_string()))?;

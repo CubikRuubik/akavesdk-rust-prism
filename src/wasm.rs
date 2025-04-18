@@ -5,7 +5,7 @@ use crate::sdk_types::{BucketListResponse, BucketViewResponse, FileListResponse,
 use crate::{log_debug, log_error, log_info};
 
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_file_reader::WebSysFile;
+use crate::utils::seekable_web_file::SeekableWebFile;
 use web_sys::File;
 
 #[wasm_bindgen]
@@ -261,11 +261,11 @@ impl AkaveWebSDK {
     ) -> Result<(), JsError> {
         log_debug!("Uploading file: {} to bucket: {}", file_name, bucket_name);
         
-        let web_sys_file = WebSysFile::new(file);
+        let seekable_file = SeekableWebFile::new(file);
         
         let response = self
             .sdk
-            .upload_file(bucket_name, file_name, web_sys_file, None)
+            .upload_file(bucket_name, file_name, seekable_file, None)
             .await;
         
         match response {

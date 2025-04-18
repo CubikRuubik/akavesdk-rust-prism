@@ -103,10 +103,13 @@ web-sys = { version = "0.3", features = [
   "Request",
   "console",
   "File",
+  "FileReader",
+  "Blob",
   "Crypto",
   "Url",
   "Document",
   "HtmlElement",
+  "Event",
 ] }
 js-sys = "0.3"
 web3 = { version = "0.19.0", default-features = false, features = [
@@ -114,7 +117,8 @@ web3 = { version = "0.19.0", default-features = false, features = [
   "eip-1193",
 ] }
 tsify-next = { version = "0.5.4", default-features = false, features = ["js"] }
-wasm-bindgen-file-reader = "1"
+# We no longer need wasm-bindgen-file-reader since we have our own implementation
+# wasm-bindgen-file-reader = "1"
 # Optional debugging utility for WebAssembly
 console_error_panic_hook = { version = "0.1.7", optional = true }
 
@@ -152,3 +156,4 @@ env_logger = "0.11.7"
 test-log = "0.2.17"
 ctor = "0.4.1"
 # -----------------------------------------
+
