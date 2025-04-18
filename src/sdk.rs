@@ -813,8 +813,8 @@ impl AkaveSDK {
                 let block_data = IpcFileBlockData {
                     bucket_id: bucket_id.clone(),
                     data: segment_data,
-                    cid: if i==0 { block_cid.clone() } else { None },
-                    chunk: if i==0 { chunk.clone() } else { None },
+                    cid: block_cid.clone(),
+                    chunk: chunk.clone(),
                     file_name: file_name.clone(),
                     index: block_index,
                     signature: signature.clone(),
@@ -824,7 +824,8 @@ impl AkaveSDK {
 
                 log_debug!("Uploading segment {} for block {}", i/self.block_part_size, block_index);
                 log_debug!("Block data: {:#?}", block_data);
-                self.client
+                let mut node_client = AkaveSDK::get_client_for_node_address(node_address).await.map_err(|e| AkaveError::GrpcError(e.to_string()))?;
+                node_client
                     .file_upload_block_unary(block_data)
                     .await
                     .map_err(|e| AkaveError::GrpcError(e.to_string()))?
