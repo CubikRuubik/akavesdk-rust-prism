@@ -791,38 +791,28 @@ impl AkaveSDK {
 
         #[cfg(target_arch = "wasm32")]
         {
-            // WASM implementation: sequential upload of segments
-            let mut i = 0;
-            while i < data_len {
-                let mut end = i + self.block_part_size;
-                if end > data_len {
-                    end = data_len;
-                }
+            let block_data = IpcFileBlockData {
+                bucket_id: bucket_id.clone(),
+                data: data,
+                cid: block_cid.clone(),
+                chunk: chunk.clone(),
+                file_name: file_name.clone(),
+                index: block_index,
+                signature: signature.clone(),
+                node_id: node_id.clone(),
+                nonce: nonce.clone(),
+            };
 
-                let segment_data = data[i..end].to_vec();
-
-                let block_data = IpcFileBlockData {
-                    bucket_id: bucket_id.clone(),
-                    data: segment_data,
-                    cid: block_cid.clone(),
-                    chunk: chunk.clone(),
-                    file_name: file_name.clone(),
-                    index: block_index,
-                    signature: signature.clone(),
-                    node_id: node_id.clone(),
-                    nonce: nonce.clone(),
-                };
-
-                log_debug!("Uploading segment {} for block {}", i/self.block_part_size, block_index);
-                let mut node_client = AkaveSDK::get_client_for_node_address(node_address).await.map_err(|e| AkaveError::GrpcError(e.to_string()))?;
-                node_client
-                    .file_upload_block_unary(block_data)
-                    .await
-                    .map_err(|e| AkaveError::GrpcError(e.to_string()))?
-                    .into_inner();
-
-                i += self.block_part_size;
-            }
+            log_debug!("Uploading block {}", block_index);
+            let mut node_client = AkaveSDK::get_client_for_node_address(node_address).await.map_err(|e| AkaveError::GrpcError(e.to_string()))?;
+            node_client
+                .file_upload_block_unary(block_data)
+                .await
+                .map_err(|e| { 
+                    log_error!("Error uploading block: {}", e);
+                    AkaveError::GrpcError(e.to_string())
+                })?
+                .into_inner();
         }
 
         #[cfg(not(target_arch = "wasm32"))]
