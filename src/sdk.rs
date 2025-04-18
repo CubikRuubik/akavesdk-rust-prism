@@ -814,7 +814,6 @@ impl AkaveSDK {
                 };
 
                 log_debug!("Uploading segment {} for block {}", i/self.block_part_size, block_index);
-                log_debug!("Block data: {:#?}", block_data);
                 let mut node_client = AkaveSDK::get_client_for_node_address(node_address).await.map_err(|e| AkaveError::GrpcError(e.to_string()))?;
                 node_client
                     .file_upload_block_unary(block_data)
@@ -1114,8 +1113,13 @@ impl AkaveSDK {
     async fn get_client_for_node_address(node_address: &str) -> Result<IpcNodeApiClient<ClientTransport>, Box<dyn std::error::Error>> {
         #[cfg(target_arch = "wasm32")]
         {
-            let grpc_web_client = ClientTransport::new(node_address.into());
-            let mut client = IpcNodeApiClient::new(grpc_web_client);
+            let address = if !node_address.starts_with("http://") {
+                format!("http://{}/grpc", node_address) // http://23.227.172.82:7001/grpc
+            } else {
+                format!("{}", node_address)
+            };
+            let grpc_web_client = ClientTransport::new(address.into());
+            let client = IpcNodeApiClient::new(grpc_web_client);
             Ok(client)
         }
 
@@ -1133,7 +1137,7 @@ impl AkaveSDK {
                 .connect()
                 .await.map_err(|e| AkaveError::GrpcError(format!("Failed to connect to node {}: {}", address, e)))?;
 
-            let mut client = IpcNodeApiClient::new(channel)
+            let client = IpcNodeApiClient::new(channel)
                 .max_decoding_message_size(usize::MAX)
                 .max_encoding_message_size(usize::MAX);
             Ok(client)
