@@ -83,7 +83,7 @@ const BLOCK_SIZE: usize = MB as usize;
 const MIN_BUCKET_NAME_LENGTH: usize = 3;
 const MIN_FILE_SIZE: usize = 127;
 const MAX_BLOCKS_IN_CHUNK: usize = 32;
-const BLOCK_PART_SIZE: usize = ByteSize::kib(128).as_u64() as usize;
+const BLOCK_PART_SIZE: usize = ByteSize::kb(128).as_u64() as usize;
 
 /// Represents the Akave SDK client
 /// Akave SDK should support both WASM (gRPC-Web) and native gRPC
@@ -594,7 +594,6 @@ impl AkaveSDK {
                         .duration_since(UNIX_EPOCH)
                         .expect("Time went backwards")
                         .as_micros();
-                    // timestamp.to_le_bytes()
                     U256::from(timestamp)
                 };
                 let chunk_cid = cid::Cid::from_str(&ipc_chunk.cid).map_err(|e| AkaveError::Internal(e.to_string()))?;
@@ -606,8 +605,8 @@ impl AkaveSDK {
                 let signature = match self.storage.eip712_sign(domain.clone(), data_message.clone(), data_types.clone()).await {
                     Ok(sig) => {
                         // Recover signer from the signature
-                        let recovered_address = crate::blockchain::eip712::recover_signer_address(&sig, &domain, &data_message, &data_types).unwrap();
-                        println!("Recovered address: {}, signature: {}", recovered_address, hex::encode(sig));
+                        // let recovered_address = crate::blockchain::eip712::recover_signer_address(&sig, &domain, &data_message, &data_types).unwrap();
+                        // println!("Recovered address: {}, signature: {}", recovered_address, hex::encode(sig));
                         hex::encode(sig)
                     }
                     Err(e) => {
@@ -617,6 +616,7 @@ impl AkaveSDK {
                 };
                 let mut bytes = [0u8; 32];
                 nonce.to_big_endian(&mut bytes);
+                
                 self.upload_block_segments(
                     block_1mb.data.clone(),
                     bucket.id.to_vec(),
@@ -625,6 +625,7 @@ impl AkaveSDK {
                     index as i64,
                     signature,
                     node_id.to_bytes(),
+                    block_1mb.node_address.as_str(),
                     bytes.to_vec(),
                     Some(ipc_chunk.clone()),
                 ).await
@@ -781,6 +782,7 @@ impl AkaveSDK {
         block_index: i64,
         signature: String,
         node_id: Vec<u8>,
+        node_address: &str,
         nonce: Vec<u8>,
         chunk: Option<IpcChunk>,
     ) -> Result<(), AkaveError> {
@@ -860,8 +862,9 @@ impl AkaveSDK {
                 });
             
             // Send the stream to the server
-            log_debug!("Streaming block segments for block {}", block_index);
-            match self.client.file_upload_block(stream).await {
+            log_debug!("Streaming block segments for block {} to node {}", block_index, node_address);
+            let mut node_client = AkaveSDK::get_client_for_node_address(node_address).await.map_err(|e| AkaveError::GrpcError(e.to_string()))?;
+            match node_client.file_upload_block(stream).await {
                 Ok(response) => {
                     log_debug!("Block upload completed successfully");
                     response.into_inner();
@@ -985,7 +988,9 @@ impl AkaveSDK {
                     bucket_name: bucket_name.to_string(),
                     file_name: file_name.to_string(),
                 };
-                let mut stream = self.client.file_download_block(req).await
+                log_debug!("Downloading block {} for chunk {}", block_index, chunk_index);
+                let mut node_client = AkaveSDK::get_client_for_node_address(&block.akave.node_address).await.map_err(|e| AkaveError::GrpcError(e.to_string()))?;
+                let mut stream = node_client.file_download_block(req).await
                     .map_err(|e| AkaveError::GrpcError(e.to_string()))?
                     .into_inner();
 
@@ -1112,6 +1117,35 @@ impl AkaveSDK {
             size: chunk.size,
             blocks,
         })
+    }
+
+    async fn get_client_for_node_address(node_address: &str) -> Result<IpcNodeApiClient<ClientTransport>, Box<dyn std::error::Error>> {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let grpc_web_client = ClientTransport::new(node_address.into());
+            let mut client = IpcNodeApiClient::new(grpc_web_client);
+            Ok(client)
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let tls_config = ClientTlsConfig::new().with_native_roots();
+            let address = if !node_address.starts_with("http://") {
+                format!("http://{}", node_address)
+            } else {
+                node_address.to_string()
+            };
+            
+            let channel = Channel::from_shared(address.clone())?
+                .tls_config(tls_config)?
+                .connect()
+                .await.map_err(|e| AkaveError::GrpcError(format!("Failed to connect to node {}: {}", address, e)))?;
+
+            let mut client = IpcNodeApiClient::new(channel)
+                .max_decoding_message_size(usize::MAX)
+                .max_encoding_message_size(usize::MAX);
+            Ok(client)
+        }
     }
 }
 

@@ -208,7 +208,7 @@ impl BlockchainProvider {
                         Some(status) => {
                             if status.low_u64() == 0 {
                                 log_error!("Transaction failed with status 0");
-                                return Err("Transaction failed with status 0".into());
+                                return Err(format!("Transaction {} failed with status 0", function_name).into());
                             }
                         }
                         None => {

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use cid::Cid;
 use libp2p::PeerId;
 use web3::types::{H160, U256};
-use crate::blockchain::eip712_types::{Domain, TypedData};
+use crate::{blockchain::eip712_types::{Domain, TypedData}, log_debug};
 
 //create_block_eip712_data(&block_1mb.cid, &ipc_chunk.cid, b_node_id, self.storage.akave_storage.address(), index as i64, ipc_chunk.cid, nonce)?;
 pub fn create_block_eip712_data(
@@ -61,6 +61,7 @@ pub fn create_block_eip712_data(
     
     // Convert hex string to bytes for nodeId
     let node_id_hex =  hex::encode(node_id.to_bytes());
+    log_debug!("nodeId hex: {}, str {}", node_id_hex, node_id.to_base58());
     data_message.insert(
         "nodeId".to_string(), 
         serde_json::json!(format!("0x{}", node_id_hex)));
