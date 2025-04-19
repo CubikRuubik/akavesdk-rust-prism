@@ -60,7 +60,7 @@ class App {
             
             // Create SDK instance
             console.log('Creating SDK instance...');
-            const sdk = await new AkaveWebSDKBuilder('http://23.227.172.82:7001/grpc').build();
+            const sdk = await new AkaveWebSDKBuilder('http://23.227.172.82:7001/grpc').withDefaultEncryption("testkey123").withErasureCoding(4, 2).build();
             this.state.sdk = sdk;
             console.log('SDK instance created successfully');
             

@@ -795,7 +795,7 @@ impl AkaveSDK {
 
             log_debug!("Uploading block {}", block_index);
             let mut node_client = AkaveSDK::get_client_for_node_address(node_address).await.map_err(|e| AkaveError::GrpcError(e.to_string()))?;
-            self.client
+            node_client
                 .file_upload_block_unary(block_data)
                 .await
                 .map_err(|e| { 
