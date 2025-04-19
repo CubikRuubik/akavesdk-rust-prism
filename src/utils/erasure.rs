@@ -8,10 +8,6 @@ pub enum ErasureCodeError {
 
     #[error("data and parity blocks must be > 0")]
     InvalidBlockCount,
-    
-    #[cfg(target_arch = "wasm32")]
-    #[error("erasure coding not supported in WASM")]
-    WasmNotSupported,
 }
 
 /// ErasureCode is a wrapper around the ReedSolomon encoder, providing a more user-friendly interface.
@@ -135,44 +131,6 @@ impl ErasureCode {
         Ok(buffer)
     }
 }
-
-// #[cfg(target_arch = "wasm32")]
-// impl ErasureCode {
-//     /// Creates a new ErasureCode instance with the specified number of data and parity blocks.
-//     pub fn new(data_blocks: usize, parity_blocks: usize) -> Result<Self, ErasureCodeError> {
-//         if data_blocks == 0 || parity_blocks == 0 {
-//             return Err(ErasureCodeError::InvalidBlockCount);
-//         }
-
-//         Ok(Self {
-//             data_blocks,
-//             parity_blocks,
-//         })
-//     }
-
-//     /// Encodes the input data using Reed-Solomon erasure coding, returning the encoded data.
-//     /// In WASM environment, this just passes through the original data.
-//     pub fn encode(&self, data: &[u8]) -> Result<Vec<u8>, ErasureCodeError> {
-//         // Pass through original data in WASM environment
-//         Ok(data.to_vec())
-//     }
-
-//     /// Extracts the original data from the encoded data.
-//     /// In WASM environment, this function combines all blocks into one.
-//     pub fn extract_data(&self, blocks: Vec<Vec<u8>>, original_data_size: usize) -> Result<Vec<u8>, ErasureCodeError> {        
-//         let mut buffer = Vec::with_capacity(original_data_size);
-//         for i in 0..self.data_blocks {
-//             if i < blocks.len() {
-//                 buffer.extend_from_slice(&blocks[i]);
-//             }
-//         }
-        
-//         // Trim to original size
-//         buffer.truncate(original_data_size);
-        
-//         Ok(buffer)
-//     }
-// }
 
 #[cfg(test)]
 mod tests {

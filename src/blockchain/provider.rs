@@ -208,7 +208,7 @@ impl BlockchainProvider {
                         Some(status) => {
                             if status.low_u64() == 0 {
                                 log_error!("Transaction failed with status 0");
-                                return Err(format!("Transaction {} failed with status 0", function_name).into());
+                                return Err(format!("Transaction {}-{} failed with status 0", receipt.transaction_hash, function_name).into());
                             }
                         }
                         None => {
@@ -227,7 +227,9 @@ impl BlockchainProvider {
 
                         if blocks_since_confirmation >= self.confirmations as u64 {
                             log_info!(
-                                "Transaction confirmed with {} blocks",
+                                "Transaction {}-{} confirmed with {} blocks",
+                                receipt.transaction_hash,
+                                function_name,
                                 blocks_since_confirmation
                             );
                             return Ok(receipt);

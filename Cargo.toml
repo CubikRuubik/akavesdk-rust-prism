@@ -118,8 +118,7 @@ web3 = { version = "0.19.0", default-features = false, features = [
   "eip-1193",
 ] }
 tsify-next = { version = "0.5.4", default-features = false, features = ["js"] }
-# We no longer need wasm-bindgen-file-reader since we have our own implementation
-# wasm-bindgen-file-reader = "1"
+
 # Optional debugging utility for WebAssembly
 console_error_panic_hook = { version = "0.1.7", optional = true }
 

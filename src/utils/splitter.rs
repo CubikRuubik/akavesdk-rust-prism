@@ -31,20 +31,9 @@ impl Splitter {
             counter: 0,
         };
     }
-
-    pub fn size(&self) -> usize {
-        return u64::div_ceil(self.file.size(), self.chunk_size) as usize;
-    }
 }
 
 impl Splitter {
-
-    fn count(self) -> usize
-    where
-        Self: Sized,
-    {
-        return u64::div_ceil(self.file.size(), self.chunk_size) as usize;
-    }
 
     pub async fn next_chunk(&mut self) -> Option<Result<Box<[u8]>, AkaveError>> {
         let file_size = self.file.size();

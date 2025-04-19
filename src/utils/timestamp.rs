@@ -1,6 +1,5 @@
 use prost_types::Timestamp;
 use serde::{Deserialize, Deserializer, Serializer};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Custom serialization module for prost_types::Timestamp
 pub mod timestamp_serde {
@@ -105,41 +104,3 @@ pub mod timestamp_serde_direct {
     }
 }
 
-/// Helper function to create a current timestamp
-pub fn now() -> Timestamp {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-
-    Timestamp {
-        seconds: now.as_secs() as i64,
-        nanos: now.subsec_nanos() as i32,
-    }
-}
-
-/// Helper function to convert Timestamp to RFC3339 string
-pub fn to_rfc3339(timestamp: &Timestamp) -> Result<String, String> {
-    use time::OffsetDateTime;
-
-    let datetime = OffsetDateTime::from_unix_timestamp(timestamp.seconds)
-        .map_err(|e| format!("Invalid timestamp: {}", e))?
-        .replace_nanosecond(timestamp.nanos as u32)
-        .map_err(|e| format!("Invalid nanoseconds: {}", e))?;
-
-    datetime
-        .format(&time::format_description::well_known::Rfc3339)
-        .map_err(|e| format!("Formatting error: {}", e))
-}
-
-/// Helper function to convert RFC3339 string to Timestamp
-pub fn from_rfc3339(s: &str) -> Result<Timestamp, String> {
-    use time::OffsetDateTime;
-
-    let datetime = OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339)
-        .map_err(|e| format!("Parse error: {}", e))?;
-
-    Ok(Timestamp {
-        seconds: datetime.unix_timestamp(),
-        nanos: datetime.nanosecond() as i32,
-    })
-}
