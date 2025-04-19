@@ -26,5 +26,5 @@ export interface AppState {
 
 export interface Notification {
     message: string;
-    type: 'error' | 'success';
+    type: 'error' | 'success' | 'info';
 }

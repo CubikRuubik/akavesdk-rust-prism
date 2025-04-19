@@ -9,7 +9,7 @@ use web3::{
 
 // Internal imports
 use super::ipc_types::{BucketResponse, FileResponse};
-use crate::blockchain::eip712_types::{Domain, TypedData};
+use crate::blockchain::{eip712_types::{Domain, TypedData}, eip712_utils};
 use crate::{log_debug, log_error, log_info};
 
 // Target-specific imports
@@ -570,7 +570,7 @@ impl BlockchainProvider {
         domain: Domain,
         message: HashMap<String, serde_json::Value>,
         types: HashMap<String, Vec<TypedData>>
-    ) -> Result<[u8; 65], Box<dyn std::error::Error>> {
+    ) -> Result<String, Box<dyn std::error::Error>> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             // Native implementation using the EIP-712 module
@@ -582,7 +582,7 @@ impl BlockchainProvider {
                     &message,
                     &types
                 )?;
-                Ok(signature)
+                Ok(hex::encode(signature))
             } else {
                 Err("No private key available for signing".into())
             }
@@ -594,12 +594,12 @@ impl BlockchainProvider {
             log_debug!("Using WASM EIP-712 signing via provider");
             
             // Format the request according to EIP-712
-            let eip712_request = serde_json::json!({
-                "domain": domain,
-                "message": message,
-                "primaryType": "StorageData", // TODO: could be parameterized
-                "types": types
-            });
+            let eip712_request = crate::blockchain::eip712_utils::encode_eip712_message_for_wasm(
+                &domain,
+                &message,
+                &types,
+                "StorageData"
+            );
             
             // Get the current account
             let accounts = self.web3_provider.eth().accounts().await?;
@@ -625,23 +625,10 @@ impl BlockchainProvider {
 
             // comes back with "" for some weird reason.
             let trimmed = signature_hex[1..signature_hex.len() - 1].to_string();
-            log_debug!("Trimmed signature hex: {}", trimmed);
             
             // Convert hex signature to bytes (handle potential 0x prefix)
             let clean_sig = trimmed.trim_start_matches("0x").to_string();
-            let signature_bytes = hex::decode(&clean_sig)?;
-            if signature_bytes.len() != 65 {
-                return Err(format!("Invalid signature length: {}, signature: {}", 
-                             signature_bytes.len(), signature_hex).into());
-            }
-
-            log_debug!("Clean Signature: {}, Decoded signature bytes: {:?}", clean_sig, signature_bytes);
-            
-            // Convert to fixed-length array
-            let mut signature = [0u8; 65];
-            signature.copy_from_slice(&signature_bytes);
-            
-            Ok(signature)
+            Ok(clean_sig)
         }
     }
 }

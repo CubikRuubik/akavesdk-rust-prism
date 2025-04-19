@@ -4,8 +4,7 @@ pub(crate) mod ipcnodeapi {
 }
 
 // Standard library imports
-use std::{borrow::Cow, io::Write, str::FromStr};
-use futures::Stream;
+use std::{borrow::Cow, str::FromStr};
 use libp2p::PeerId;
 
 // External crate imports (general)
@@ -593,18 +592,9 @@ impl AkaveSDK {
                 // Sign the message
 
                 log_debug!("Signing data for chunk {}, block {}", ipc_chunk.index, index);
-                let signature = match self.storage.eip712_sign(domain.clone(), data_message.clone(), data_types.clone()).await {
-                    Ok(sig) => {
-                        // Recover signer from the signature
-                        // let recovered_address = crate::blockchain::eip712::recover_signer_address(&sig, &domain, &data_message, &data_types).unwrap();
-                        // println!("Recovered address: {}, signature: {}", recovered_address, hex::encode(sig));
-                        hex::encode(sig)
-                    }
-                    Err(e) => {
-                        log_error!("Failed to sign data: {}", e);
-                        return Err(AkaveError::BlockchainError(format!("Failed to sign data: {}", e)));
-                    }
-                };
+                let signature = self.storage.eip712_sign(domain.clone(), data_message.clone(), data_types.clone()).await.map_err(|e| AkaveError::BlockchainError(format!("Failed to sign data: {}", e)))?;
+                log_debug!("Signature: {:?}", signature);
+                
                 let mut bytes = [0u8; 32];
                 nonce.to_big_endian(&mut bytes);
                 
@@ -620,7 +610,7 @@ impl AkaveSDK {
                     bytes.to_vec(),
                     Some(ipc_chunk.clone()),
                 ).await
-                .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
+                .map_err(|e| AkaveError::BlockchainError(format!("Failed to upload block segments: {}", e)))?;
             }
 
             idx += 1;
@@ -805,12 +795,12 @@ impl AkaveSDK {
 
             log_debug!("Uploading block {}", block_index);
             let mut node_client = AkaveSDK::get_client_for_node_address(node_address).await.map_err(|e| AkaveError::GrpcError(e.to_string()))?;
-            node_client
+            self.client
                 .file_upload_block_unary(block_data)
                 .await
                 .map_err(|e| { 
                     log_error!("Error uploading block: {}", e);
-                    AkaveError::GrpcError(e.to_string())
+                    AkaveError::GrpcError(format!("Failed to upload block: {}", e))
                 })?
                 .into_inner();
         }
@@ -1103,11 +1093,20 @@ impl AkaveSDK {
     async fn get_client_for_node_address(node_address: &str) -> Result<IpcNodeApiClient<ClientTransport>, Box<dyn std::error::Error>> {
         #[cfg(target_arch = "wasm32")]
         {
-            let address = if !node_address.starts_with("http://") {
-                format!("http://{}/grpc", node_address) // http://23.227.172.82:7001/grpc
-            } else {
-                format!("{}", node_address)
-            };
+
+            // Parse node address and modify port
+            let parts: Vec<&str> = node_address.split(':').collect();
+            if parts.len() != 2 {
+                return Err("Invalid node address format, expected IP:PORT".into());
+            }
+            
+            let host = parts[0];
+            let port = parts[1].parse::<u16>()
+                .map_err(|_| "Invalid port number")?;
+            
+            let address = format!("http://{}:{}/grpc", host, port + 2000);
+
+            log_debug!("Connecting to node at address: {}", address);
             let grpc_web_client = ClientTransport::new(address.into());
             let client = IpcNodeApiClient::new(grpc_web_client);
             Ok(client)

@@ -8,7 +8,8 @@ This is a simple web application that demonstrates the basic functionality of th
 - Create and delete buckets
 - List buckets and files
 - Delete files
-- (TODO) Upload files
+- Upload files
+- Download files
 
 ## Prerequisites
 
@@ -58,7 +59,8 @@ npm run dev
    - Select a bucket from the dropdown
    - View files in the selected bucket
    - Delete files using the "Delete" button
-   - (TODO) Upload files using the file input
+   - Upload files using the file input
+   - Download files using the "Download" button
 
 ## Development
 
@@ -85,6 +87,5 @@ For production use, you should replace this with the published version from npm:
 
 ## Notes
 
-- The file upload functionality is currently disabled as it requires additional implementation
 - Make sure you have sufficient funds in your wallet for gas fees
-- The demo connects to the Akave testnet by default 
+- The demo connects to the Akave testnet by default

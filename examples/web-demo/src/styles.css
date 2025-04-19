@@ -6,6 +6,7 @@
     --border-color: #dcdde1;
     --error-color: #e74c3c;
     --success-color: #2ecc71;
+    --info-color: #3498db;
 }
 
 * {
@@ -120,7 +121,28 @@ section {
     border-radius: 4px;
 }
 
-.error, .success {
+.button-group {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.download-btn {
+    background-color: var(--secondary-color);
+}
+
+.download-btn:hover:not(:disabled) {
+    background-color: #1a2530;
+}
+
+.delete-btn {
+    background-color: var(--error-color);
+}
+
+.delete-btn:hover:not(:disabled) {
+    background-color: #c0392b;
+}
+
+.error, .success, .info {
     position: fixed;
     bottom: 2rem;
     right: 2rem;
@@ -136,6 +158,10 @@ section {
 
 .success {
     background-color: var(--success-color);
+}
+
+.info {
+    background-color: var(--info-color);
 }
 
 @keyframes slideIn {

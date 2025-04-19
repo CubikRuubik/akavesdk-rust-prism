@@ -6,6 +6,9 @@ use libp2p::PeerId;
 use web3::types::{H160, U256};
 use crate::{blockchain::eip712_types::{Domain, TypedData}, log_debug};
 
+#[cfg(target_arch = "wasm32")]
+use serde_json::Value as JsonValue;
+
 //create_block_eip712_data(&block_1mb.cid, &ipc_chunk.cid, b_node_id, self.storage.akave_storage.address(), index as i64, ipc_chunk.cid, nonce)?;
 pub fn create_block_eip712_data(
     block_cid: &Cid,
@@ -68,4 +71,58 @@ pub fn create_block_eip712_data(
     data_message.insert("nonce".to_string(), serde_json::Value::Number(serde_json::Number::from(nonce.as_u64())));
     // return data message, domain message and data types
     Ok((data_message, domain, data_types))
+}
+
+
+/// WASM: Converts EIP-712 data into the JSON format required by MetaMask for eth_signTypedData_v4
+#[cfg(target_arch = "wasm32")]
+pub fn encode_eip712_message_for_wasm(
+    domain: &Domain,
+    message: &HashMap<String, serde_json::Value>,
+    types: &HashMap<String, Vec<TypedData>>,
+    primary_type: &str,
+) -> serde_json::Value {
+    use serde_json::json;
+
+    // Convert Domain to JSON (camelCase)
+    let domain_json = json!({
+        "name": domain.name,
+        "version": domain.version,
+        "chainId": domain.chain_id,
+        "verifyingContract": format!("0x{:x}", domain.verifying_contract),
+    });
+
+    // Convert types to JSON (as expected by MetaMask)
+    let mut types_json = serde_json::Map::new();
+    
+    // Add EIP712Domain type definition
+    let domain_fields = vec![
+        json!({ "name": "name", "type": "string" }),
+        json!({ "name": "version", "type": "string" }),
+        json!({ "name": "chainId", "type": "uint256" }),
+        json!({ "name": "verifyingContract", "type": "address" }),
+    ];
+    types_json.insert("EIP712Domain".to_string(), JsonValue::Array(domain_fields));
+    
+    // Add other type definitions
+    for (type_name, fields) in types.iter() {
+        let fields_json: Vec<JsonValue> = fields.iter().map(|f| {
+            json!({
+                "name": f.name,
+                "type": f.r#type
+            })
+        }).collect();
+        types_json.insert(type_name.clone(), JsonValue::Array(fields_json));
+    }
+
+    // Compose the final JSON structure
+    let result = json!({
+        "types": JsonValue::Object(types_json),
+        "domain": domain_json,
+        "primaryType": primary_type,
+        "message": message
+    });
+    
+    log_debug!("[WASM] EIP-712 JSON for MetaMask: {}", result);
+    result
 }

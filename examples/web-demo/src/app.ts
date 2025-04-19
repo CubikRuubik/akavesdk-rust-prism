@@ -236,15 +236,59 @@ class App {
                 fileElement.className = 'list-item';
                 fileElement.innerHTML = `
                     <span>${file.name}</span>
-                    <button class="btn" data-file="${file.name}">Delete</button>
+                    <div class="button-group">
+                        <button class="btn download-btn" data-file="${file.name}">Download</button>
+                        <button class="btn delete-btn" data-file="${file.name}">Delete</button>
+                    </div>
                 `;
-                fileElement.querySelector('button')?.addEventListener('click', () => this.deleteFile(bucketName, file.name));
+                // Add event listeners for buttons
+                fileElement.querySelector('.download-btn')?.addEventListener('click', () => this.downloadFile(bucketName, file.name));
+                fileElement.querySelector('.delete-btn')?.addEventListener('click', () => this.deleteFile(bucketName, file.name));
                 this.filesList.appendChild(fileElement);
             });
         } catch (error) {
             console.error('Failed to load files:', error);
             this.showNotification({
                 message: 'Failed to load files. Please check the console for details.',
+                type: 'error'
+            });
+        }
+    }
+
+    private async downloadFile(bucketName: string, fileName: string): Promise<void> {
+        try {
+            if (!this.state.currentAddress || !this.state.sdk) return;
+
+            console.log(`Downloading file: ${fileName} from bucket: ${bucketName}`);
+            
+            // Show loading notification
+            this.showNotification({
+                message: `Downloading ${fileName}...`,
+                type: 'info'
+            });
+            
+            // Create a temporary client-side path for the download
+            // In browser context, this is handled by the SDK internally
+            const tempPath = 'download'; // The actual path is handled by the WASM implementation
+            
+            // Trigger download from SDK
+            await this.state.sdk.downloadFile(
+                this.state.currentAddress, 
+                bucketName, 
+                fileName, 
+                tempPath
+            );
+            
+            console.log(`File "${fileName}" download initiated successfully`);
+            
+            this.showNotification({
+                message: `File "${fileName}" downloaded successfully!`,
+                type: 'success'
+            });
+        } catch (error) {
+            console.error('Failed to download file:', error);
+            this.showNotification({
+                message: 'Failed to download file. Please check the console for details.',
                 type: 'error'
             });
         }

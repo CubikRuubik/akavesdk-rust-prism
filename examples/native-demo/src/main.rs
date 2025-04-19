@@ -18,8 +18,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize the SDK
     let mut sdk = AkaveSDKBuilder::new("http://23.227.172.82:5001")
-        // .with_default_encryption(TEST_PASSWORD)
-        // .with_erasure_coding(4, 2)
+        .with_default_encryption(TEST_PASSWORD)
+        .with_erasure_coding(4, 2)
         .build()
         .await?;
     println!("Starting Akave SDK demo...");
