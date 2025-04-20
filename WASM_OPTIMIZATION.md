@@ -27,4 +27,4 @@ wasm-opt -O4 --enable-bulk-memory --enable-threads --enable-reference-types --en
 wasm-opt -Oz --enable-bulk-memory --enable-threads --enable-reference-types --enable-simd --enable-tail-call --dce --low-memory-unused --shrink-level=2 -o target/wasm32-unknown-unknown/release/akave-rs.wasm target/wasm32-unknown-unknown/release/akave-rs.wasm
 ```
 
-Note: Replace 'akave-rs.wasm' with the actual output file name. These commands should be run after the build is complete. 
+Note: These commands should be run after the build is complete. 

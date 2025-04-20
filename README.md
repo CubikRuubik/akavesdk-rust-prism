@@ -29,7 +29,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-akave-sdk = "1.0.0"
+akave-rs = "1.0.0"
 ```
 
 ### WebAssembly
@@ -46,11 +46,12 @@ npm install @akave/akave-web-sdk
 
 ```rust
 use akave_rs::AkaveSDK;
+use std::fs::File;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize SDK
-    let mut sdk = AkaveSDK::new("http://connect.akave.ai:5500").await?;
+    let mut sdk = AkaveSDK::new("http://23.227.172.82:7001/grpc").await?;
     
     // Create a bucket
     let bucket_name = "my-bucket";
@@ -61,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sdk.upload_file(bucket_name, "file.txt", file, None).await?;
     
     // List files
-    let files = sdk.list_files("your-address", bucket_name).await?;
+    let files = sdk.list_buckets("your-address").await?;
     
     // Download a file
     sdk.download_file("your-address", bucket_name, "file.txt", None, "/path/to/save/").await?;
@@ -73,17 +74,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### WebAssembly (Browser)
 
 ```javascript
-import init, { AkaveWebSDK } from '@akave/akave-web-sdk';
+import init, { AkaveWebSDKBuilder } from '@akave/akave-web-sdk';
 
 async function initialize() {
     // Initialize WASM
     await init();
     
-    // Create SDK instance
-    const sdk = await AkaveWebSDK.new();
+    // Create SDK instance with builder pattern
+    const sdk = await new AkaveWebSDKBuilder('http://23.227.172.82:7001/grpc')
+        .withDefaultEncryption("encryption-key")
+        .withErasureCoding(4, 2)
+        .build();
     
-    // Connect wallet (requires MetaMask)
-    const address = await sdk.connectWallet();
+    // Get wallet address from MetaMask (requires MetaMask to be connected separately)
+    const address = (await window.ethereum.request({ method: 'eth_requestAccounts' }))[0];
     
     // Create bucket
     await sdk.createBucket("my-bucket");
@@ -100,7 +104,7 @@ async function initialize() {
     const files = await sdk.listFiles(address, "my-bucket");
     
     // Download file
-    await sdk.downloadFile(address, "my-bucket", "file.txt", "/path/to/save");
+    await sdk.downloadFile(address, "my-bucket", "file.txt", "download");
 }
 ```
 
@@ -121,7 +125,7 @@ async function initialize() {
 - `delete_file(address: &str, bucket_name: &str, file_name: &str) -> Result<()>` - Deletes the specified file from the given bucket for the address.
 
 ### WASM-Specific Methods
-- `connectWallet() -> Promise<string>` - Connects to MetaMask and returns the wallet address.
+- `build() -> Promise<AkaveWebSDK>` - Builds the SDK with the configured options.
 - `new_with_endpoint(endpoint: string) -> Promise<AkaveWebSDK>` - Creates an SDK instance with a custom endpoint.
 
 ## Configuration
@@ -136,8 +140,16 @@ The native SDK can be configured with:
 ### WASM Configuration
 The WASM SDK requires:
 - MetaMask or compatible Web3 wallet
-- Server endpoint (defaults to production endpoint)
+- Server endpoint
 - Browser with WebAssembly support
+
+Additional configuration options via the builder pattern:
+- `withErasureCoding(dataBlocks, parityBlocks)` - Configure erasure coding parameters
+- `withDefaultEncryption(key)` - Set default encryption key
+- `withBlockSize(size)` - Set block size
+- `withMinBucketLength(length)` - Set minimum bucket name length
+- `withMaxBlocksInChunk(blocks)` - Set maximum blocks in chunk
+- `withBlockPartSize(size)` - Set block part size
 
 ## Error Handling
 
