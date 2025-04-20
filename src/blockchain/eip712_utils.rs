@@ -65,7 +65,6 @@ pub fn create_block_eip712_data(
     
     // Convert hex string to bytes for nodeId
     let node_id_hex =  hex::encode(node_id.to_bytes());
-    log_debug!("nodeId hex: {}, str {}", node_id_hex, node_id.to_base58());
     data_message.insert(
         "nodeId".to_string(), 
         serde_json::json!(format!("0x{}", node_id_hex)));
@@ -124,6 +123,5 @@ pub fn encode_eip712_message_for_wasm(
         "message": message
     });
     
-    log_debug!("[WASM] EIP-712 JSON for MetaMask: {}", result);
     result
 }

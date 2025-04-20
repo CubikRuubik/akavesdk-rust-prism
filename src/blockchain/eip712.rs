@@ -40,12 +40,8 @@ pub fn sign_typed_data(
 ) -> Result<[u8; 65], Error> {
     log_debug!("hashing data {:?}, domain {:?}, types: {:?}", data_message, domain, data_types);
 
-    log_debug!("data messages before hashing: chunkID: {:?}, blockCID: {:?}, chunkIndex: {:?}, blockIndex: {:?}, nodeId: {:?}, nonce: {:?}", data_message.get("chunkCID"), data_message.get("blockCID"), data_message.get("chunkIndex"), data_message.get("blockIndex"), data_message.get("nodeId"), data_message.get("nonce"));
     let hash = hash_typed_data(domain, data_message, data_types)?;
-    log_debug!("full hash: encoded: {:?}, raw: {:?}", hash, hash.as_bytes());
     
-
-    log_debug!("signing hash hex: {:?}, raw: {:?}", hash, hash.as_bytes());
     // Sign the hash with web3's signing
     let signature = private_key.sign_message(hash.as_bytes())
         .map_err(|e| Error::SigningError(format!("Failed to sign hash: {}", e)))?;
@@ -57,9 +53,7 @@ pub fn sign_typed_data(
     // Copy s component (32 bytes)
     sig_bytes[32..64].copy_from_slice(&signature.s.to_fixed_bytes());
     // Set v component (1 byte) and adjust according to EIP-712 standard
-    log_debug!("v component: {}", signature.v);
     sig_bytes[64] = (signature.v + 27) as u8;
-    log_debug!("signature bytes: {:?}", sig_bytes);
     
     Ok(sig_bytes)
 }
@@ -79,9 +73,6 @@ pub fn recover_signer_address(
     let s = H256::from_slice(&signature[32..64]);
     let v = signature[64];
     
-    log_debug!("signature bytes: {:?}", signature);
-    log_debug!("recovery attempt with v: {}", v);
-    
     // Calculate the recovery ID (0 or 1) from the v value
     // In Ethereum, v is typically 27 or 28, which maps to recovery ID 0 or 1
     let recovery_id = if v >= 27 {
@@ -89,8 +80,6 @@ pub fn recover_signer_address(
     } else {
         v as i32 // Already a recovery ID
     };
-    
-    log_debug!("Using recovery_id: {}", recovery_id);
     
     // Prepare signature for recovery
     let mut sig_bytes = [0u8; 64]; // Only r and s components needed
@@ -101,15 +90,13 @@ pub fn recover_signer_address(
     let address = web3::signing::recover(hash.as_bytes(), &sig_bytes, recovery_id)
         .map_err(|e| Error::RecoveryError(format!("Failed to recover address: {}", e)))?;
     
-    log_debug!("Recovered address: {:?}", address);
-    
     Ok(address)
 }
 
 /// Create a hash of typed data according to EIP-712 specification
 fn hash_typed_data(
     domain: &Domain,
-    data_message: &HashMap<String, serde_json::Value>,
+    data_message: &     HashMap<String, serde_json::Value>,
     data_types: &HashMap<String, Vec<TypedData>>,
 ) -> Result<H256, Error> {
     // Define domain types - this is standard for EIP-712

@@ -260,7 +260,6 @@ impl BlockchainProvider {
         function_name: &str,
         params: impl Tokenize,
     ) -> Result<H256, Box<dyn std::error::Error>> {
-        log_debug!("Calling contract function: {}", function_name);
         let txopts = Options {
             gas: Some(U256::from(500000)),
             ..Default::default()
@@ -444,7 +443,6 @@ impl BlockchainProvider {
             )
             .await
             .unwrap();
-        log_info!("Retrieved bucket details for: {}", bucket_name_clone);
         Ok(result)
     }
 
@@ -465,7 +463,6 @@ impl BlockchainProvider {
                 None,
             )
             .await?;
-        log_info!("Retrieved bucket index for: {}", bucket_name_clone);
         Ok(result)
     }
 
@@ -520,7 +517,6 @@ impl BlockchainProvider {
                 None,
             )
             .await?;
-        log_info!("Retrieved file index for: {}", file_name_clone);
         Ok(result)
     }
 
@@ -548,7 +544,6 @@ impl BlockchainProvider {
             )
             .await
             .unwrap();
-        log_info!("Retrieved file details for: {}", file_name_clone);
         Ok(result)
     }
 
