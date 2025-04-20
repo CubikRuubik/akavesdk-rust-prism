@@ -57,7 +57,6 @@ impl Splitter {
                 .await
                 .map_err(|e| {
                     let err_msg = format!("Failed to read file: {:?}", e);
-                    // log::error!("{}", err_msg);
                     std::io::Error::new(std::io::ErrorKind::Other, err_msg)
                 })
                 .expect("Failed to read the file");

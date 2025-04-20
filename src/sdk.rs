@@ -8,7 +8,7 @@ use std::{borrow::Cow, str::FromStr};
 use libp2p::PeerId;
 
 // External crate imports (general)
-use crate::{blockchain::eip712_utils::create_block_eip712_data, get_nonce, utils::splitter::Splitter};
+use crate::{blockchain::eip712_utils::create_block_eip712_data, utils::splitter::Splitter};
 use alloy::hex;
 use bytesize::{ByteSize, MB};
 use cid::{
@@ -44,8 +44,6 @@ use crate::sdk_types::{
     AkaveError, BucketListResponse, BucketViewResponse, FileListResponse, FileViewResponse,
     FileDownloadResponse, BucketListItem, FileListItem, FileChunk,
 };
-
-use std::time::{SystemTime, UNIX_EPOCH};
 
 // Target-specific imports and types
 #[cfg(target_arch = "wasm32")]
@@ -491,7 +489,7 @@ impl AkaveSDK {
             .await
             .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
 
-        let resp = self.create_file_upload(bucket.id.to_vec(), file_name).await
+        self.create_file_upload(bucket.id.to_vec(), file_name).await
             .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
 
         log_info!("File created successfully: {}", file_name);
@@ -588,9 +586,10 @@ impl AkaveSDK {
                 let nonce = crate::get_nonce();
                 let chunk_cid = cid::Cid::from_str(&ipc_chunk.cid).map_err(|e| AkaveError::Internal(e.to_string()))?;
                 let node_id = PeerId::from_str(&block_1mb.node_id).map_err(|e| AkaveError::Internal(e.to_string()))?;
-                let (data_message, domain, data_types) = create_block_eip712_data(&block_1mb.cid, &chunk_cid, &node_id, self.storage.akave_storage.address(),  ipc_chunk.index,index as i64, nonce).map_err(|e| AkaveError::Internal(e.to_string()))?;
+                let chain_id = self.storage.web3_provider.eth().chain_id().await.map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
+                let (data_message, domain, data_types) = create_block_eip712_data(&block_1mb.cid, &chunk_cid, &node_id, self.storage.akave_storage.address(),  ipc_chunk.index,index as i64, chain_id, nonce).map_err(|e| AkaveError::Internal(e.to_string()))?;
+                
                 // Sign the message
-
                 log_debug!("Signing data for chunk {}, block {}", ipc_chunk.index, index);
                 let signature = self.storage.eip712_sign(domain.clone(), data_message.clone(), data_types.clone()).await.map_err(|e| AkaveError::BlockchainError(format!("Failed to sign data: {}", e)))?;
                 log_debug!("Signature: {:?}", signature);
@@ -1597,7 +1596,7 @@ mod tests {
         // 3. Empty each test bucket then delete.
         for bucket in test_buckets {
             println!("Deleting test bucket: {}", bucket.name);
-            // TODO: fixme
+            // TODO: fixme when invalid files are deleted
             // let files = sdk.list_files(ADDRESS, &bucket.name).await.expect("Failed to list files for specified (address, bucket_name)");
 
             // for file in files {
@@ -1620,7 +1619,7 @@ mod tests {
     #[ignore]
     async fn test_cleanup_manual() {
         // This test is ignored by default and must be run manually with:
-        // cargo test --package akave-wasm-sdk --lib -- tests::test_cleanup_manual --ignored --nocapture
+        // cargo test --package akave-rs --lib -- tests::test_cleanup_manual --ignored --nocapture
         cleanup_all_test_resources().await;
     }
 }

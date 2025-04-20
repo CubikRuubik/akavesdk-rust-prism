@@ -65,6 +65,7 @@ pub fn sign_typed_data(
 }
 
 /// Recover the signer address from a signature
+#[allow(dead_code)]
 pub fn recover_signer_address(
     signature: &[u8; 65],
     domain: &Domain,
@@ -381,6 +382,7 @@ mod tests {
             H160::from_str("0x1234567890123456789012345678901234567890").unwrap(),
             1,
             1,
+            U256::from(31337),
             U256::from(1234567890),
         ).unwrap();
         assert_eq!(data_message, auto_data_message, "qData message does not match");

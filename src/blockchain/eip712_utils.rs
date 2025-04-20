@@ -17,13 +17,14 @@ pub fn create_block_eip712_data(
     verifying_contract: H160,
     chunk_index: i64,
     block_index: i64,
+    chain_id: U256,
     nonce: U256,
 ) -> Result<(HashMap<String, serde_json::Value>, Domain, HashMap<String, Vec<TypedData>>), Box<dyn std::error::Error>> {
     // Create domain based on the provided test data
     let domain = Domain {
         name: "Storage".to_string(),
         version: "1".to_string(),
-        chain_id: U256::from(78964),
+        chain_id: chain_id,
         verifying_contract: verifying_contract,
     };
     

@@ -4,18 +4,19 @@ use std::collections::HashMap;
 
 // External crate imports (general)
 use web3::{
-    contract::{tokens::Tokenize, Contract, Options}, error::TransportError, helpers, types::{TransactionReceipt, H160, H256, U256}, Error, Transport, Web3
+    contract::{tokens::Tokenize, Contract, Options}, error::TransportError, types::{TransactionReceipt, H160, H256, U256}, Error, Web3
 };
 
 // Internal imports
 use super::ipc_types::{BucketResponse, FileResponse};
-use crate::blockchain::{eip712_types::{Domain, TypedData}, eip712_utils};
+use crate::blockchain::eip712_types::{Domain, TypedData};
 use crate::{log_debug, log_error, log_info};
 
 // Target-specific imports
 #[cfg(target_arch = "wasm32")]
 mod wasm_imports {
     pub use web3::transports::eip_1193::{Eip1193, Provider};
+    pub use web3::Transport;
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -54,10 +55,6 @@ pub(crate) struct BlockchainProvider {
     pub web3_provider: Web3<ProviderType>,
     pub akave_storage: Contract<ProviderType>,
     confirmations: usize,
-    // Storage contract address for EIP712 signing
-    storage_address: String,
-    // Chain ID for EIP712 signing
-    chain_id: u64,
     // Native environment private key for signing
     #[cfg(not(target_arch = "wasm32"))]
     key: Option<SecretKey>,
@@ -101,8 +98,6 @@ impl BlockchainProvider {
                             web3_provider,
                             akave_storage,
                             confirmations: confirmations_opt,
-                            storage_address: access_address.to_string(),
-                            chain_id: 31337, // Default to local hardhat
                             #[cfg(not(target_arch = "wasm32"))]
                             key: None,
                         })
@@ -151,8 +146,6 @@ impl BlockchainProvider {
                     Ok(Self {
                         web3_provider,
                         akave_storage,
-                        storage_address: access_address.to_string(),
-                        chain_id: 31337, // Default to local hardhat
                         key: Some(key),
                         confirmations: confirmations_opt,
                     })
@@ -288,10 +281,6 @@ impl BlockchainProvider {
 
         #[cfg(target_arch = "wasm32")]
         {
-            log_debug!(
-                "Calling contract function: {} with confsssirmations",
-                function_name
-            );
             let address = self.web3_provider.eth().accounts().await?[0];
             log_debug!(
                 "Calling contract function: {} with confirmations, with address: {}",
