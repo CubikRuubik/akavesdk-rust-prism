@@ -90,6 +90,7 @@ pub struct AkaveSDK {
     min_bucket_name_length: usize,
     max_blocks_in_chunk: usize,
     block_part_size: usize,
+    min_file_size: usize,
 }
 
 /// Builder for AkaveSDK
@@ -102,6 +103,7 @@ pub struct AkaveSDKBuilder {
     min_bucket_name_length: usize,
     max_blocks_in_chunk: usize,
     block_part_size: usize,
+    min_file_size: usize,
 }
 
 impl AkaveSDKBuilder {
@@ -116,6 +118,7 @@ impl AkaveSDKBuilder {
             min_bucket_name_length: MIN_BUCKET_NAME_LENGTH,
             max_blocks_in_chunk: MAX_BLOCKS_IN_CHUNK,
             block_part_size: BLOCK_PART_SIZE,
+            min_file_size: MIN_FILE_SIZE,
         }
     }
 
@@ -156,6 +159,12 @@ impl AkaveSDKBuilder {
         self
     }
 
+    /// Set minimum file size
+    pub fn with_min_file_size(mut self, min_file_size: usize) -> Self {
+        self.min_file_size = min_file_size;
+        self
+    }
+
     /// Build the AkaveSDK instance
     pub async fn build(self) -> Result<AkaveSDK, Box<dyn std::error::Error>> {
         let erasure_code = match (self.data_blocks, self.parity_blocks) {
@@ -171,6 +180,7 @@ impl AkaveSDKBuilder {
             self.min_bucket_name_length,
             self.max_blocks_in_chunk,
             self.block_part_size,
+            self.min_file_size,
         )
         .await
     }
@@ -187,6 +197,7 @@ impl AkaveSDK {
             MIN_BUCKET_NAME_LENGTH,
             MAX_BLOCKS_IN_CHUNK,
             BLOCK_PART_SIZE,
+            MIN_FILE_SIZE,
         )
         .await
     }
@@ -200,6 +211,7 @@ impl AkaveSDK {
         min_bucket_name_length: usize,
         max_blocks_in_chunk: usize,
         block_part_size: usize,
+        min_file_size: usize,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         log_info!(
             "Initializing AkaveSDK with server address: {}",
@@ -231,6 +243,7 @@ impl AkaveSDK {
                 min_bucket_name_length,
                 max_blocks_in_chunk,
                 block_part_size,
+                min_file_size,
             })
         }
 
@@ -268,6 +281,7 @@ impl AkaveSDK {
                 min_bucket_name_length,
                 max_blocks_in_chunk,
                 block_part_size,
+                min_file_size,
             })
         }
     }
@@ -479,8 +493,14 @@ impl AkaveSDK {
             file_name,
             bucket_name
         );
+        // Check if bucket name is valid
         if bucket_name.is_empty() {
             return Err(AkaveError::InvalidInput("Empty bucket name".to_string()));
+        }
+
+        // Check if file size is valid
+        if utils::file_size::FileSize::size(&file) < self.min_file_size as u64 {
+            return Err(AkaveError::InvalidInput(format!("File size must be at least {} bytes", self.min_file_size).to_string()));
         }
 
         let bucket = self
