@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sdk.upload_file(bucket_name, "file.txt", file, None).await?;
     
     // List files
-    let files = sdk.list_buckets("your-address").await?;
+    let files = sdk.list_files("your-address", "my-bucket").await?;
     
     // Download a file
     sdk.download_file("your-address", bucket_name, "file.txt", None, "/path/to/save/").await?;
