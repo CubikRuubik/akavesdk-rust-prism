@@ -8,7 +8,8 @@ This is a simple web application that demonstrates the basic functionality of th
 - Create and delete buckets
 - List buckets and files
 - Delete files
-- (TODO) Upload files
+- Upload files
+- Download files
 
 ## Prerequisites
 
@@ -35,6 +36,15 @@ npm run build
 npm run dev
 ```
 
+The application will automatically initialize the SDK with erasure coding and encryption:
+
+```typescript
+const sdk = await new AkaveWebSDKBuilder('http://23.227.172.82:7001/grpc')
+    .withDefaultEncryption("testkey123")
+    .withErasureCoding(4, 2)
+    .build();
+```
+
 2. Open your browser and navigate to `http://localhost:8080`
 
 3. Make sure MetaMask is installed and unlocked
@@ -53,12 +63,14 @@ npm run dev
    - Click "Create Bucket" to create a new bucket
    - View your buckets in the list below
    - Delete buckets using the "Delete" button
+   - The SDK is configured with erasure coding and encryption
 
 3. **Managing Files**
    - Select a bucket from the dropdown
    - View files in the selected bucket
    - Delete files using the "Delete" button
-   - (TODO) Upload files using the file input
+   - Upload files using the file input
+   - Download files using the "Download" button
 
 ## Development
 
@@ -66,7 +78,7 @@ The project uses webpack for bundling and development. The main files are:
 
 - `index.html`: The main HTML file
 - `styles.css`: CSS styles
-- `app.js`: Main JavaScript file with SDK integration
+- `app.ts`: Main TypeScript file with SDK integration
 - `webpack.config.js`: Webpack configuration
 
 ### SDK Dependency
@@ -74,7 +86,7 @@ The project uses webpack for bundling and development. The main files are:
 This demo is configured to use the local SDK from the parent directory for development and testing purposes. The dependency is specified in `package.json` as:
 
 ```json
-"@akave/akave-web-sdk": "file:.."
+"@akave/akave-web-sdk": "file:../../pkg"
 ```
 
 For production use, you should replace this with the published version from npm:
@@ -85,6 +97,5 @@ For production use, you should replace this with the published version from npm:
 
 ## Notes
 
-- The file upload functionality is currently disabled as it requires additional implementation
 - Make sure you have sufficient funds in your wallet for gas fees
-- The demo connects to the Akave testnet by default 
+- The demo connects to the Akave testnet by default

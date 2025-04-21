@@ -4,8 +4,9 @@ use std::{
     cmp,
     io::{Read, Seek, SeekFrom},
 };
+use crate::sdk_types::AkaveError;
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen_file_reader::WebSysFile as File;
+use crate::utils::seekable_web_file::{SeekableWebFile as File, AsyncRead};
 
 #[cfg(not(target_arch = "wasm32"))]
 use super::file_size::FileSize;
@@ -30,23 +31,11 @@ impl Splitter {
             counter: 0,
         };
     }
-
-    pub fn size(&self) -> usize {
-        return u64::div_ceil(self.file.size(), self.chunk_size) as usize;
-    }
 }
 
-impl Iterator for Splitter {
-    type Item = Result<Box<[u8]>, Box<dyn std::error::Error>>;
+impl Splitter {
 
-    fn count(self) -> usize
-    where
-        Self: Sized,
-    {
-        return u64::div_ceil(self.file.size(), self.chunk_size) as usize;
-    }
-
-    fn next(&mut self) -> Option<Self::Item> {
+    pub async fn next_chunk(&mut self) -> Option<Result<Box<[u8]>, AkaveError>> {
         let file_size = self.file.size();
         if self.counter >= file_size {
             return None;
@@ -60,9 +49,24 @@ impl Iterator for Splitter {
 
         let array: Vec<u8> = vec![0; buf_size.try_into().unwrap()];
         let mut chunk_data = array.into_boxed_slice();
-        self.file
-            .read(&mut chunk_data)
-            .expect("Failed to read the file");
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Use the AsyncRead trait for WASM
+            AsyncRead::read_async(&mut self.file, &mut chunk_data)
+                .await
+                .map_err(|e| {
+                    let err_msg = format!("Failed to read file: {:?}", e);
+                    std::io::Error::new(std::io::ErrorKind::Other, err_msg)
+                })
+                .expect("Failed to read the file");
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.file
+                .read(&mut chunk_data)
+                .expect("Failed to read the file");
+        }
         self.counter += buf_size;
         Some(Ok(chunk_data))
     }

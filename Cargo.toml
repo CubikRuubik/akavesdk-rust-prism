@@ -56,6 +56,7 @@ ipfs-unixfs = "0.2.0"
 quick-protobuf = "0.8.0"
 reed-solomon-erasure = "4.0.0" # higher versions do not support wasm32. If you want to use more recent versions, you need to import under the non wasm deps and keep wasm deps locked at 4.0.
 thiserror = "1.0"
+libp2p = "0.55.0"
 
 
 [dev-dependencies]
@@ -86,6 +87,7 @@ tonic-build = { version = "0.12", default-features = false, features = [
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # WASM-specific dependencies
+url = "2.5.4"
 wasm-bindgen = "0.2.100"
 wee_alloc = "0.4.5"
 gloo-timers = {version = "0.3.0", features = ["futures"]}
@@ -102,10 +104,13 @@ web-sys = { version = "0.3", features = [
   "Request",
   "console",
   "File",
+  "FileReader",
+  "Blob",
   "Crypto",
   "Url",
   "Document",
   "HtmlElement",
+  "Event",
 ] }
 js-sys = "0.3"
 web3 = { version = "0.19.0", default-features = false, features = [
@@ -113,7 +118,7 @@ web3 = { version = "0.19.0", default-features = false, features = [
   "eip-1193",
 ] }
 tsify-next = { version = "0.5.4", default-features = false, features = ["js"] }
-wasm-bindgen-file-reader = "1"
+
 # Optional debugging utility for WebAssembly
 console_error_panic_hook = { version = "0.1.7", optional = true }
 
@@ -151,3 +156,4 @@ env_logger = "0.11.7"
 test-log = "0.2.17"
 ctor = "0.4.1"
 # -----------------------------------------
+

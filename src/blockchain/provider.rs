@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 // External crate imports (general)
 use web3::{
-    contract::{tokens::Tokenize, Contract, Options}, error::TransportError, helpers, types::{TransactionReceipt, H160, H256, U256}, Error, Transport, Web3
+    contract::{tokens::Tokenize, Contract, Options}, error::TransportError, types::{TransactionReceipt, H160, H256, U256}, Error, Web3
 };
 
 // Internal imports
@@ -16,6 +16,7 @@ use crate::{log_debug, log_error, log_info};
 #[cfg(target_arch = "wasm32")]
 mod wasm_imports {
     pub use web3::transports::eip_1193::{Eip1193, Provider};
+    pub use web3::Transport;
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -54,10 +55,6 @@ pub(crate) struct BlockchainProvider {
     pub web3_provider: Web3<ProviderType>,
     pub akave_storage: Contract<ProviderType>,
     confirmations: usize,
-    // Storage contract address for EIP712 signing
-    storage_address: String,
-    // Chain ID for EIP712 signing
-    chain_id: u64,
     // Native environment private key for signing
     #[cfg(not(target_arch = "wasm32"))]
     key: Option<SecretKey>,
@@ -101,8 +98,6 @@ impl BlockchainProvider {
                             web3_provider,
                             akave_storage,
                             confirmations: confirmations_opt,
-                            storage_address: access_address.to_string(),
-                            chain_id: 31337, // Default to local hardhat
                             #[cfg(not(target_arch = "wasm32"))]
                             key: None,
                         })
@@ -151,8 +146,6 @@ impl BlockchainProvider {
                     Ok(Self {
                         web3_provider,
                         akave_storage,
-                        storage_address: access_address.to_string(),
-                        chain_id: 31337, // Default to local hardhat
                         key: Some(key),
                         confirmations: confirmations_opt,
                     })
@@ -204,6 +197,18 @@ impl BlockchainProvider {
 
             match receipt {
                 Some(receipt) => {
+                    match receipt.status {
+                        Some(status) => {
+                            if status.low_u64() == 0 {
+                                log_error!("Transaction failed with status 0");
+                                return Err(format!("Transaction {}-{} failed with status 0", receipt.transaction_hash, function_name).into());
+                            }
+                        }
+                        None => {
+                            log_error!("Transaction failed with unknown status");
+                            return Err("Transaction failed with unknown status".into());
+                        }
+                    }
                     if let Some(confirmation_block) = receipt.block_number {
                         if current_block.low_u64() < confirmation_block.low_u64() {
                             log_debug!("Current block number is less than confirmation block number, waiting for confirmation");
@@ -215,7 +220,9 @@ impl BlockchainProvider {
 
                         if blocks_since_confirmation >= self.confirmations as u64 {
                             log_info!(
-                                "Transaction confirmed with {} blocks",
+                                "Transaction {}-{} confirmed with {} blocks",
+                                receipt.transaction_hash,
+                                function_name,
                                 blocks_since_confirmation
                             );
                             return Ok(receipt);
@@ -253,7 +260,6 @@ impl BlockchainProvider {
         function_name: &str,
         params: impl Tokenize,
     ) -> Result<H256, Box<dyn std::error::Error>> {
-        log_debug!("Calling contract function: {}", function_name);
         let txopts = Options {
             gas: Some(U256::from(500000)),
             ..Default::default()
@@ -274,10 +280,6 @@ impl BlockchainProvider {
 
         #[cfg(target_arch = "wasm32")]
         {
-            log_debug!(
-                "Calling contract function: {} with confsssirmations",
-                function_name
-            );
             let address = self.web3_provider.eth().accounts().await?[0];
             log_debug!(
                 "Calling contract function: {} with confirmations, with address: {}",
@@ -441,7 +443,6 @@ impl BlockchainProvider {
             )
             .await
             .unwrap();
-        log_info!("Retrieved bucket details for: {}", bucket_name_clone);
         Ok(result)
     }
 
@@ -462,7 +463,6 @@ impl BlockchainProvider {
                 None,
             )
             .await?;
-        log_info!("Retrieved bucket index for: {}", bucket_name_clone);
         Ok(result)
     }
 
@@ -517,7 +517,6 @@ impl BlockchainProvider {
                 None,
             )
             .await?;
-        log_info!("Retrieved file index for: {}", file_name_clone);
         Ok(result)
     }
 
@@ -545,7 +544,6 @@ impl BlockchainProvider {
             )
             .await
             .unwrap();
-        log_info!("Retrieved file details for: {}", file_name_clone);
         Ok(result)
     }
 
@@ -558,7 +556,7 @@ impl BlockchainProvider {
         domain: Domain,
         message: HashMap<String, serde_json::Value>,
         types: HashMap<String, Vec<TypedData>>
-    ) -> Result<[u8; 65], Box<dyn std::error::Error>> {
+    ) -> Result<String, Box<dyn std::error::Error>> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             // Native implementation using the EIP-712 module
@@ -570,7 +568,7 @@ impl BlockchainProvider {
                     &message,
                     &types
                 )?;
-                Ok(signature)
+                Ok(hex::encode(signature))
             } else {
                 Err("No private key available for signing".into())
             }
@@ -582,12 +580,12 @@ impl BlockchainProvider {
             log_debug!("Using WASM EIP-712 signing via provider");
             
             // Format the request according to EIP-712
-            let eip712_request = serde_json::json!({
-                "domain": domain,
-                "message": message,
-                "primaryType": "StorageData", // TODO: could be parameterized
-                "types": types
-            });
+            let eip712_request = crate::blockchain::eip712_utils::encode_eip712_message_for_wasm(
+                &domain,
+                &message,
+                &types,
+                "StorageData"
+            );
             
             // Get the current account
             let accounts = self.web3_provider.eth().accounts().await?;
@@ -597,29 +595,26 @@ impl BlockchainProvider {
             
             // Call the provider's eth_signTypedData_v4 method
             // Prepare parameters for the JSON-RPC call
-            let account = accounts[0].to_string();
+            let account = format!("{:?}", accounts[0]);
             let typed_data_json = serde_json::to_string(&eip712_request)?;
             
             // Call the RPC method with proper parameters
-            let params = vec![helpers::serialize(&account), helpers::serialize(&typed_data_json)];
+            let params = vec![serde_json::Value::String(account), serde_json::Value::String(typed_data_json)];
+
+            log_debug!("Calling eth_signTypedData_v4 with params: {:?}", params);
+            
             let signature_hex: String = self.web3_provider
                 .transport()
                 .execute("eth_signTypedData_v4", params)
                 .await?.to_string();
+            log_debug!("Received signature hex: {}", signature_hex);
+
+            // comes back with "" for some weird reason.
+            let trimmed = signature_hex[1..signature_hex.len() - 1].to_string();
             
             // Convert hex signature to bytes (handle potential 0x prefix)
-            let clean_sig = signature_hex.trim_start_matches("0x").to_string();
-            let signature_bytes = hex::decode(&clean_sig)?;
-            if signature_bytes.len() != 65 {
-                return Err(format!("Invalid signature length: {}, signature: {}", 
-                             signature_bytes.len(), signature_hex).into());
-            }
-            
-            // Convert to fixed-length array
-            let mut signature = [0u8; 65];
-            signature.copy_from_slice(&signature_bytes);
-            
-            Ok(signature)
+            let clean_sig = trimmed.trim_start_matches("0x").to_string();
+            Ok(clean_sig)
         }
     }
 }

@@ -4,10 +4,11 @@ pub(crate) mod ipcnodeapi {
 }
 
 // Standard library imports
-use std::borrow::Cow;
+use std::{borrow::Cow, str::FromStr};
+use libp2p::PeerId;
 
 // External crate imports (general)
-use crate::utils::splitter::Splitter;
+use crate::{blockchain::eip712_utils::create_block_eip712_data, utils::splitter::Splitter};
 use alloy::hex;
 use bytesize::{ByteSize, MB};
 use cid::{
@@ -48,7 +49,7 @@ use crate::sdk_types::{
 #[cfg(target_arch = "wasm32")]
 mod wasm_imports {
     pub use tonic_web_wasm_client::Client as GrpcWebClient;
-    pub use wasm_bindgen_file_reader::WebSysFile as File;
+    pub use crate::utils::seekable_web_file::SeekableWebFile as File;
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -76,7 +77,7 @@ const BLOCK_SIZE: usize = MB as usize;
 const MIN_BUCKET_NAME_LENGTH: usize = 3;
 const MIN_FILE_SIZE: usize = 127;
 const MAX_BLOCKS_IN_CHUNK: usize = 32;
-const BLOCK_PART_SIZE: usize = ByteSize::kib(128).as_u64() as usize;
+const BLOCK_PART_SIZE: usize = ByteSize::kb(128).as_u64() as usize;
 
 /// Represents the Akave SDK client
 /// Akave SDK should support both WASM (gRPC-Web) and native gRPC
@@ -89,6 +90,7 @@ pub struct AkaveSDK {
     min_bucket_name_length: usize,
     max_blocks_in_chunk: usize,
     block_part_size: usize,
+    min_file_size: usize,
 }
 
 /// Builder for AkaveSDK
@@ -101,6 +103,7 @@ pub struct AkaveSDKBuilder {
     min_bucket_name_length: usize,
     max_blocks_in_chunk: usize,
     block_part_size: usize,
+    min_file_size: usize,
 }
 
 impl AkaveSDKBuilder {
@@ -115,6 +118,7 @@ impl AkaveSDKBuilder {
             min_bucket_name_length: MIN_BUCKET_NAME_LENGTH,
             max_blocks_in_chunk: MAX_BLOCKS_IN_CHUNK,
             block_part_size: BLOCK_PART_SIZE,
+            min_file_size: MIN_FILE_SIZE,
         }
     }
 
@@ -155,6 +159,12 @@ impl AkaveSDKBuilder {
         self
     }
 
+    /// Set minimum file size
+    pub fn with_min_file_size(mut self, min_file_size: usize) -> Self {
+        self.min_file_size = min_file_size;
+        self
+    }
+
     /// Build the AkaveSDK instance
     pub async fn build(self) -> Result<AkaveSDK, Box<dyn std::error::Error>> {
         let erasure_code = match (self.data_blocks, self.parity_blocks) {
@@ -170,6 +180,7 @@ impl AkaveSDKBuilder {
             self.min_bucket_name_length,
             self.max_blocks_in_chunk,
             self.block_part_size,
+            self.min_file_size,
         )
         .await
     }
@@ -186,6 +197,7 @@ impl AkaveSDK {
             MIN_BUCKET_NAME_LENGTH,
             MAX_BLOCKS_IN_CHUNK,
             BLOCK_PART_SIZE,
+            MIN_FILE_SIZE,
         )
         .await
     }
@@ -199,6 +211,7 @@ impl AkaveSDK {
         min_bucket_name_length: usize,
         max_blocks_in_chunk: usize,
         block_part_size: usize,
+        min_file_size: usize,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         log_info!(
             "Initializing AkaveSDK with server address: {}",
@@ -230,6 +243,7 @@ impl AkaveSDK {
                 min_bucket_name_length,
                 max_blocks_in_chunk,
                 block_part_size,
+                min_file_size,
             })
         }
 
@@ -267,6 +281,7 @@ impl AkaveSDK {
                 min_bucket_name_length,
                 max_blocks_in_chunk,
                 block_part_size,
+                min_file_size,
             })
         }
     }
@@ -478,8 +493,14 @@ impl AkaveSDK {
             file_name,
             bucket_name
         );
+        // Check if bucket name is valid
         if bucket_name.is_empty() {
             return Err(AkaveError::InvalidInput("Empty bucket name".to_string()));
+        }
+
+        // Check if file size is valid
+        if utils::file_size::FileSize::size(&file) < self.min_file_size as u64 {
+            return Err(AkaveError::InvalidInput(format!("File size must be at least {} bytes", self.min_file_size).to_string()));
         }
 
         let bucket = self
@@ -488,7 +509,7 @@ impl AkaveSDK {
             .await
             .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
 
-        let resp = self.create_file_upload(bucket.id.to_vec(), file_name).await
+        self.create_file_upload(bucket.id.to_vec(), file_name).await
             .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
 
         log_info!("File created successfully: {}", file_name);
@@ -540,11 +561,11 @@ impl AkaveSDK {
         // Initialize the splitter with file and chunk_size
         let mut splitter = Splitter::new(file, chunk_size);
 
-        while let Some(chunk_result) = splitter.next() {
+        while let Some(chunk_result) = splitter.next_chunk().await {
             let buffer = match chunk_result {
                 Ok(data) => data,
                 Err(e) => return Err(AkaveError::FileError(e.to_string())),
-            };
+            };  
 
             if buffer.is_empty() && is_empty_file {
                 return Err(AkaveError::InvalidInput("Empty file".to_string()));
@@ -580,20 +601,35 @@ impl AkaveSDK {
 
             let mut chunks_iter = chunk.blocks.iter().enumerate();
             while let Some((index, block_1mb)) = chunks_iter.next() {
-                self.upload_chunk(IpcFileBlockData {
-                    data: block_1mb.data.to_owned(),
-                    cid: block_1mb.cid.to_string(),
-                    index: index as i64,
-                    chunk: Some(ipc_chunk.to_owned()),
-                    bucket_id: bucket.id.to_vec(),
-                    file_name: file_name.to_string(),
-                    //TODO fix
-                    signature: String::from(""),
-                    node_id: Vec::new(),
-                    nonce: Vec::new(),
-                })
-                .await
-                .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
+                
+                // Generate a nonce based on current time
+                let nonce = crate::get_nonce();
+                let chunk_cid = cid::Cid::from_str(&ipc_chunk.cid).map_err(|e| AkaveError::Internal(e.to_string()))?;
+                let node_id = PeerId::from_str(&block_1mb.node_id).map_err(|e| AkaveError::Internal(e.to_string()))?;
+                let chain_id = self.storage.web3_provider.eth().chain_id().await.map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
+                let (data_message, domain, data_types) = create_block_eip712_data(&block_1mb.cid, &chunk_cid, &node_id, self.storage.akave_storage.address(),  ipc_chunk.index,index as i64, chain_id, nonce).map_err(|e| AkaveError::Internal(e.to_string()))?;
+                
+                // Sign the message
+                log_debug!("Signing data for chunk {}, block {}", ipc_chunk.index, index);
+                let signature = self.storage.eip712_sign(domain.clone(), data_message.clone(), data_types.clone()).await.map_err(|e| AkaveError::BlockchainError(format!("Failed to sign data: {}", e)))?;
+                log_debug!("Signature: {:?}", signature);
+                
+                let mut bytes = [0u8; 32];
+                nonce.to_big_endian(&mut bytes);
+                
+                self.upload_block_segments(
+                    block_1mb.data.clone(),
+                    bucket.id.to_vec(),
+                    file_name.to_string(),
+                    block_1mb.cid.to_string(),
+                    index as i64,
+                    signature,
+                    node_id.to_bytes(),
+                    block_1mb.node_address.as_str(),
+                    bytes.to_vec(),
+                    Some(ipc_chunk.clone()),
+                ).await
+                .map_err(|e| AkaveError::BlockchainError(format!("Failed to upload block segments: {}", e)))?;
             }
 
             idx += 1;
@@ -730,79 +766,107 @@ impl AkaveSDK {
         ))
     }
 
-    async fn upload_chunk(
+    /// Upload a block in segments, similar to uploadIpcBlockSegments in the Go implementation
+    /// 
+    /// The function splits the data into smaller segments based on block_part_size
+    /// and only includes metadata with the first segment.
+    /// 
+    /// For WASM environments, it sends requests sequentially.
+    /// For native environments, it processes blocks concurrently.
+    async fn upload_block_segments(
         &mut self,
-        chunk: IpcFileBlockData,
+        data: Vec<u8>,
+        bucket_id: Vec<u8>,
+        file_name: String,
+        block_cid: String,
+        block_index: i64,
+        signature: String,
+        node_id: Vec<u8>,
+        node_address: &str,
+        nonce: Vec<u8>,
+        chunk: Option<IpcChunk>,
     ) -> Result<(), AkaveError> {
-        let data = chunk.data;
         let data_len = data.len();
         if data_len == 0 {
             return Ok(());
         }
 
-        let mut total = 0;
         log_debug!(
-            "Uploading chunk with CID: {}, length: {}",
-            chunk.cid,
-            data_len
+            "Uploading block segments. CID: {}, length: {}, block index: {}",
+            block_cid,
+            data_len,
+            block_index
         );
 
-        let mut blocks_upload = vec![];
-
-        while total < data_len {
-            let mut end = total + self.block_part_size;
-            if end > data_len {
-                end = data_len;
-            }
-
-            let new_bock_part = data[total..end].to_vec();
-
-            blocks_upload.push(IpcFileBlockData {
-                bucket_id: chunk.bucket_id.clone(),
-                data: new_bock_part,
-                cid: if total == 0 {
-                    chunk.cid.to_string()
-                } else {
-                    String::from("")
-                },
-                chunk: if total == 0 {
-                    chunk.chunk.clone()
-                } else {
-                    None
-                },
-                file_name: chunk.file_name.clone(),
-                index: chunk.index as i64,
-                //TODO fix
-                signature: String::from(""),
-                node_id: Vec::new(),
-                nonce: Vec::new(),
-            });
-
-            total += self.block_part_size;
-        }
-
-
-        // WASM does not support server side streaming (yet) so we need to send blocks in a series of unary requests.
         #[cfg(target_arch = "wasm32")]
-        for block in blocks_upload {
-            self.client
-                .file_upload_block_unary(block)
+        {
+            let block_data = IpcFileBlockData {
+                bucket_id: bucket_id.clone(),
+                data: data,
+                cid: block_cid.clone(),
+                chunk: chunk.clone(),
+                file_name: file_name.clone(),
+                index: block_index,
+                signature: signature.clone(),
+                node_id: node_id.clone(),
+                nonce: nonce.clone(),
+            };
+
+            log_debug!("Uploading block {}", block_index);
+            let mut node_client = AkaveSDK::get_client_for_node_address(node_address).await.map_err(|e| AkaveError::GrpcError(e.to_string()))?;
+            node_client
+                .file_upload_block_unary(block_data)
                 .await
-                .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+                .map_err(|e| { 
+                    log_error!("Error uploading block: {}", e);
+                    AkaveError::GrpcError(format!("Failed to upload block: {}", e))
+                })?
                 .into_inner();
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let block_stream = futures::stream::iter(blocks_upload);
+            use futures::stream::{self, StreamExt};
 
-            self.client
-                .file_upload_block(block_stream)
-                .await
-                .map_err(|e| AkaveError::GrpcError(e.to_string()))?
-                .into_inner();
+            // Simplified implementation: streaming upload of segments directly
+            let block_part_size = self.block_part_size;
+            
+            // Create a stream that generates block data on demand
+            let stream = stream::iter(0..((data_len + block_part_size - 1) / block_part_size))
+                .map(move |segment_index| {
+                    let start = segment_index * block_part_size;
+                    let end = std::cmp::min(start + block_part_size, data_len);
+                    let segment_data = data[start..end].to_vec();
+                    
+                    IpcFileBlockData {
+                        bucket_id: bucket_id.clone(),
+                        data: segment_data,
+                        cid: block_cid.clone(),
+                        chunk: chunk.clone(),
+                        file_name: file_name.clone(),
+                        index: block_index,
+                        signature: signature.clone(),
+                        node_id: node_id.clone(),
+                        nonce: nonce.clone(),
+                    }
+                });
+            
+            // Send the stream to the server
+            log_debug!("Streaming block segments for block {} to node {}", block_index, node_address);
+            let mut node_client = AkaveSDK::get_client_for_node_address(node_address).await.map_err(|e| AkaveError::GrpcError(e.to_string()))?;
+            match node_client.file_upload_block(stream).await {
+                Ok(response) => {
+                    log_debug!("Block upload completed successfully");
+                    response.into_inner();
+                }
+                Err(e) => {
+                    log_error!("Error uploading block: {}", e);
+                    return Err(AkaveError::GrpcError(e.to_string()));
+                }
+            }
         }
-        log_debug!("Chunk uploaded successfully");
+        
+        log_debug!("Block segments uploaded successfully");
         Ok(())
     }
 
@@ -914,7 +978,9 @@ impl AkaveSDK {
                     bucket_name: bucket_name.to_string(),
                     file_name: file_name.to_string(),
                 };
-                let mut stream = self.client.file_download_block(req).await
+                log_debug!("Downloading block {} for chunk {}", block_index, chunk_index);
+                let mut node_client = AkaveSDK::get_client_for_node_address(&block.akave.node_address).await.map_err(|e| AkaveError::GrpcError(e.to_string()))?;
+                let mut stream = node_client.file_download_block(req).await
                     .map_err(|e| AkaveError::GrpcError(e.to_string()))?
                     .into_inner();
 
@@ -1041,6 +1107,49 @@ impl AkaveSDK {
             size: chunk.size,
             blocks,
         })
+    }
+
+    async fn get_client_for_node_address(node_address: &str) -> Result<IpcNodeApiClient<ClientTransport>, Box<dyn std::error::Error>> {
+        #[cfg(target_arch = "wasm32")]
+        {
+
+            // Parse node address and modify port
+            let parts: Vec<&str> = node_address.split(':').collect();
+            if parts.len() != 2 {
+                return Err("Invalid node address format, expected IP:PORT".into());
+            }
+            
+            let host = parts[0];
+            let port = parts[1].parse::<u16>()
+                .map_err(|_| "Invalid port number")?;
+            
+            let address = format!("http://{}:{}/grpc", host, port + 2000);
+
+            log_debug!("Connecting to node at address: {}", address);
+            let grpc_web_client = ClientTransport::new(address.into());
+            let client = IpcNodeApiClient::new(grpc_web_client);
+            Ok(client)
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let tls_config = ClientTlsConfig::new().with_native_roots();
+            let address = if !node_address.starts_with("http://") {
+                format!("http://{}", node_address)
+            } else {
+                node_address.to_string()
+            };
+            
+            let channel = Channel::from_shared(address.clone())?
+                .tls_config(tls_config)?
+                .connect()
+                .await.map_err(|e| AkaveError::GrpcError(format!("Failed to connect to node {}: {}", address, e)))?;
+
+            let client = IpcNodeApiClient::new(channel)
+                .max_decoding_message_size(usize::MAX)
+                .max_encoding_message_size(usize::MAX);
+            Ok(client)
+        }
     }
 }
 
@@ -1507,7 +1616,7 @@ mod tests {
         // 3. Empty each test bucket then delete.
         for bucket in test_buckets {
             println!("Deleting test bucket: {}", bucket.name);
-            // TODO: fixme
+            // TODO: fixme when invalid files are deleted
             // let files = sdk.list_files(ADDRESS, &bucket.name).await.expect("Failed to list files for specified (address, bucket_name)");
 
             // for file in files {
@@ -1530,7 +1639,7 @@ mod tests {
     #[ignore]
     async fn test_cleanup_manual() {
         // This test is ignored by default and must be run manually with:
-        // cargo test --package akave-wasm-sdk --lib -- tests::test_cleanup_manual --ignored --nocapture
+        // cargo test --package akave-rs --lib -- tests::test_cleanup_manual --ignored --nocapture
         cleanup_all_test_resources().await;
     }
 }

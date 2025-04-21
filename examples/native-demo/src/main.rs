@@ -1,11 +1,11 @@
 use akave_rs::sdk::AkaveSDKBuilder;
-use std::fs::File;
+use std::{fs::File, thread::sleep, time::Duration};
 use env_logger::Builder;
 use log::LevelFilter;
 use std::path::Path;
 
 const TEST_PASSWORD: &str = "testkey123";
-const FILE_NAME_TO_TEST: &str = "test.txt";
+const FILE_NAME_TO_TEST: &str = "2MB.txt";
 const TEST_ADDRESS: &str = "0x7975eD6b732D1A4748516F66216EE703f4856759";
 
 #[tokio::main]
@@ -61,10 +61,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create downloads directory if it doesn't exist
     std::fs::create_dir_all("test_files/downloads")?;
 
+    // sleep(Duration::from_secs(5));
     // Download the file
     println!("Downloading file...");
     sdk.download_file(TEST_ADDRESS, &bucket_name, FILE_NAME_TO_TEST, None, "test_files/downloads/").await?;
     println!("File downloaded successfully!");
+
+    // Delete the file
+    println!("Deleting file...");
+    sdk.delete_file(TEST_ADDRESS, &bucket_name, FILE_NAME_TO_TEST).await?;
+    println!("File deleted successfully!");
 
     // Clean up
     println!("Cleaning up...");

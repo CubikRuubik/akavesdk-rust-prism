@@ -19,10 +19,6 @@ impl Encryption {
         Ok(Self { key })
     }
 
-    pub fn len(&self) -> usize {
-        self.key.map(|k| k.len()).unwrap_or(0)
-    }
-
     fn derive_key(
         key: &[u8],
         info: &[u8],
