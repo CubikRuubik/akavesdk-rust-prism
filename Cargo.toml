@@ -1,6 +1,6 @@
 [package]
 name = "akave-rs"                                      # TODO: rename
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Gilberto Conde <gilberto.conde@lightshift.xyz>",
     "Sam Hassan <sam.hassan@lightshift.xyz>"]
 edition = "2021"

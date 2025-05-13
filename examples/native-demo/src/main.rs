@@ -1,8 +1,8 @@
 use akave_rs::sdk::AkaveSDKBuilder;
-use std::{fs::File, thread::sleep, time::Duration};
 use env_logger::Builder;
 use log::LevelFilter;
 use std::path::Path;
+use std::{fs::File, thread::sleep, time::Duration};
 
 const TEST_PASSWORD: &str = "testkey123";
 const FILE_NAME_TO_TEST: &str = "2MB.txt";
@@ -23,7 +23,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
     println!("Starting Akave SDK demo...");
-    let bucket_name = format!("demo_bucket_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs());
+    let bucket_name = format!(
+        "demo_bucket_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    );
     // Create a bucket
     println!("Creating bucket: {}", bucket_name);
     sdk.create_bucket(&bucket_name).await?;
@@ -43,7 +49,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Upload the file
     println!("Uploading file to bucket...");
-    sdk.upload_file(&bucket_name, FILE_NAME_TO_TEST, file, None).await?;
+    sdk.upload_file(&bucket_name, FILE_NAME_TO_TEST, &mut file, None)
+        .await?;
 
     // List files in the bucket
     println!("Listing files in bucket...");
@@ -55,7 +62,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // View file info
     println!("Viewing file info...");
-    let file_info = sdk.view_file_info(TEST_ADDRESS, &bucket_name, FILE_NAME_TO_TEST).await?;
+    let file_info = sdk
+        .view_file_info(TEST_ADDRESS, &bucket_name, FILE_NAME_TO_TEST)
+        .await?;
     println!("File info: {:?}", file_info);
 
     // Create downloads directory if it doesn't exist
@@ -64,12 +73,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // sleep(Duration::from_secs(5));
     // Download the file
     println!("Downloading file...");
-    sdk.download_file(TEST_ADDRESS, &bucket_name, FILE_NAME_TO_TEST, None, "test_files/downloads/").await?;
+    sdk.download_file(
+        TEST_ADDRESS,
+        &bucket_name,
+        FILE_NAME_TO_TEST,
+        None,
+        "test_files/downloads/",
+    )
+    .await?;
     println!("File downloaded successfully!");
 
     // Delete the file
     println!("Deleting file...");
-    sdk.delete_file(TEST_ADDRESS, &bucket_name, FILE_NAME_TO_TEST).await?;
+    sdk.delete_file(TEST_ADDRESS, &bucket_name, FILE_NAME_TO_TEST)
+        .await?;
     println!("File deleted successfully!");
 
     // Clean up

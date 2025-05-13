@@ -1,12 +1,12 @@
 use derivative::Derivative;
 
+use crate::sdk_types::AkaveError;
+#[cfg(target_arch = "wasm32")]
+use crate::utils::seekable_web_file::{AsyncRead, SeekableWebFile as File};
 use std::{
     cmp,
     io::{Read, Seek, SeekFrom},
 };
-use crate::sdk_types::AkaveError;
-#[cfg(target_arch = "wasm32")]
-use crate::utils::seekable_web_file::{SeekableWebFile as File, AsyncRead};
 
 #[cfg(not(target_arch = "wasm32"))]
 use super::file_size::FileSize;
@@ -15,25 +15,22 @@ use std::fs::File;
 
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub(crate) struct Splitter {
+pub(crate) struct Splitter<'a> {
     #[derivative(Debug = "ignore")]
-    file: File,
+    file: &'a mut File,
     chunk_size: u64,
     counter: u64,
 }
 
-impl Splitter {
+impl<'a> Splitter<'a> {
     /// Create a new FileChunker
-    pub fn new(file: File, chunk_size: u64) -> Self {
+    pub fn new(file: &'a mut File, chunk_size: u64) -> Self {
         return Self {
             file,
             chunk_size,
             counter: 0,
         };
     }
-}
-
-impl Splitter {
 
     pub async fn next_chunk(&mut self) -> Option<Result<Box<[u8]>, AkaveError>> {
         let file_size = self.file.size();

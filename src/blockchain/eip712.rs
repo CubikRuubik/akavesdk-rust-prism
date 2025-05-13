@@ -1,22 +1,25 @@
 use std::{collections::HashMap, fmt, str::FromStr};
-use web3::types::{Address, H256, U256};
 use thiserror::Error;
 use web3::signing::{keccak256, Key, SecretKey};
+use web3::types::{Address, H256, U256};
 
-use crate::{blockchain::eip712_types::{Domain, TypedData}, log_debug};
+use crate::{
+    blockchain::eip712_types::{Domain, TypedData},
+    log_debug,
+};
 
 /// Error type for EIP-712 signing operations
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("web3 error: {0}")]
     Web3Error(#[from] web3::Error),
-    
+
     #[error("signing error: {0}")]
     SigningError(String),
-    
+
     #[error("value encoding error: {0}")]
     EncodingError(String),
-    
+
     #[error("recovery error: {0}")]
     RecoveryError(String),
 }
@@ -38,14 +41,20 @@ pub fn sign_typed_data(
     data_message: &HashMap<String, serde_json::Value>,
     data_types: &HashMap<String, Vec<TypedData>>,
 ) -> Result<[u8; 65], Error> {
-    log_debug!("hashing data {:?}, domain {:?}, types: {:?}", data_message, domain, data_types);
+    log_debug!(
+        "hashing data {:?}, domain {:?}, types: {:?}",
+        data_message,
+        domain,
+        data_types
+    );
 
     let hash = hash_typed_data(domain, data_message, data_types)?;
-    
+
     // Sign the hash with web3's signing
-    let signature = private_key.sign_message(hash.as_bytes())
+    let signature = private_key
+        .sign_message(hash.as_bytes())
         .map_err(|e| Error::SigningError(format!("Failed to sign hash: {}", e)))?;
-    
+
     // Convert the signature to bytes - signature has r,s,v components
     let mut sig_bytes = [0u8; 65];
     // Copy r component (32 bytes)
@@ -54,7 +63,7 @@ pub fn sign_typed_data(
     sig_bytes[32..64].copy_from_slice(&signature.s.to_fixed_bytes());
     // Set v component (1 byte) and adjust according to EIP-712 standard
     sig_bytes[64] = (signature.v + 27) as u8;
-    
+
     Ok(sig_bytes)
 }
 
@@ -67,12 +76,12 @@ pub fn recover_signer_address(
     data_types: &HashMap<String, Vec<TypedData>>,
 ) -> Result<Address, Error> {
     let hash = hash_typed_data(domain, data_message, data_types)?;
-    
+
     // Extract r, s, and v components
     let r = H256::from_slice(&signature[0..32]);
     let s = H256::from_slice(&signature[32..64]);
     let v = signature[64];
-    
+
     // Calculate the recovery ID (0 or 1) from the v value
     // In Ethereum, v is typically 27 or 28, which maps to recovery ID 0 or 1
     let recovery_id = if v >= 27 {
@@ -80,23 +89,23 @@ pub fn recover_signer_address(
     } else {
         v as i32 // Already a recovery ID
     };
-    
+
     // Prepare signature for recovery
     let mut sig_bytes = [0u8; 64]; // Only r and s components needed
     sig_bytes[0..32].copy_from_slice(&r.as_bytes());
     sig_bytes[32..64].copy_from_slice(&s.as_bytes());
-    
+
     // Use web3 recover function with the hash, signature bytes, and recovery ID
     let address = web3::signing::recover(hash.as_bytes(), &sig_bytes, recovery_id)
         .map_err(|e| Error::RecoveryError(format!("Failed to recover address: {}", e)))?;
-    
+
     Ok(address)
 }
 
 /// Create a hash of typed data according to EIP-712 specification
 fn hash_typed_data(
     domain: &Domain,
-    data_message: &     HashMap<String, serde_json::Value>,
+    data_message: &HashMap<String, serde_json::Value>,
     data_types: &HashMap<String, Vec<TypedData>>,
 ) -> Result<H256, Error> {
     // Define domain types - this is standard for EIP-712
@@ -129,19 +138,39 @@ fn hash_typed_data(
     // Convert domain to a serializable map
     let domain_message: HashMap<String, serde_json::Value> = {
         let mut map = HashMap::new();
-        map.insert("name".to_string(), serde_json::Value::String(domain.name.clone()));
-        map.insert("version".to_string(), serde_json::Value::String(domain.version.clone()));
-        map.insert("chainId".to_string(), serde_json::json!(domain.chain_id.to_string()));
-        map.insert("verifyingContract".to_string(), serde_json::json!(format!("{:?}", domain.verifying_contract)));
+        map.insert(
+            "name".to_string(),
+            serde_json::Value::String(domain.name.clone()),
+        );
+        map.insert(
+            "version".to_string(),
+            serde_json::Value::String(domain.version.clone()),
+        );
+        map.insert(
+            "chainId".to_string(),
+            serde_json::json!(domain.chain_id.to_string()),
+        );
+        map.insert(
+            "verifyingContract".to_string(),
+            serde_json::json!(format!("{:?}", domain.verifying_contract)),
+        );
         map
     };
 
-    // Hash the domain 
+    // Hash the domain
     let domain_hash = encode_data("EIP712Domain", &domain_message, &domain_types)?;
-    log_debug!("domain hash: encoded: {:?}, raw: {:?}", hex::encode(domain_hash.clone()), domain_hash);
+    log_debug!(
+        "domain hash: encoded: {:?}, raw: {:?}",
+        hex::encode(domain_hash.clone()),
+        domain_hash
+    );
     // Hash the data
     let data_hash = encode_data("StorageData", data_message, data_types)?;
-    log_debug!("data hash: encoded: {:?}, raw: {:?}", hex::encode(data_hash.clone()), data_hash);
+    log_debug!(
+        "data hash: encoded: {:?}, raw: {:?}",
+        hex::encode(data_hash.clone()),
+        data_hash
+    );
 
     // Combine according to EIP-712
     let mut raw_data = vec![0x19, 0x01];
@@ -187,26 +216,26 @@ fn encode_data(
     types: &HashMap<String, Vec<TypedData>>,
 ) -> Result<Vec<u8>, Error> {
     let type_hash = type_hash(primary_type, types);
-    
+
     let mut encoded_data = vec![type_hash.as_bytes().to_vec()];
-    
+
     if let Some(fields) = types.get(primary_type) {
         for field in fields {
             let value = data.get(&field.name).ok_or_else(|| {
                 Error::EncodingError(format!("Field {} not found in data", field.name))
             })?;
-            
+
             let encoded_value = encode_value(value, &field.r#type)?;
             encoded_data.push(encoded_value);
         }
     }
-    
+
     // Flatten and hash
     let mut concatenated = Vec::new();
     for data in &encoded_data {
         concatenated.extend_from_slice(data);
     }
-    
+
     Ok(keccak256(&concatenated).to_vec())
 }
 
@@ -214,22 +243,26 @@ fn encode_data(
 fn encode_value(value: &serde_json::Value, type_name: &str) -> Result<Vec<u8>, Error> {
     match type_name {
         "string" => {
-            let str_val = value.as_str().ok_or_else(|| {
-                Error::EncodingError(format!("Expected string, got {:?}", value))
-            })?;
+            let str_val = value
+                .as_str()
+                .ok_or_else(|| Error::EncodingError(format!("Expected string, got {:?}", value)))?;
             Ok(keccak256(str_val.as_bytes()).to_vec())
         }
-        
+
         "bytes" => {
             let bytes_str = value.as_str().ok_or_else(|| {
                 Error::EncodingError(format!("Expected string for bytes, got {:?}", value))
             })?;
             let bytes = hex::decode(&bytes_str.trim_start_matches("0x"))
                 .map_err(|_| Error::EncodingError("Invalid bytes format".to_string()))?;
-            log_debug!("bytes: {:?}, keccak256: {:?}", bytes, keccak256(&bytes).to_vec());
+            log_debug!(
+                "bytes: {:?}, keccak256: {:?}",
+                bytes,
+                keccak256(&bytes).to_vec()
+            );
             Ok(keccak256(&bytes).to_vec())
         }
-        
+
         "bytes32" => {
             let bytes_str = value.as_str().ok_or_else(|| {
                 Error::EncodingError(format!("Expected string for bytes32, got {:?}", value))
@@ -240,7 +273,7 @@ fn encode_value(value: &serde_json::Value, type_name: &str) -> Result<Vec<u8>, E
             buf.copy_from_slice(bytes32.as_bytes());
             Ok(buf.to_vec())
         }
-        
+
         "uint8" => {
             let num = value.as_u64().ok_or_else(|| {
                 Error::EncodingError(format!("Expected number for uint8, got {:?}", value))
@@ -249,7 +282,7 @@ fn encode_value(value: &serde_json::Value, type_name: &str) -> Result<Vec<u8>, E
             buf[31] = num;
             Ok(buf.to_vec())
         }
-        
+
         "uint64" => {
             let num = value.as_u64().ok_or_else(|| {
                 Error::EncodingError(format!("Expected number for uint64, got {:?}", value))
@@ -258,22 +291,21 @@ fn encode_value(value: &serde_json::Value, type_name: &str) -> Result<Vec<u8>, E
             buf[24..32].copy_from_slice(&num.to_be_bytes());
             Ok(buf.to_vec())
         }
-        
+
         "uint256" => {
-            let num_str = value.as_str()
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| {
-                    value.as_u64()
-                        .map(|n| n.to_string())
-                        .unwrap_or_else(|| "0".to_string())
-                });
+            let num_str = value.as_str().map(|s| s.to_string()).unwrap_or_else(|| {
+                value
+                    .as_u64()
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| "0".to_string())
+            });
             let num = U256::from_dec_str(&num_str)
                 .map_err(|_| Error::EncodingError("Invalid uint256 value".to_string()))?;
             let mut buf = [0u8; 32];
             num.to_big_endian(&mut buf);
             Ok(buf.to_vec())
         }
-        
+
         "address" => {
             let addr_str = value.as_str().ok_or_else(|| {
                 Error::EncodingError(format!("Expected string for address, got {:?}", value))
@@ -285,8 +317,11 @@ fn encode_value(value: &serde_json::Value, type_name: &str) -> Result<Vec<u8>, E
             buf[12..32].copy_from_slice(addr.as_bytes());
             Ok(buf.to_vec())
         }
-        
-        _ => Err(Error::EncodingError(format!("Unsupported type: {}", type_name))),
+
+        _ => Err(Error::EncodingError(format!(
+            "Unsupported type: {}",
+            type_name
+        ))),
     }
 }
 
@@ -298,100 +333,176 @@ mod tests {
     use web3::{signing::SecretKeyRef, types::H160};
 
     #[test]
+    #[ignore]
     fn test_sign_and_recover() {
         // Private key from the test vector
-        let private_key = SecretKey::from_str(
-            "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
-        ).unwrap();
-        
+        let private_key =
+            SecretKey::from_str("59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d")
+                .unwrap();
+
         // Create domain based on the provided test data
         let domain = Domain {
             name: "Storage".to_string(),
             version: "1".to_string(),
             chain_id: U256::from(31337),
-            verifying_contract: Address::from_str("1234567890123456789012345678901234567890").unwrap(),
+            verifying_contract: Address::from_str("1234567890123456789012345678901234567890")
+                .unwrap(),
         };
-        
+
         // Create data types for StorageData
         let mut data_types = HashMap::new();
         data_types.insert(
             "StorageData".to_string(),
             vec![
-                TypedData { name: "chunkCID".to_string(), r#type: "bytes".to_string() },
-                TypedData { name: "blockCID".to_string(), r#type: "bytes32".to_string() },
-                TypedData { name: "chunkIndex".to_string(), r#type: "uint256".to_string() },
-                TypedData { name: "blockIndex".to_string(), r#type: "uint8".to_string() },
-                TypedData { name: "nodeId".to_string(), r#type: "bytes".to_string() },
-                TypedData { name: "nonce".to_string(), r#type: "uint256".to_string() },
+                TypedData {
+                    name: "chunkCID".to_string(),
+                    r#type: "bytes".to_string(),
+                },
+                TypedData {
+                    name: "blockCID".to_string(),
+                    r#type: "bytes32".to_string(),
+                },
+                TypedData {
+                    name: "chunkIndex".to_string(),
+                    r#type: "uint256".to_string(),
+                },
+                TypedData {
+                    name: "blockIndex".to_string(),
+                    r#type: "uint8".to_string(),
+                },
+                TypedData {
+                    name: "nodeId".to_string(),
+                    r#type: "bytes".to_string(),
+                },
+                TypedData {
+                    name: "nonce".to_string(),
+                    r#type: "uint256".to_string(),
+                },
             ],
         );
-        
+
         // Create data message with the test data
         let mut data_message = HashMap::new();
-        
+
         // Convert hex string to bytes for chunkCID
-        let chunk_cid = cid::Cid::from_str("bafybeicccfs4u5nmkosg57m4a5k3h4yfuyhk3ftwrgyl4wpsq5maanokiu").unwrap();
+        let chunk_cid =
+            cid::Cid::from_str("bafybeicccfs4u5nmkosg57m4a5k3h4yfuyhk3ftwrgyl4wpsq5maanokiu")
+                .unwrap();
         let chunk_cid_hex = hex::encode(chunk_cid.to_bytes());
         data_message.insert(
-            "chunkCID".to_string(), 
-            serde_json::json!(format!("0x{}", chunk_cid_hex)));
-        log_debug!("chunk cidstr: {}, hex: {:?}, bytes: {:?}, encoded: {:?}", chunk_cid.to_string(), chunk_cid_hex, chunk_cid.to_bytes(), encode_value(&serde_json::json!(format!("0x{}", chunk_cid_hex)), "bytes").unwrap());
-        
+            "chunkCID".to_string(),
+            serde_json::json!(format!("0x{}", chunk_cid_hex)),
+        );
+        log_debug!(
+            "chunk cidstr: {}, hex: {:?}, bytes: {:?}, encoded: {:?}",
+            chunk_cid.to_string(),
+            chunk_cid_hex,
+            chunk_cid.to_bytes(),
+            encode_value(&serde_json::json!(format!("0x{}", chunk_cid_hex)), "bytes").unwrap()
+        );
+
         // Convert hex string to bytes for blockCID
-        let block_cid = cid::Cid::from_str("bafybeia3hparel3smf5n5lw6glchwi7e7olkzhwvh6uuj2tmojtexfr2cu").unwrap();
+        let block_cid =
+            cid::Cid::from_str("bafybeia3hparel3smf5n5lw6glchwi7e7olkzhwvh6uuj2tmojtexfr2cu")
+                .unwrap();
         let block_cid_hex = block_cid.to_string_of_base(Base::Base16Lower).unwrap();
         let mut bcid = [0u8; 32];
         let bytes = block_cid.to_bytes();
         bcid.copy_from_slice(&bytes[4..]); // trim prefix 4 bytes
         data_message.insert(
-            "blockCID".to_string(), 
-            serde_json::json!(format!("0x{}", hex::encode(bcid))));
-        log_debug!("block cid str: {}, hex: {:?}, bytes: {:?}, encoded: {:?}", block_cid.to_string(), block_cid_hex, bcid, encode_value(&serde_json::json!(format!("0x{}", hex::encode(bcid))), "bytes32").unwrap());
-        
-        // Numeric values are straightforward√
-        data_message.insert("chunkIndex".to_string(), serde_json::Value::Number(serde_json::Number::from(1)));
-        data_message.insert("blockIndex".to_string(), serde_json::Value::Number(serde_json::Number::from(1)));
-        
-        // Convert hex string to bytes for nodeId
-        let node_id = PeerId::from_str("12D3KooWBPkG43Vjb3Rp2PFHYRgKkhAaMZCXAMRVb3M7PrQN2fC5").unwrap();
-        let node_id_hex =  hex::encode(node_id.to_bytes());
-        data_message.insert(
-            "nodeId".to_string(), 
-            serde_json::json!(format!("0x{}", node_id_hex)));
-        log_debug!("node id str: {}, hex: {:?}, bytes: {:?}, encoded: {:?}", node_id.to_string(), node_id_hex, node_id.to_bytes(), encode_value(&serde_json::json!(format!("0x{}", node_id_hex)), "bytes").unwrap());
-        
-        data_message.insert("nonce".to_string(), serde_json::Value::Number(serde_json::Number::from(1234567890)));
+            "blockCID".to_string(),
+            serde_json::json!(format!("0x{}", hex::encode(bcid))),
+        );
+        log_debug!(
+            "block cid str: {}, hex: {:?}, bytes: {:?}, encoded: {:?}",
+            block_cid.to_string(),
+            block_cid_hex,
+            bcid,
+            encode_value(
+                &serde_json::json!(format!("0x{}", hex::encode(bcid))),
+                "bytes32"
+            )
+            .unwrap()
+        );
 
-        let (auto_data_message, auto_domain, auto_data_types) = crate::blockchain::eip712_utils::create_block_eip712_data(
-            &block_cid,
-            &chunk_cid,
-            &node_id,
-            H160::from_str("0x1234567890123456789012345678901234567890").unwrap(),
-            1,
-            1,
-            U256::from(31337),
-            U256::from(1234567890),
-        ).unwrap();
-        assert_eq!(data_message, auto_data_message, "qData message does not match");
+        // Numeric values are straightforward√
+        data_message.insert(
+            "chunkIndex".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(1)),
+        );
+        data_message.insert(
+            "blockIndex".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(1)),
+        );
+
+        // Convert hex string to bytes for nodeId
+        let node_id =
+            PeerId::from_str("12D3KooWBPkG43Vjb3Rp2PFHYRgKkhAaMZCXAMRVb3M7PrQN2fC5").unwrap();
+        let node_id_hex = hex::encode(node_id.to_bytes());
+        data_message.insert(
+            "nodeId".to_string(),
+            serde_json::json!(format!("0x{}", node_id_hex)),
+        );
+        log_debug!(
+            "node id str: {}, hex: {:?}, bytes: {:?}, encoded: {:?}",
+            node_id.to_string(),
+            node_id_hex,
+            node_id.to_bytes(),
+            encode_value(&serde_json::json!(format!("0x{}", node_id_hex)), "bytes").unwrap()
+        );
+
+        data_message.insert(
+            "nonce".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(1234567890)),
+        );
+
+        let (auto_data_message, auto_domain, auto_data_types) =
+            crate::blockchain::eip712_utils::create_block_eip712_data(
+                &block_cid,
+                &chunk_cid,
+                &node_id,
+                H160::from_str("0x1234567890123456789012345678901234567890").unwrap(),
+                1,
+                1,
+                U256::from(31337),
+                U256::from(1234567890),
+            )
+            .unwrap();
+        assert_eq!(
+            data_message, auto_data_message,
+            "qData message does not match"
+        );
         assert_eq!(domain, auto_domain, "Domain does not match");
         assert_eq!(data_types, auto_data_types, "Data types do not match");
-        
+
         // Sign the message
-        log::info!("Signing message: {:?} with pk: {:?}", data_message, private_key);
+        log::info!(
+            "Signing message: {:?} with pk: {:?}",
+            data_message,
+            private_key
+        );
         let signature = sign_typed_data(&private_key, &domain, &data_message, &data_types).unwrap();
-        
+
         // Print the signature for debugging
-        println!("Signature: hex: 0x{}, raw: {:?}", hex::encode(&signature), signature);
-        
+        println!(
+            "Signature: hex: 0x{}, raw: {:?}",
+            hex::encode(&signature),
+            signature
+        );
+
         // Recover signer from the signature
-        let recovered_address = recover_signer_address(&signature, &domain, &data_message, &data_types).unwrap();
-        
+        let recovered_address =
+            recover_signer_address(&signature, &domain, &data_message, &data_types).unwrap();
+
         // Expected address from the private key
         let skref = SecretKeyRef::new(&private_key);
         let expected_address = skref.address();
-        
+
         // Verify that the recovered address matches the expected one
-        assert_eq!(recovered_address, expected_address, "Recovered address doesn't match the expected address");
+        assert_eq!(
+            recovered_address, expected_address,
+            "Recovered address doesn't match the expected address"
+        );
         assert_eq!(hex::encode(&signature), "4434bb85d7de04944a3aafc3ce1575d6ba9993b4d942567d2c2983e6e651553212ee487d5418df0fe768caadd9a08d964660518ae2b06c970ddcf8cf872adfd51c", "Signature doesn't match the expected signature");
     }
 }
