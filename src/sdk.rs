@@ -8,7 +8,10 @@ use libp2p::PeerId;
 use std::{borrow::Cow, str::FromStr};
 
 // External crate imports (general)
-use crate::{blockchain::eip712_utils::create_block_eip712_data, utils::splitter::Splitter};
+use crate::{
+    blockchain::eip712_utils::create_block_eip712_data,
+    utils::{chunkable::Chunkable, splitter::Splitter},
+};
 use alloy::hex;
 use bytesize::{ByteSize, MB};
 use cid::{
@@ -494,6 +497,22 @@ impl AkaveSDK {
             .map_err(|e| AkaveError::BlockchainError(e.to_string()))
     }
 
+    pub async fn upload_file_from_data(
+        &mut self,
+        bucket_name: &str,
+        file_name: &str,
+        data: Vec<u8>,
+        passwd: Option<&str>,
+    ) -> Result<TransactionReceipt, AkaveError> {
+        log_debug!(
+            "Starting file data upload: {} to bucket: {}",
+            file_name,
+            bucket_name
+        );
+
+        self.upload_data(bucket_name, file_name, data, passwd).await
+    }
+
     pub async fn upload_file(
         &mut self,
         bucket_name: &str,
@@ -506,15 +525,32 @@ impl AkaveSDK {
             file_name,
             bucket_name
         );
+        let splitter = Splitter::new(file);
+        self.upload_data(bucket_name, file_name, splitter, passwd)
+            .await
+    }
+
+    pub async fn upload_data<T>(
+        &mut self,
+        bucket_name: &str,
+        file_name: &str,
+        mut splitter: T,
+        passwd: Option<&str>,
+    ) -> Result<TransactionReceipt, AkaveError>
+    where
+        T: Chunkable,
+    {
+        let data_size = splitter.data_size() as usize;
+
         // Check if bucket name is valid
         if bucket_name.is_empty() {
             return Err(AkaveError::InvalidInput("Empty bucket name".to_string()));
         }
 
         // Check if file size is valid
-        if utils::file_size::FileSize::size(file) < self.min_file_size as u64 {
+        if data_size < self.min_file_size {
             return Err(AkaveError::InvalidInput(
-                format!("File size must be at least {} bytes", self.min_file_size).to_string(),
+                format!("Data size must be at least {} bytes", self.min_file_size).to_string(),
             ));
         }
 
@@ -568,8 +604,7 @@ impl AkaveSDK {
         };
         buffer_size -= encryption_overhead;
 
-        let chunk_size = buffer_size as u64;
-
+        let chunk_size = buffer_size;
         let mut file_size: usize = 0;
         let root_hasher = Code::Sha2_256;
         let mut root_hash = None;
@@ -577,9 +612,8 @@ impl AkaveSDK {
         let mut is_empty_file = true;
 
         // Initialize the splitter with file and chunk_size
-        let mut splitter = Splitter::new(file, chunk_size);
 
-        while let Some(chunk_result) = splitter.next_chunk().await {
+        while let Some(chunk_result) = splitter.next_chunk(chunk_size).await {
             let buffer = match chunk_result {
                 Ok(data) => data,
                 Err(e) => return Err(AkaveError::FileError(e.to_string())),

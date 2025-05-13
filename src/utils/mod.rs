@@ -1,3 +1,4 @@
+pub mod chunkable;
 pub mod dag;
 pub mod destination;
 pub mod encryption;

@@ -8,6 +8,7 @@ use std::{
     io::{Read, Seek, SeekFrom},
 };
 
+use super::chunkable::Chunkable;
 #[cfg(not(target_arch = "wasm32"))]
 use super::file_size::FileSize;
 #[cfg(not(target_arch = "wasm32"))]
@@ -18,31 +19,21 @@ use std::fs::File;
 pub(crate) struct Splitter<'a> {
     #[derivative(Debug = "ignore")]
     file: &'a mut File,
-    chunk_size: u64,
-    counter: u64,
+    counter: usize,
 }
 
-impl<'a> Splitter<'a> {
-    /// Create a new FileChunker
-    pub fn new(file: &'a mut File, chunk_size: u64) -> Self {
-        return Self {
-            file,
-            chunk_size,
-            counter: 0,
-        };
-    }
-
-    pub async fn next_chunk(&mut self) -> Option<Result<Box<[u8]>, AkaveError>> {
-        let file_size = self.file.size();
+impl<'a> Chunkable for Splitter<'a> {
+    async fn next_chunk(&mut self, chunk_size: usize) -> Option<Result<Box<[u8]>, AkaveError>> {
+        let file_size = self.file.size() as usize;
         if self.counter >= file_size {
             return None;
         }
 
         self.file
-            .seek(SeekFrom::Start(self.counter))
+            .seek(SeekFrom::Start(self.counter as u64))
             .expect("failed to seek to offset");
 
-        let buf_size = cmp::min(self.chunk_size, file_size - self.counter);
+        let buf_size = cmp::min(chunk_size, file_size - self.counter);
 
         let array: Vec<u8> = vec![0; buf_size.try_into().unwrap()];
         let mut chunk_data = array.into_boxed_slice();
@@ -66,5 +57,16 @@ impl<'a> Splitter<'a> {
         }
         self.counter += buf_size;
         Some(Ok(chunk_data))
+    }
+
+    fn data_size(&mut self) -> usize {
+        self.file.size() as usize
+    }
+}
+
+impl<'a> Splitter<'a> {
+    /// Create a new FileChunker
+    pub fn new(file: &'a mut File) -> Self {
+        return Self { file, counter: 0 };
     }
 }

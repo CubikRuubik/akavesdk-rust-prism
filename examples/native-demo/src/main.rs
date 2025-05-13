@@ -1,8 +1,8 @@
 use akave_rs::sdk::AkaveSDKBuilder;
 use env_logger::Builder;
 use log::LevelFilter;
+use std::fs::File;
 use std::path::Path;
-use std::{fs::File, thread::sleep, time::Duration};
 
 const TEST_PASSWORD: &str = "testkey123";
 const FILE_NAME_TO_TEST: &str = "2MB.txt";
