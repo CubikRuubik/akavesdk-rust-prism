@@ -604,7 +604,11 @@ impl AkaveSDK {
         };
         buffer_size -= encryption_overhead;
 
-        let chunk_size = buffer_size;
+        let chunk_size = if data_size > buffer_size {
+            buffer_size
+        } else {
+            data_size
+        };
         let mut file_size: usize = 0;
         let root_hasher = Code::Sha2_256;
         let mut root_hash = None;
