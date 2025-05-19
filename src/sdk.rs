@@ -3,9 +3,12 @@ pub(crate) mod ipcnodeapi {
     tonic::include_proto!("ipcnodeapi");
 }
 
+use async_stream::try_stream;
+use futures::Stream;
+use futures_util::StreamExt;
 // Standard library imports
 use libp2p::PeerId;
-use std::{borrow::Cow, str::FromStr};
+use std::{borrow::Cow, pin::Pin, str::FromStr};
 
 // External crate imports (general)
 use crate::{
@@ -1004,6 +1007,163 @@ impl AkaveSDK {
         Ok(FileDownloadResponse { chunks })
     }
 
+    pub fn download_file_data_stream<'a>(
+        &'a mut self,
+        address: &'a str,
+        bucket_name: &'a str,
+        file_name: &'a str,
+        passwd: Option<&'a str>,
+    ) -> Pin<Box<dyn Stream<Item = Result<Vec<u8>, AkaveError>> + Send + 'a>> {
+        Box::pin(try_stream! {
+            let info = vec![bucket_name, file_name].join("/");
+
+            // Use default encryption if provided and no password was specified
+            let password = match (passwd, &self.default_encryption_key) {
+                (Some(p), _) => Some(p),
+                (None, Some(default_key)) => Some(default_key.as_str()),
+                _ => None,
+            };
+
+            let option_encryption = match password {
+                Some(key) => {
+                    log_debug!("Setting up decryption key");
+                    Some(
+                        Encryption::new(key.as_bytes(), info.as_bytes())
+                            .map_err(|e| AkaveError::EncryptionError(e.to_string()))?,
+                    )
+                }
+                None => {
+                    log_debug!("No decryption key provided");
+                    None
+                }
+            };
+
+            let file_download = self
+                .create_file_download(address, bucket_name, file_name)
+                .await
+                .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
+
+            let codec = Cid::try_from(file_download.chunks[0].cid.clone())
+                .map_err(|e| AkaveError::InvalidInput(e.to_string()))?
+                .codec();
+
+            let mut chunk_index = 0;
+
+            for chunk in file_download.chunks {
+                log_debug!("Processing chunk {} for file: {}", chunk_index, file_name);
+                let chunk_cid = chunk.cid.clone();
+                let chunk_size = chunk.size;
+                let chunk_download = self
+                    .create_chunk_download(bucket_name, file_name, address, chunk, chunk_index)
+                    .await
+                    .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
+
+                let mut block_index = 0;
+                let mut blocks_data = vec![];
+
+                for block in chunk_download.blocks {
+                    let mut chunk_data = vec![];
+                    let req = IpcFileDownloadBlockRequest {
+                        address: address.to_string(),
+                        chunk_cid: chunk_cid.clone(),
+                        chunk_index,
+                        block_cid: block.cid.clone(),
+                        block_index,
+                        bucket_name: bucket_name.to_string(),
+                        file_name: file_name.to_string(),
+                    };
+                    log_debug!(
+                        "Downloading block {} for chunk {}",
+                        block_index,
+                        chunk_index
+                    );
+                    let mut node_client =
+                        AkaveSDK::get_client_for_node_address(&block.akave.node_address)
+                            .await
+                            .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
+                    let mut stream = node_client
+                        .file_download_block(req)
+                        .await
+                        .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+                        .into_inner();
+
+                    while let Some(mut message) = stream
+                        .message()
+                        .await
+                        .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+                    {
+                        chunk_data.append(message.data.as_mut());
+                    }
+
+                    let final_data = match codec {
+                        0x55 => chunk_data,
+                        DAG_PROTOBUF => {
+                            let mut reader = BytesReader::from_bytes(&chunk_data);
+
+                            let mut msg = PbData::default();
+                            while !reader.is_eof() {
+                                match reader.next_tag(&chunk_data) {
+                                    Ok(18) => {
+                                        msg.data = Some(
+                                            reader
+                                                .read_bytes(&chunk_data)
+                                                .map_err(|e| AkaveError::InvalidInput(e.to_string()))
+                                                .map(Cow::Borrowed)?,
+                                        )
+                                    }
+                                    Ok(_) => {}
+                                    Err(_) =>
+                                        Err(AkaveError::InvalidInput(
+                                            "error decoding message".to_string(),
+                                        ))?
+
+                                }
+                            }
+
+                            msg.data.unwrap().into_owned()
+                        }
+                        _default =>
+                            Err(AkaveError::InvalidInput(
+                                "Unknown codec for decoding message".to_string(),
+                            ))?
+
+                    };
+
+                    blocks_data.push(final_data);
+                    block_index += 1;
+                }
+
+                // Process the blocks with erasure coding if enabled
+                let processed_data = if let Some(erasure_code) = &self.erasure_code {
+                    // Extract data from blocks (including parity blocks)
+                    let data = erasure_code
+                        .extract_data(blocks_data.clone(), chunk_size as usize)
+                        .map_err(|e| AkaveError::ErasureCodeError(e.to_string()))?;
+                    // Clear blocks_data to remove all blocks including parity blocks
+                    blocks_data.clear();
+                    data
+                } else {
+                    // Just concatenate all blocks if no erasure coding
+                    blocks_data.concat()
+                };
+
+                // Decrypt if encryption is enabled
+                let decrypted_data = match option_encryption {
+                    Some(ref encryption) => {
+                        log_info!("Decrypting chunk: {}", chunk_index);
+                        encryption
+                            .decrypt(&processed_data, format!("block_{}", chunk_index).as_bytes())
+                            .map_err(|e| AkaveError::EncryptionError(e.to_string()))?
+                    }
+                    None => processed_data,
+                };
+
+                yield decrypted_data;
+                chunk_index += 1;
+            }
+        })
+    }
+
     pub async fn download_file(
         &mut self,
         address: &str,
@@ -1018,162 +1178,26 @@ impl AkaveSDK {
             bucket_name,
             address
         );
-        let info = vec![bucket_name, file_name].join("/");
-
-        // Use default encryption if provided and no password was specified
-        let password = match (passwd, &self.default_encryption_key) {
-            (Some(p), _) => Some(p),
-            (None, Some(default_key)) => Some(default_key.as_str()),
-            _ => None,
-        };
-
-        let option_encryption = match password {
-            Some(key) => {
-                log_debug!("Setting up decryption key");
-                Some(
-                    Encryption::new(key.as_bytes(), info.as_bytes())
-                        .map_err(|e| AkaveError::EncryptionError(e.to_string()))?,
-                )
-            }
-            None => {
-                log_debug!("No decryption key provided");
-                None
-            }
-        };
-
-        let file_download = self
-            .create_file_download(address, bucket_name, file_name)
-            .await
-            .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
 
         let mut destination = utils::destination::Destination::new(destination_path, file_name)
             .map_err(|e| AkaveError::FileError(e.to_string()))?;
 
-        let codec = Cid::try_from(file_download.chunks[0].cid.clone())
-            .map_err(|e| AkaveError::InvalidInput(e.to_string()))?
-            .codec();
+        let mut stream = self.download_file_data_stream(address, bucket_name, file_name, passwd);
 
-        let mut chunk_index = 0;
-        for chunk in file_download.chunks {
-            log_debug!("Processing chunk {} for file: {}", chunk_index, file_name);
-            let chunk_cid = chunk.cid.clone();
-            let chunk_size = chunk.size;
-            let chunk_download = self
-                .create_chunk_download(bucket_name, file_name, address, chunk, chunk_index)
-                .await
-                .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
-
-            let mut block_index = 0;
-            let mut blocks_data = vec![];
-
-            for block in chunk_download.blocks {
-                let mut chunk_data = vec![];
-                let req = IpcFileDownloadBlockRequest {
-                    address: address.to_string(),
-                    chunk_cid: chunk_cid.clone(),
-                    chunk_index,
-                    block_cid: block.cid.clone(),
-                    block_index,
-                    bucket_name: bucket_name.to_string(),
-                    file_name: file_name.to_string(),
-                };
-                log_debug!(
-                    "Downloading block {} for chunk {}",
-                    block_index,
-                    chunk_index
-                );
-                let mut node_client =
-                    AkaveSDK::get_client_for_node_address(&block.akave.node_address)
-                        .await
-                        .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
-                let mut stream = node_client
-                    .file_download_block(req)
-                    .await
-                    .map_err(|e| AkaveError::GrpcError(e.to_string()))?
-                    .into_inner();
-
-                while let Some(mut message) = stream
-                    .message()
-                    .await
-                    .map_err(|e| AkaveError::GrpcError(e.to_string()))?
-                {
-                    chunk_data.append(message.data.as_mut());
-                }
-
-                let final_data = match codec {
-                    0x55 => chunk_data,
-                    DAG_PROTOBUF => {
-                        let mut reader = BytesReader::from_bytes(&chunk_data);
-
-                        let mut msg = PbData::default();
-                        while !reader.is_eof() {
-                            match reader.next_tag(&chunk_data) {
-                                Ok(18) => {
-                                    msg.data = Some(
-                                        reader
-                                            .read_bytes(&chunk_data)
-                                            .map_err(|e| AkaveError::InvalidInput(e.to_string()))
-                                            .map(Cow::Borrowed)?,
-                                    )
-                                }
-                                Ok(_) => {}
-                                Err(_) => {
-                                    return Err(AkaveError::InvalidInput(
-                                        "error decoding message".to_string(),
-                                    ))
-                                }
-                            }
-                        }
-
-                        msg.data.unwrap().into_owned()
-                    }
-                    _default => {
-                        return Err(AkaveError::InvalidInput(
-                            "Unknown codec for decoding message".to_string(),
-                        ))
-                    }
-                };
-
-                blocks_data.push(final_data);
-                block_index += 1;
-            }
-
-            // Process the blocks with erasure coding if enabled
-            let processed_data = if let Some(erasure_code) = &self.erasure_code {
-                // Extract data from blocks (including parity blocks)
-                let data = erasure_code
-                    .extract_data(blocks_data.clone(), chunk_size as usize)
-                    .map_err(|e| AkaveError::ErasureCodeError(e.to_string()))?;
-                // Clear blocks_data to remove all blocks including parity blocks
-                blocks_data.clear();
-                data
-            } else {
-                // Just concatenate all blocks if no erasure coding
-                blocks_data.concat()
-            };
-
-            // Decrypt if encryption is enabled
-            let decrypted_data = match option_encryption {
-                Some(ref encryption) => {
-                    log_info!("Decrypting chunk: {}", chunk_index);
-                    encryption
-                        .decrypt(&processed_data, format!("block_{}", chunk_index).as_bytes())
-                        .map_err(|e| AkaveError::EncryptionError(e.to_string()))?
-                }
-                None => processed_data,
-            };
-
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result?;
             destination
-                .write(&decrypted_data)
+                .write(&chunk)
                 .map_err(|e| AkaveError::FileError(e.to_string()))?;
             destination
                 .flush()
                 .map_err(|e| AkaveError::FileError(e.to_string()))?;
-            chunk_index += 1;
         }
+
         destination
             .finalize()
             .map_err(|e| AkaveError::FileError(e.to_string()))?;
+
         log_info!(
             "File downloaded successfully: {} from bucket: {}",
             file_name,
