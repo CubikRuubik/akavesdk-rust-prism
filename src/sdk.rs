@@ -4,8 +4,10 @@ pub(crate) mod ipcnodeapi {
 }
 
 use async_stream::try_stream;
-use futures::Stream;
-use futures_util::StreamExt;
+use futures::{
+    stream::{self, FuturesUnordered, StreamExt},
+    Stream,
+};
 // Standard library imports
 use libp2p::PeerId;
 use std::{borrow::Cow, pin::Pin, str::FromStr};
@@ -13,9 +15,9 @@ use std::{borrow::Cow, pin::Pin, str::FromStr};
 // External crate imports (general)
 use crate::{
     blockchain::eip712_utils::create_block_eip712_data,
-    utils::{chunkable::Chunkable, splitter::Splitter},
+    utils::{chunkable::Chunkable, erasure::ErasureCode, splitter::Splitter},
 };
-use alloy::hex;
+use alloy::{hex, rpc::client};
 use bytesize::{ByteSize, MB};
 use cid::{
     multihash::{Code, MultihashDigest},
@@ -490,11 +492,11 @@ impl AkaveSDK {
     }
 
     async fn create_file_upload(
-        &mut self,
         bucket_id: Vec<u8>,
         file_name: &str,
+        storage: &mut BlockchainProvider,
     ) -> Result<TransactionReceipt, AkaveError> {
-        self.storage
+        storage
             .create_file(bucket_id, file_name.to_string())
             .await
             .map_err(|e| AkaveError::BlockchainError(e.to_string()))
@@ -528,7 +530,10 @@ impl AkaveSDK {
             file_name,
             bucket_name
         );
-        let splitter = Splitter::new(file);
+        let splitter = Splitter::new(
+            file.try_clone()
+                .map_err(|e| AkaveError::FileError(format!("Failed to clone file: {}", e)))?,
+        );
         self.upload_data(bucket_name, file_name, splitter, passwd)
             .await
     }
@@ -541,29 +546,34 @@ impl AkaveSDK {
         passwd: Option<&str>,
     ) -> Result<TransactionReceipt, AkaveError>
     where
-        T: Chunkable,
+        T: Chunkable + Send + 'static,
     {
+        let min_file_size = self.min_file_size;
+        let mut storage = self.storage.clone();
+        let default_encryption_key = self.default_encryption_key.clone();
+        let block_size = self.block_size;
+        let max_blocks_in_chunk = self.max_blocks_in_chunk;
+        let erasure_code: Option<ErasureCode> = self.erasure_code.clone();
+        let client = self.client.clone();
+        let block_part_size = self.block_part_size;
+
         let data_size = splitter.data_size() as usize;
 
-        // Check if bucket name is valid
         if bucket_name.is_empty() {
             return Err(AkaveError::InvalidInput("Empty bucket name".to_string()));
         }
-
-        // Check if file size is valid
-        if data_size < self.min_file_size {
+        if data_size < min_file_size {
             return Err(AkaveError::InvalidInput(
-                format!("Data size must be at least {} bytes", self.min_file_size).to_string(),
+                format!("Data size must be at least {} bytes", min_file_size).to_string(),
             ));
         }
 
-        let bucket = self
-            .storage
+        let bucket = storage
             .get_bucket_by_name(bucket_name.to_string())
             .await
             .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
 
-        self.create_file_upload(bucket.id.to_vec(), file_name)
+        AkaveSDK::create_file_upload(bucket.id.to_vec(), file_name, &mut storage)
             .await
             .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
 
@@ -571,8 +581,7 @@ impl AkaveSDK {
 
         let info = format!("{}/{}", bucket_name, file_name);
 
-        // Use default encryption if provided and no password was specified
-        let password = match (passwd, &self.default_encryption_key) {
+        let password = match (passwd, &default_encryption_key) {
             (Some(p), _) => Some(p),
             (None, Some(default_key)) => Some(default_key.as_str()),
             _ => None,
@@ -592,14 +601,12 @@ impl AkaveSDK {
             }
         };
 
-        // Calculate buffer size based on erasure coding settings
-        let mut buffer_size = self.block_size * self.max_blocks_in_chunk;
-        if let Some(erasure_code) = &self.erasure_code {
-            buffer_size = erasure_code.data_blocks * self.block_size;
+        let mut buffer_size = block_size * max_blocks_in_chunk;
+        if let Some(erasure_code) = &erasure_code {
+            buffer_size = erasure_code.data_blocks * block_size;
         }
         log_debug!("Buffer size: {}", buffer_size);
 
-        // Subtract encryption overhead if encryption is enabled
         let encryption_overhead = if encryption.is_some() {
             ENCRYPTION_OVERHEAD
         } else {
@@ -607,21 +614,22 @@ impl AkaveSDK {
         };
         buffer_size -= encryption_overhead;
 
-        let chunk_size = if data_size > buffer_size {
-            buffer_size
-        } else {
-            data_size
-        };
-        let mut file_size: usize = 0;
+        let chunk_size = buffer_size.min(data_size);
         let root_hasher = Code::Sha2_256;
+        let mut file_size: usize = 0;
         let mut root_hash = None;
         let mut idx = 0;
         let mut is_empty_file = true;
 
-        // Initialize the splitter with file and chunk_size
+        // Collect all chunk futures
+        let mut chunk_futures = FuturesUnordered::new();
 
-        while let Some(chunk_result) = splitter.next_chunk(chunk_size).await {
-            let buffer = match chunk_result {
+        loop {
+            let chunk_result = splitter.next_chunk(chunk_size).await;
+            if chunk_result.is_none() {
+                break;
+            }
+            let buffer = match chunk_result.unwrap() {
                 Ok(data) => data,
                 Err(e) => return Err(AkaveError::FileError(e.to_string())),
             };
@@ -629,104 +637,144 @@ impl AkaveSDK {
             if buffer.is_empty() && is_empty_file {
                 return Err(AkaveError::InvalidInput("Empty file".to_string()));
             }
-
             is_empty_file = false;
 
-            log_debug!("Processing chunk {} for file: {}", idx, file_name);
+            let encryption = encryption.as_ref().map(|e| e as &Encryption);
+            let erasure_code = erasure_code.clone();
+            let mut client = client.clone();
+            let mut storage = storage.clone();
+            let file_name = file_name.to_string();
+            let bucket_id = bucket.id;
+            let idx_copy = idx;
+            let block_size = block_size;
+            let block_part_size = block_part_size;
 
-            // First encrypt if encryption is enabled (matches Go implementation)
-            let encrypted_data = match &encryption {
-                Some(encryption) => encryption
-                    .encrypt(&buffer[..], format!("block_{}", idx).as_bytes())
-                    .map_err(|e| AkaveError::EncryptionError(e.to_string()))?,
-                None => buffer[..].to_vec().into(),
-            };
+            chunk_futures.push(async move {
+                log_debug!("Processing chunk {} for file: {}", idx_copy, file_name);
 
-            // Then apply erasure coding if enabled (matches Go implementation)
-            let processed_data = if let Some(erasure_code) = &self.erasure_code {
-                erasure_code
-                    .encode(&encrypted_data)
-                    .map_err(|e| AkaveError::ErasureCodeError(e.to_string()))?
-            } else {
-                encrypted_data.to_vec()
-            };
+                let encrypted_data = match encryption {
+                    Some(encryption) => encryption
+                        .encrypt(&buffer[..], format!("block_{}", idx_copy).as_bytes())
+                        .map_err(|e| AkaveError::EncryptionError(e.to_string()))?,
+                    None => buffer[..].to_vec().into(),
+                };
 
-            let (chunk, _, ipc_chunk) = self
-                .create_chunk_upload(idx, processed_data, bucket.id, file_name)
+                let processed_data = if let Some(ref erasure_code) = erasure_code {
+                    erasure_code
+                        .encode(&encrypted_data)
+                        .map_err(|e| AkaveError::ErasureCodeError(e.to_string()))?
+                } else {
+                    encrypted_data.to_vec()
+                };
+
+                let (chunk, _, ipc_chunk) = AkaveSDK::create_chunk_upload(
+                    idx_copy,
+                    processed_data,
+                    bucket_id,
+                    &file_name,
+                    erasure_code.as_ref(),
+                    block_size,
+                    &mut client,
+                    &mut storage,
+                )
                 .await
                 .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
-            file_size += chunk.actual_size;
-            root_hash = Some(root_hasher.digest(&chunk.chunk_cid.to_bytes()));
 
-            let mut chunks_iter = chunk.blocks.iter().enumerate();
-            while let Some((index, block_1mb)) = chunks_iter.next() {
-                // Generate a nonce based on current time
-                let nonce = crate::get_nonce();
-                let chunk_cid = cid::Cid::from_str(&ipc_chunk.cid)
-                    .map_err(|e| AkaveError::Internal(e.to_string()))?;
-                let node_id = PeerId::from_str(&block_1mb.node_id)
-                    .map_err(|e| AkaveError::Internal(e.to_string()))?;
-                let chain_id = self
-                    .storage
-                    .web3_provider
-                    .eth()
-                    .chain_id()
-                    .await
-                    .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
-                let (data_message, domain, data_types) = create_block_eip712_data(
-                    &block_1mb.cid,
-                    &chunk_cid,
-                    &node_id,
-                    self.storage.akave_storage.address(),
-                    ipc_chunk.index,
-                    index as i64,
-                    chain_id,
-                    nonce,
-                )
-                .map_err(|e| AkaveError::Internal(e.to_string()))?;
+                // Concurrent block uploads
+                let mut block_futures = FuturesUnordered::new();
+                for (index, block_1mb) in chunk.blocks.iter().enumerate() {
+                    let block_1mb = block_1mb;
+                    let ipc_chunk = ipc_chunk.clone();
+                    let storage = storage.clone();
+                    let file_name = file_name.clone();
+                    let bucket_id = bucket_id;
+                    let block_part_size = block_part_size;
+                    block_futures.push(async move {
+                        let nonce = crate::get_nonce();
+                        let chunk_cid = cid::Cid::from_str(&ipc_chunk.cid)
+                            .map_err(|e| AkaveError::Internal(e.to_string()))?;
+                        let node_id = PeerId::from_str(&block_1mb.node_id)
+                            .map_err(|e| AkaveError::Internal(e.to_string()))?;
+                        let chain_id = storage
+                            .web3_provider
+                            .eth()
+                            .chain_id()
+                            .await
+                            .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
+                        let (data_message, domain, data_types) = create_block_eip712_data(
+                            &block_1mb.cid,
+                            &chunk_cid,
+                            &node_id,
+                            storage.akave_storage.address(),
+                            ipc_chunk.index,
+                            index as i64,
+                            chain_id,
+                            nonce,
+                        )
+                        .map_err(|e| AkaveError::Internal(e.to_string()))?;
 
-                // Sign the message
-                log_debug!(
-                    "Signing data for chunk {}, block {}",
-                    ipc_chunk.index,
-                    index
-                );
-                let signature = self
-                    .storage
-                    .eip712_sign(domain.clone(), data_message.clone(), data_types.clone())
-                    .await
-                    .map_err(|e| {
-                        AkaveError::BlockchainError(format!("Failed to sign data: {}", e))
-                    })?;
-                log_debug!("Signature: {:?}", signature);
+                        log_debug!(
+                            "Signing data for chunk {}, block {}",
+                            ipc_chunk.index,
+                            index
+                        );
+                        let signature = storage
+                            .eip712_sign(domain.clone(), data_message.clone(), data_types.clone())
+                            .await
+                            .map_err(|e| {
+                                AkaveError::BlockchainError(format!("Failed to sign data: {}", e))
+                            })?;
+                        log_debug!("Signature: {:?}", signature);
 
-                let mut bytes = [0u8; 32];
-                nonce.to_big_endian(&mut bytes);
+                        let mut bytes = [0u8; 32];
+                        nonce.to_big_endian(&mut bytes);
 
-                self.upload_block_segments(
-                    block_1mb.data.clone(),
-                    bucket.id.to_vec(),
-                    file_name.to_string(),
-                    block_1mb.cid.to_string(),
-                    index as i64,
-                    signature,
-                    node_id.to_bytes(),
-                    block_1mb.node_address.as_str(),
-                    bytes.to_vec(),
-                    Some(ipc_chunk.clone()),
-                )
-                .await
-                .map_err(|e| {
-                    AkaveError::BlockchainError(format!("Failed to upload block segments: {}", e))
-                })?;
-            }
+                        AkaveSDK::upload_block_segments(
+                            block_1mb.data.clone(),
+                            bucket_id.to_vec(),
+                            file_name.clone(),
+                            block_1mb.cid.to_string(),
+                            index as i64,
+                            signature,
+                            node_id.to_bytes(),
+                            block_1mb.node_address.as_str(),
+                            bytes.to_vec(),
+                            Some(ipc_chunk.clone()),
+                            block_part_size,
+                        )
+                        .await
+                        .map_err(|e| {
+                            AkaveError::BlockchainError(format!(
+                                "Failed to upload block segments: {}",
+                                e
+                            ))
+                        })
+                    });
+                }
+
+                // Await all block uploads for this chunk concurrently
+                while let Some(res) = block_futures.next().await {
+                    res?;
+                }
+
+                Ok::<_, AkaveError>((
+                    chunk.actual_size,
+                    root_hasher.digest(&chunk.chunk_cid.to_bytes()),
+                ))
+            });
 
             idx += 1;
         }
 
+        // Await all chunk uploads concurrently
+        while let Some(res) = chunk_futures.next().await {
+            let (actual_size, hash) = res?;
+            file_size += actual_size;
+            root_hash = Some(hash);
+        }
+
         let root_cid = Cid::new_v1(DAG_PROTOBUF, root_hash.unwrap());
-        let receipt = self
-            .storage
+        let receipt = storage
             .commit_file(
                 bucket.id,
                 file_name.to_string(),
@@ -745,11 +793,14 @@ impl AkaveSDK {
     }
 
     async fn create_chunk_upload(
-        &mut self,
         index: usize,
         data: Vec<u8>,
         bucket_id: [u8; 32],
         file_name: &str,
+        erasure_code: Option<&ErasureCode>,
+        block_size: usize,
+        client: &mut IpcNodeApiClient<Channel>,
+        storage: &mut BlockchainProvider,
     ) -> Result<(IpcFileChunkUpload, TransactionReceipt, IpcChunk), AkaveError> {
         log_debug!(
             "Creating chunk upload for file: {}, chunk index: {}",
@@ -759,10 +810,10 @@ impl AkaveSDK {
         let size = data.len();
 
         // Calculate block size based on erasure coding settings
-        let block_size = if let Some(erasure_code) = &self.erasure_code {
+        let block_size = if let Some(erasure_code) = erasure_code {
             size / (erasure_code.data_blocks + erasure_code.parity_blocks)
         } else {
-            self.block_size
+            block_size
         };
 
         let chunk_dag = ChunkDag::new(block_size, data);
@@ -801,8 +852,7 @@ impl AkaveSDK {
         };
 
         log_debug!("Requesting chunk upload creation");
-        let chunk_create_response = self
-            .client
+        let chunk_create_response = client
             .file_upload_chunk_create(chunk_create_request)
             .await
             .map_err(|e| AkaveError::GrpcError(e.to_string()))?
@@ -820,8 +870,7 @@ impl AkaveSDK {
             });
 
         log_debug!("Adding file chunk to contract");
-        let receipt = self
-            .storage
+        let receipt = storage
             .add_file_chunk(
                 chunk_cid.to_bytes(),
                 bucket_id,
@@ -863,7 +912,6 @@ impl AkaveSDK {
     /// For WASM environments, it sends requests sequentially.
     /// For native environments, it processes blocks concurrently.
     async fn upload_block_segments(
-        &mut self,
         data: Vec<u8>,
         bucket_id: Vec<u8>,
         file_name: String,
@@ -874,6 +922,7 @@ impl AkaveSDK {
         node_address: &str,
         nonce: Vec<u8>,
         chunk: Option<IpcChunk>,
+        block_part_size: usize,
     ) -> Result<(), AkaveError> {
         let data_len = data.len();
         if data_len == 0 {
@@ -917,11 +966,6 @@ impl AkaveSDK {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            use futures::stream::{self, StreamExt};
-
-            // Simplified implementation: streaming upload of segments directly
-            let block_part_size = self.block_part_size;
-
             // Create a stream that generates block data on demand
             let stream = stream::iter(0..((data_len + block_part_size - 1) / block_part_size)).map(
                 move |segment_index| {

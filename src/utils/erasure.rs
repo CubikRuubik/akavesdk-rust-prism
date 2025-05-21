@@ -11,6 +11,7 @@ pub enum ErasureCodeError {
 }
 
 /// ErasureCode is a wrapper around the ReedSolomon encoder, providing a more user-friendly interface.
+#[derive(Clone)]
 pub struct ErasureCode {
     /// Number of data blocks
     pub data_blocks: usize,

@@ -4,7 +4,10 @@ use std::collections::HashMap;
 
 // External crate imports (general)
 use web3::{
-    contract::{tokens::Tokenize, Contract, Options}, error::TransportError, types::{TransactionReceipt, H160, H256, U256}, Error, Web3
+    contract::{tokens::Tokenize, Contract, Options},
+    error::TransportError,
+    types::{TransactionReceipt, H160, H256, U256},
+    Error, Web3,
 };
 
 // Internal imports
@@ -51,6 +54,7 @@ const DELETE_FILE: &str = "deleteFile";
 const GET_FILE_INDEX_BY_NAME: &str = "getFileIndexById";
 const GET_FILE_BY_NAME: &str = "getFileByName";
 
+#[derive(Clone)]
 pub(crate) struct BlockchainProvider {
     pub web3_provider: Web3<ProviderType>,
     pub akave_storage: Contract<ProviderType>,
@@ -201,7 +205,11 @@ impl BlockchainProvider {
                         Some(status) => {
                             if status.low_u64() == 0 {
                                 log_error!("Transaction failed with status 0");
-                                return Err(format!("Transaction {}-{} failed with status 0", receipt.transaction_hash, function_name).into());
+                                return Err(format!(
+                                    "Transaction {}-{} failed with status 0",
+                                    receipt.transaction_hash, function_name
+                                )
+                                .into());
                             }
                         }
                         None => {
@@ -548,70 +556,71 @@ impl BlockchainProvider {
     }
 
     /// Signs a message using EIP-712 typed data signing
-    /// 
+    ///
     /// For native environments, it uses the private key directly
     /// For WASM environments, it forwards the request to the Ethereum provider
     pub async fn eip712_sign(
         &self,
         domain: Domain,
         message: HashMap<String, serde_json::Value>,
-        types: HashMap<String, Vec<TypedData>>
+        types: HashMap<String, Vec<TypedData>>,
     ) -> Result<String, Box<dyn std::error::Error>> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             // Native implementation using the EIP-712 module
             if let Some(key) = &self.key {
                 log_debug!("Using native EIP-712 signing with private key");
-                let signature = crate::blockchain::eip712::sign_typed_data(
-                    key,
-                    &domain,
-                    &message,
-                    &types
-                )?;
+                let signature =
+                    crate::blockchain::eip712::sign_typed_data(key, &domain, &message, &types)?;
                 Ok(hex::encode(signature))
             } else {
                 Err("No private key available for signing".into())
             }
         }
-        
+
         #[cfg(target_arch = "wasm32")]
         {
             // WASM implementation using the web3 provider's eth_signTypedData_v4 method
             log_debug!("Using WASM EIP-712 signing via provider");
-            
+
             // Format the request according to EIP-712
             let eip712_request = crate::blockchain::eip712_utils::encode_eip712_message_for_wasm(
                 &domain,
                 &message,
                 &types,
-                "StorageData"
+                "StorageData",
             );
-            
+
             // Get the current account
             let accounts = self.web3_provider.eth().accounts().await?;
             if accounts.is_empty() {
                 return Err("No accounts available".into());
             }
-            
+
             // Call the provider's eth_signTypedData_v4 method
             // Prepare parameters for the JSON-RPC call
             let account = format!("{:?}", accounts[0]);
             let typed_data_json = serde_json::to_string(&eip712_request)?;
-            
+
             // Call the RPC method with proper parameters
-            let params = vec![serde_json::Value::String(account), serde_json::Value::String(typed_data_json)];
+            let params = vec![
+                serde_json::Value::String(account),
+                serde_json::Value::String(typed_data_json),
+            ];
 
             log_debug!("Calling eth_signTypedData_v4 with params: {:?}", params);
-            
-            let signature_hex: String = self.web3_provider
+
+            let signature_hex: String = self
+                .web3_provider
                 .transport()
                 .execute("eth_signTypedData_v4", params)
-                .await?.to_string();
+                .await?
+                .to_string();
             log_debug!("Received signature hex: {}", signature_hex);
 
             // comes back with "" for some weird reason.
             let trimmed = signature_hex[1..signature_hex.len() - 1].to_string();
-            
+
             // Convert hex signature to bytes (handle potential 0x prefix)
             let clean_sig = trimmed.trim_start_matches("0x").to_string();
             Ok(clean_sig)

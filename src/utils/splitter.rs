@@ -16,13 +16,13 @@ use std::fs::File;
 
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub(crate) struct Splitter<'a> {
+pub(crate) struct Splitter {
     #[derivative(Debug = "ignore")]
-    file: &'a mut File,
+    file: File,
     counter: usize,
 }
 
-impl<'a> Chunkable for Splitter<'a> {
+impl Chunkable for Splitter {
     async fn next_chunk(&mut self, chunk_size: usize) -> Option<Result<Box<[u8]>, AkaveError>> {
         let file_size = self.file.size() as usize;
         if self.counter >= file_size {
@@ -64,9 +64,9 @@ impl<'a> Chunkable for Splitter<'a> {
     }
 }
 
-impl<'a> Splitter<'a> {
+impl Splitter {
     /// Create a new FileChunker
-    pub fn new(file: &'a mut File) -> Self {
+    pub fn new(file: File) -> Self {
         return Self { file, counter: 0 };
     }
 }
