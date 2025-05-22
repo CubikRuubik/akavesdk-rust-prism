@@ -8,7 +8,7 @@ use aes_gcm::aead::{rand_core::RngCore, OsRng};
 pub const KEY_LEN: usize = 32;
 pub const GCM_NONCE_SIZE: usize = 12;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Encryption {
     key: Option<[u8; KEY_LEN]>,
 }
@@ -115,8 +115,10 @@ mod tests {
 
     use crate::utils::encryption::Encryption;
 
+    #[allow(unused)]
     const BUCKET_TO_TEST: &str = "TEST_BUCKET_v2";
 
+    #[allow(unused)]
     async fn test_text_encryption() {
         println!("Test 1: Encrypt and decrypt text");
 

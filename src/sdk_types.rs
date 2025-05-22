@@ -9,6 +9,12 @@ pub enum AkaveError {
     #[error("blockchain error: {0}")]
     BlockchainError(String),
 
+    #[error("block error: {0}")]
+    BlockError(String),
+
+    #[error("chunk error: {0}")]
+    ChunkError(String),
+
     #[error("grpc error: {0}")]
     GrpcError(String),
 
@@ -75,7 +81,7 @@ where
     Cid::from_str(&cid_str).map_err(serde::de::Error::custom)
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]

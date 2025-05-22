@@ -4,20 +4,18 @@ pub(crate) mod ipcnodeapi {
 }
 
 use async_stream::try_stream;
-use futures::{
-    stream::{self, FuturesUnordered, StreamExt},
-    Stream,
-};
+use tokio::{pin, task::JoinSet};
+use tokio_stream::{self, Stream, StreamExt};
 // Standard library imports
 use libp2p::PeerId;
-use std::{borrow::Cow, pin::Pin, str::FromStr};
+use std::{borrow::Cow, str::FromStr};
 
 // External crate imports (general)
 use crate::{
     blockchain::eip712_utils::create_block_eip712_data,
     utils::{chunkable::Chunkable, erasure::ErasureCode, splitter::Splitter},
 };
-use alloy::{hex, rpc::client};
+use alloy::hex;
 use bytesize::{ByteSize, MB};
 use cid::{
     multihash::{Code, MultihashDigest},
@@ -319,7 +317,7 @@ impl AkaveSDK {
 
     /// View a bucket
     pub async fn view_bucket(
-        &mut self,
+        &self,
         address: &str,
         bucket_name: &str,
     ) -> Result<BucketViewResponse, AkaveError> {
@@ -330,6 +328,7 @@ impl AkaveSDK {
         };
         let response = self
             .client
+            .clone()
             .bucket_view(request)
             .await
             .map_err(|e| AkaveError::GrpcError(e.to_string()))?
@@ -348,7 +347,7 @@ impl AkaveSDK {
 
     /// List files in a bucket
     pub async fn list_files(
-        &mut self,
+        &self,
         address: &str,
         bucket_name: &str,
     ) -> Result<FileListResponse, AkaveError> {
@@ -363,6 +362,7 @@ impl AkaveSDK {
         };
         let response = self
             .client
+            .clone()
             .file_list(request)
             .await
             .map_err(|e| AkaveError::GrpcError(e.to_string()))?
@@ -385,7 +385,7 @@ impl AkaveSDK {
 
     /// View file information
     pub async fn view_file_info(
-        &mut self,
+        &self,
         address: &str,
         bucket_name: &str,
         file_name: &str,
@@ -403,6 +403,7 @@ impl AkaveSDK {
         };
         let response = self
             .client
+            .clone()
             .file_view(request)
             .await
             .map_err(|e| AkaveError::GrpcError(e.to_string()))?
@@ -426,7 +427,7 @@ impl AkaveSDK {
 
     // Create a new bucket
     pub async fn create_bucket(
-        &mut self,
+        &self,
         bucket_name: &str,
     ) -> Result<BucketResponse, Box<dyn std::error::Error>> {
         log_debug!("Creating bucket: {}", bucket_name);
@@ -446,7 +447,7 @@ impl AkaveSDK {
 
     // Delete an existing bucket
     pub async fn delete_bucket(
-        &mut self,
+        &self,
         address: &str,
         bucket_name: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -467,7 +468,7 @@ impl AkaveSDK {
 
     // Delete an existing file
     pub async fn delete_file(
-        &mut self,
+        &self,
         address: &str,
         bucket_name: &str,
         file_name: &str,
@@ -503,7 +504,7 @@ impl AkaveSDK {
     }
 
     pub async fn upload_file_from_data(
-        &mut self,
+        &self,
         bucket_name: &str,
         file_name: &str,
         data: Vec<u8>,
@@ -539,7 +540,7 @@ impl AkaveSDK {
     }
 
     pub async fn upload_data<T>(
-        &mut self,
+        &self,
         bucket_name: &str,
         file_name: &str,
         mut splitter: T,
@@ -621,8 +622,8 @@ impl AkaveSDK {
         let mut idx = 0;
         let mut is_empty_file = true;
 
-        // Collect all chunk futures
-        let mut chunk_futures = FuturesUnordered::new();
+        // Use Tokio's JoinSet for concurrent chunk uploads
+        let mut chunk_join_set = JoinSet::new();
 
         loop {
             let chunk_result = splitter.next_chunk(chunk_size).await;
@@ -639,7 +640,7 @@ impl AkaveSDK {
             }
             is_empty_file = false;
 
-            let encryption = encryption.as_ref().map(|e| e as &Encryption);
+            let encryption = encryption.clone();
             let erasure_code = erasure_code.clone();
             let mut client = client.clone();
             let mut storage = storage.clone();
@@ -648,8 +649,9 @@ impl AkaveSDK {
             let idx_copy = idx;
             let block_size = block_size;
             let block_part_size = block_part_size;
+            let root_hasher = root_hasher.clone();
 
-            chunk_futures.push(async move {
+            chunk_join_set.spawn(async move {
                 log_debug!("Processing chunk {} for file: {}", idx_copy, file_name);
 
                 let encrypted_data = match encryption {
@@ -680,16 +682,17 @@ impl AkaveSDK {
                 .await
                 .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
 
-                // Concurrent block uploads
-                let mut block_futures = FuturesUnordered::new();
-                for (index, block_1mb) in chunk.blocks.iter().enumerate() {
-                    let block_1mb = block_1mb;
+                // Concurrent block uploads for this chunk
+                let mut block_join_set = JoinSet::new();
+                let blocks = chunk.blocks.clone();
+                for (index, block_1mb) in blocks.iter().enumerate() {
+                    let block_1mb = block_1mb.clone();
                     let ipc_chunk = ipc_chunk.clone();
                     let storage = storage.clone();
                     let file_name = file_name.clone();
                     let bucket_id = bucket_id;
                     let block_part_size = block_part_size;
-                    block_futures.push(async move {
+                    block_join_set.spawn(async move {
                         let nonce = crate::get_nonce();
                         let chunk_cid = cid::Cid::from_str(&ipc_chunk.cid)
                             .map_err(|e| AkaveError::Internal(e.to_string()))?;
@@ -753,8 +756,13 @@ impl AkaveSDK {
                 }
 
                 // Await all block uploads for this chunk concurrently
-                while let Some(res) = block_futures.next().await {
-                    res?;
+                while let Some(res) = block_join_set.join_next().await {
+                    res.map_err(|e| {
+                        AkaveError::BlockError(format!("Failed to upload block: {}", e))
+                    })?
+                    .map_err(|e| {
+                        AkaveError::BlockError(format!("Failed to upload block: {}", e))
+                    })?;
                 }
 
                 Ok::<_, AkaveError>((
@@ -767,8 +775,10 @@ impl AkaveSDK {
         }
 
         // Await all chunk uploads concurrently
-        while let Some(res) = chunk_futures.next().await {
-            let (actual_size, hash) = res?;
+        while let Some(res) = chunk_join_set.join_next().await {
+            let (actual_size, hash) = res
+                .map_err(|e| AkaveError::ChunkError(format!("Failed to upload chunk: {}", e)))?
+                .map_err(|e| AkaveError::ChunkError(format!("Failed to upload chunk: {}", e)))?;
             file_size += actual_size;
             root_hash = Some(hash);
         }
@@ -967,25 +977,26 @@ impl AkaveSDK {
         #[cfg(not(target_arch = "wasm32"))]
         {
             // Create a stream that generates block data on demand
-            let stream = stream::iter(0..((data_len + block_part_size - 1) / block_part_size)).map(
-                move |segment_index| {
-                    let start = segment_index * block_part_size;
-                    let end = std::cmp::min(start + block_part_size, data_len);
-                    let segment_data = data[start..end].to_vec();
+            let stream = tokio_stream::iter(
+                0..((data_len + block_part_size - 1) / block_part_size),
+            )
+            .map(move |segment_index| {
+                let start = segment_index * block_part_size;
+                let end = std::cmp::min(start + block_part_size, data_len);
+                let segment_data = data[start..end].to_vec();
 
-                    IpcFileBlockData {
-                        bucket_id: bucket_id.clone(),
-                        data: segment_data,
-                        cid: block_cid.clone(),
-                        chunk: chunk.clone(),
-                        file_name: file_name.clone(),
-                        index: block_index,
-                        signature: signature.clone(),
-                        node_id: node_id.clone(),
-                        nonce: nonce.clone(),
-                    }
-                },
-            );
+                IpcFileBlockData {
+                    bucket_id: bucket_id.clone(),
+                    data: segment_data,
+                    cid: block_cid.clone(),
+                    chunk: chunk.clone(),
+                    file_name: file_name.clone(),
+                    index: block_index,
+                    signature: signature.clone(),
+                    node_id: node_id.clone(),
+                    nonce: nonce.clone(),
+                }
+            });
 
             // Send the stream to the server
             log_debug!(
@@ -1013,7 +1024,7 @@ impl AkaveSDK {
     }
 
     async fn create_file_download(
-        &mut self,
+        &self,
         address: &str,
         bucket_name: &str,
         file_name: &str,
@@ -1031,6 +1042,7 @@ impl AkaveSDK {
         };
         let response = self
             .client
+            .clone()
             .file_download_create(request)
             .await
             .map_err(|e| AkaveError::GrpcError(e.to_string()))?
@@ -1052,13 +1064,13 @@ impl AkaveSDK {
     }
 
     pub fn download_file_data_stream<'a>(
-        &'a mut self,
+        &'a self,
         address: &'a str,
         bucket_name: &'a str,
         file_name: &'a str,
         passwd: Option<&'a str>,
-    ) -> Pin<Box<dyn Stream<Item = Result<Vec<u8>, AkaveError>> + Send + 'a>> {
-        Box::pin(try_stream! {
+    ) -> impl Stream<Item = Result<Vec<u8>, AkaveError>> + Send + 'a {
+        try_stream! {
             let info = vec![bucket_name, file_name].join("/");
 
             // Use default encryption if provided and no password was specified
@@ -1205,7 +1217,7 @@ impl AkaveSDK {
                 yield decrypted_data;
                 chunk_index += 1;
             }
-        })
+        }
     }
 
     pub async fn download_file(
@@ -1226,7 +1238,9 @@ impl AkaveSDK {
         let mut destination = utils::destination::Destination::new(destination_path, file_name)
             .map_err(|e| AkaveError::FileError(e.to_string()))?;
 
-        let mut stream = self.download_file_data_stream(address, bucket_name, file_name, passwd);
+        let stream = self.download_file_data_stream(address, bucket_name, file_name, passwd);
+
+        pin!(stream);
 
         while let Some(chunk_result) = stream.next().await {
             let chunk = chunk_result?;
@@ -1251,7 +1265,7 @@ impl AkaveSDK {
     }
 
     async fn create_chunk_download(
-        &mut self,
+        &self,
         bucket_name: &str,
         file_name: &str,
         address: &str,
@@ -1272,6 +1286,7 @@ impl AkaveSDK {
 
         let resp = self
             .client
+            .clone()
             .file_download_chunk_create(request)
             .await
             .map_err(|e| AkaveError::GrpcError(e.to_string()))?
@@ -1443,7 +1458,7 @@ mod tests {
         println!("Testing create bucket: {}", bucket_name);
 
         // Test
-        let mut sdk = get_sdk().await.unwrap();
+        let sdk = get_sdk().await.unwrap();
         let bucket_resp = sdk.create_bucket(&bucket_name).await.unwrap();
         assert_eq!(bucket_resp.name, bucket_name);
 
@@ -1476,7 +1491,7 @@ mod tests {
         println!("Testing view bucket: {}", bucket_name);
 
         // Setup
-        let mut sdk = get_sdk().await.unwrap();
+        let sdk = get_sdk().await.unwrap();
         let _ = sdk.create_bucket(&bucket_name).await.unwrap();
 
         // Test
@@ -1493,7 +1508,7 @@ mod tests {
         println!("Testing delete bucket: {}", bucket_name);
 
         // Setup
-        let mut sdk = get_sdk().await.unwrap();
+        let sdk = get_sdk().await.unwrap();
         let _ = sdk.create_bucket(&bucket_name).await.unwrap();
 
         // Test delete
