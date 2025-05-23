@@ -41,6 +41,12 @@ pub enum AkaveError {
 
     #[error("internal error: {0}")]
     Internal(String),
+
+    #[error("provider error: {0}")]
+    FromProvider(String),
+
+    #[error("bucket error: {0}")]
+    BucketError(String),
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

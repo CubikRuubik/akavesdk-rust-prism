@@ -426,10 +426,7 @@ impl AkaveSDK {
     }
 
     // Create a new bucket
-    pub async fn create_bucket(
-        &self,
-        bucket_name: &str,
-    ) -> Result<BucketResponse, Box<dyn std::error::Error>> {
+    pub async fn create_bucket(&self, bucket_name: &str) -> Result<BucketResponse, AkaveError> {
         log_debug!("Creating bucket: {}", bucket_name);
         if bucket_name.len() < self.min_bucket_name_length {
             let error_msg = format!(
@@ -437,12 +434,18 @@ impl AkaveSDK {
                 self.min_bucket_name_length
             );
             log_error!("{}", error_msg);
-            return Err(error_msg)?;
+            return Err(AkaveError::BucketError(error_msg));
         }
         log_info!("Create bucket request to storage: {}", bucket_name);
-        self.storage.create_bucket(bucket_name.into()).await?;
+        self.storage
+            .create_bucket(bucket_name.into())
+            .await
+            .map_err(|e| AkaveError::FromProvider(e.to_string()))?;
         log_info!("Bucket created successfully: {}", bucket_name);
-        self.storage.get_bucket_by_name(bucket_name.into()).await
+        self.storage
+            .get_bucket_by_name(bucket_name.into())
+            .await
+            .map_err(|e| AkaveError::FromProvider(e.to_string()))
     }
 
     // Delete an existing bucket

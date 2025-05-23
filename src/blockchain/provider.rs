@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 // External crate imports (general)
+use thiserror::Error;
 use web3::{
     contract::{tokens::Tokenize, Contract, Options},
     error::TransportError,
@@ -168,7 +169,7 @@ impl BlockchainProvider {
         &self,
         function_name: &str,
         params: impl Tokenize,
-    ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
+    ) -> Result<TransactionReceipt, ProviderError> {
         log_debug!(
             "Calling contract function: {} with confirmations",
             function_name
@@ -176,7 +177,10 @@ impl BlockchainProvider {
         let eth = self.web3_provider.eth();
 
         // Send transaction and get hash
-        let hash = self.call_contract(function_name, params).await?;
+        let hash = self
+            .call_contract(function_name, params)
+            .await
+            .map_err(|e| ProviderError::ContractCall(e.to_string()))?;
         log_debug!("Transaction hash: {}", hash);
 
         // Initial backoff parameters
@@ -189,15 +193,23 @@ impl BlockchainProvider {
             // Check if we've exceeded max attempts
             if attempts >= max_attempts {
                 log_error!("Transaction confirmation timeout after 1 minute");
-                return Err("Transaction confirmation timeout".into());
+                return Err(ProviderError::TransactionConfirmTimeout(
+                    "Transaction confirmation timeout".into(),
+                ));
             }
 
             // Get current block number
-            let current_block = eth.block_number().await?;
+            let current_block = eth
+                .block_number()
+                .await
+                .map_err(|e| ProviderError::BlockNumber(e.to_string()))?;
             log_debug!("Current block number: {}", current_block);
 
             // Get transaction receipt
-            let receipt = eth.transaction_receipt(hash).await?;
+            let receipt = eth
+                .transaction_receipt(hash)
+                .await
+                .map_err(|e| ProviderError::TransactionError(e.to_string()))?;
 
             match receipt {
                 Some(receipt) => {
@@ -205,16 +217,20 @@ impl BlockchainProvider {
                         Some(status) => {
                             if status.low_u64() == 0 {
                                 log_error!("Transaction failed with status 0");
-                                return Err(format!(
-                                    "Transaction {}-{} failed with status 0",
-                                    receipt.transaction_hash, function_name
-                                )
-                                .into());
+                                return Err(ProviderError::TransactionError(
+                                    format!(
+                                        "Transaction {}-{} failed with status 0",
+                                        receipt.transaction_hash, function_name
+                                    )
+                                    .into(),
+                                ));
                             }
                         }
                         None => {
                             log_error!("Transaction failed with unknown status");
-                            return Err("Transaction failed with unknown status".into());
+                            return Err(ProviderError::TransactionError(
+                                "Transaction failed with unknown status".into(),
+                            ));
                         }
                     }
                     if let Some(confirmation_block) = receipt.block_number {
@@ -267,7 +283,7 @@ impl BlockchainProvider {
         &self,
         function_name: &str,
         params: impl Tokenize,
-    ) -> Result<H256, Box<dyn std::error::Error>> {
+    ) -> Result<H256, ProviderError> {
         let txopts = Options {
             gas: Some(U256::from(500000)),
             ..Default::default()
@@ -275,13 +291,18 @@ impl BlockchainProvider {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let key = self.key.as_ref().ok_or("Missing key for signed call")?;
+            let key = self
+                .key
+                .as_ref()
+                .ok_or("Missing key for signed call")
+                .map_err(|e| ProviderError::ContractCall(e.to_string()))?;
             let key_ref = SecretKeyRef::new(key);
 
             let hash = self
                 .akave_storage
                 .signed_call(function_name, params, txopts, key_ref)
-                .await?;
+                .await
+                .map_err(|e| ProviderError::ContractCall(e.to_string()))?;
 
             return Ok(hash);
         }
@@ -301,7 +322,7 @@ impl BlockchainProvider {
         }
     }
 
-    pub async fn get_address(&self) -> Result<H160, Box<dyn std::error::Error>> {
+    pub async fn get_address(&self) -> Result<H160, ProviderError> {
         log_debug!("Getting provider address");
         #[cfg(target_arch = "wasm32")]
         {
@@ -312,7 +333,12 @@ impl BlockchainProvider {
         {
             match self.key {
                 Some(key) => Ok(SecretKeyRef::new(&key).address()),
-                None => Ok(self.web3_provider.eth().accounts().await?[0]),
+                None => Ok(self
+                    .web3_provider
+                    .eth()
+                    .accounts()
+                    .await
+                    .map_err(|e| ProviderError::AddressError(e.to_string()))?[0]),
             }
         }
     }
@@ -321,7 +347,7 @@ impl BlockchainProvider {
         &self,
         bucket_id: Vec<u8>,
         file_name: String,
-    ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
+    ) -> Result<TransactionReceipt, ProviderError> {
         let file_name_clone = file_name.clone();
         log_debug!(
             "Creating file: {} in bucket: {:?}",
@@ -345,7 +371,7 @@ impl BlockchainProvider {
         file_name: String,
         size: U256,
         root_cid: Vec<u8>,
-    ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
+    ) -> Result<TransactionReceipt, ProviderError> {
         let file_name_clone = file_name.clone();
         log_debug!(
             "Committing file: {} in bucket: {:?}",
@@ -371,7 +397,7 @@ impl BlockchainProvider {
         cids: Vec<[u8; 32]>,
         sizes: Vec<U256>,
         index: U256,
-    ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
+    ) -> Result<TransactionReceipt, ProviderError> {
         let file_name_clone = file_name.clone();
         log_debug!(
             "Adding file chunk for file: {} in bucket: {:?}",
@@ -397,7 +423,7 @@ impl BlockchainProvider {
     pub async fn create_bucket(
         &self,
         bucket_name: String,
-    ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
+    ) -> Result<TransactionReceipt, ProviderError> {
         let bucket_name_clone = bucket_name.clone();
         log_debug!("Creating bucket: {}", bucket_name_clone);
         let result = self
@@ -415,7 +441,7 @@ impl BlockchainProvider {
         bucket_id: Vec<u8>,
         bucket_name: String,
         bucket_idx: U256,
-    ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
+    ) -> Result<TransactionReceipt, ProviderError> {
         let bucket_name_clone = bucket_name.clone();
         log_debug!(
             "Deleting bucket: {} with ID: {:?}",
@@ -436,7 +462,7 @@ impl BlockchainProvider {
     pub async fn get_bucket_by_name(
         &self,
         bucket_name: String,
-    ) -> Result<BucketResponse, Box<dyn std::error::Error>> {
+    ) -> Result<BucketResponse, ProviderError> {
         let bucket_name_clone = bucket_name.clone();
         log_debug!("Getting bucket by name: {}", bucket_name_clone);
         let address = self.get_address().await?;
@@ -457,7 +483,7 @@ impl BlockchainProvider {
     pub async fn get_bucket_index_by_name(
         &self,
         bucket_name: String,
-    ) -> Result<U256, Box<dyn std::error::Error>> {
+    ) -> Result<U256, ProviderError> {
         let bucket_name_clone = bucket_name.clone();
         log_debug!("Getting bucket index for name: {}", bucket_name_clone);
         let address = self.get_address().await?;
@@ -470,7 +496,8 @@ impl BlockchainProvider {
                 Options::default(),
                 None,
             )
-            .await?;
+            .await
+            .map_err(|e| ProviderError::ContractCall(e.to_string()))?;
         Ok(result)
     }
 
@@ -478,7 +505,7 @@ impl BlockchainProvider {
         &self,
         file_name: String,
         bucket_id: Vec<u8>,
-    ) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
+    ) -> Result<TransactionReceipt, ProviderError> {
         let file_name_clone = file_name.clone();
         log_debug!(
             "Deleting file: {} from bucket: {:?}",
@@ -510,7 +537,7 @@ impl BlockchainProvider {
         &self,
         file_name: String,
         file_id: Vec<u8>,
-    ) -> Result<U256, Box<dyn std::error::Error>> {
+    ) -> Result<U256, ProviderError> {
         let file_name_clone = file_name.clone();
         log_debug!("Getting file index for name: {}", file_name_clone);
         let address = self.get_address().await?;
@@ -524,7 +551,8 @@ impl BlockchainProvider {
                 Options::default(),
                 None,
             )
-            .await?;
+            .await
+            .map_err(|e| ProviderError::ContractCall(e.to_string()))?;
         Ok(result)
     }
 
@@ -532,7 +560,7 @@ impl BlockchainProvider {
         &self,
         bucket_id: Vec<u8>,
         file_name: String,
-    ) -> Result<FileResponse, Box<dyn std::error::Error>> {
+    ) -> Result<FileResponse, ProviderError> {
         let file_name_clone = file_name.clone();
         log_debug!(
             "Getting file by name: {} from bucket: {:?}",
@@ -564,17 +592,20 @@ impl BlockchainProvider {
         domain: Domain,
         message: HashMap<String, serde_json::Value>,
         types: HashMap<String, Vec<TypedData>>,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<String, ProviderError> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             // Native implementation using the EIP-712 module
             if let Some(key) = &self.key {
                 log_debug!("Using native EIP-712 signing with private key");
                 let signature =
-                    crate::blockchain::eip712::sign_typed_data(key, &domain, &message, &types)?;
+                    crate::blockchain::eip712::sign_typed_data(key, &domain, &message, &types)
+                        .map_err(|e| ProviderError::EncodeError(e.to_string()))?;
                 Ok(hex::encode(signature))
             } else {
-                Err("No private key available for signing".into())
+                Err(ProviderError::EncodeError(
+                    "No private key available for signing".into(),
+                ))
             }
         }
 
@@ -626,4 +657,20 @@ impl BlockchainProvider {
             Ok(clean_sig)
         }
     }
+}
+
+#[derive(Error, Debug)]
+pub enum ProviderError {
+    #[error("transaction error: {0}")]
+    TransactionError(String),
+    #[error("transaction confirmation error: {0}")]
+    TransactionConfirmTimeout(String),
+    #[error("block number error: {0}")]
+    BlockNumber(String),
+    #[error("contract call error: {0}")]
+    ContractCall(String),
+    #[error("address error: {0}")]
+    AddressError(String),
+    #[error("encode error: {0}")]
+    EncodeError(String),
 }
