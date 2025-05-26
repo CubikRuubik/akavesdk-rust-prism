@@ -535,7 +535,7 @@ impl BlockchainProvider {
         let result = self
             .call_contract_with_confirmations(
                 DELETE_FILE,
-                (file.id, bucket_id.to_bytes(), file_name, file_idx),
+                (file.id.to_bytes(), bucket_id.to_bytes(), file_name, file_idx),
             )
             .await;
         match &result {
