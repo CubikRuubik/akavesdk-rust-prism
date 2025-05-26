@@ -3,6 +3,7 @@ use cid::Cid;
 use prost_types::Timestamp;
 use std::str::FromStr;
 use thiserror::Error;
+use crate::types::BucketId;
 
 #[derive(Error, Debug)]
 pub enum AkaveError {
@@ -115,7 +116,7 @@ pub(crate) struct IpcFileChunkUpload {
     pub raw_data_size: usize,
     pub proto_node_size: usize,
     pub blocks: Vec<FileBlockUpload>,
-    pub bucket_id: [u8; 32],
+    pub bucket_id: BucketId,
     pub file_name: String,
 }
 

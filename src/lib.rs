@@ -3,6 +3,7 @@ mod blockchain;
 pub mod sdk;
 mod utils;
 mod sdk_types;
+mod types;
 pub mod logger;
 
 #[cfg(target_arch = "wasm32")]
