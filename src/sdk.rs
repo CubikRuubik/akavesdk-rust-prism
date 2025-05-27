@@ -3,17 +3,21 @@ pub(crate) mod ipcnodeapi {
     tonic::include_proto!("ipcnodeapi");
 }
 
-use async_stream::try_stream;
-use tokio::{pin, task::JoinSet};
-use tokio_stream::{self, Stream, StreamExt};
+use tokio::task::{self, JoinSet};
+use tokio_stream::{self, StreamExt};
 // Standard library imports
 use libp2p::PeerId;
-use std::{borrow::Cow, str::FromStr};
+use std::{
+    borrow::Cow,
+    io::{Read, Write},
+    str::FromStr,
+    sync::{Arc, Mutex},
+};
 
 // External crate imports (general)
 use crate::{
     blockchain::eip712_utils::create_block_eip712_data,
-    utils::{chunkable::Chunkable, erasure::ErasureCode, splitter::Splitter},
+    utils::{chunkable::Chunkable, erasure::ErasureCode},
 };
 use alloy::hex;
 use bytesize::{ByteSize, MB};
@@ -59,7 +63,6 @@ use wasm_imports::*;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native_imports {
-    pub use std::fs::File;
     pub use tonic::transport::{Channel, ClientTlsConfig};
 }
 
@@ -498,7 +501,7 @@ impl AkaveSDK {
     async fn create_file_upload(
         bucket_id: Vec<u8>,
         file_name: &str,
-        storage: &mut BlockchainProvider,
+        storage: &BlockchainProvider,
     ) -> Result<TransactionReceipt, AkaveError> {
         storage
             .create_file(bucket_id, file_name.to_string())
@@ -506,40 +509,232 @@ impl AkaveSDK {
             .map_err(|e| AkaveError::BlockchainError(e.to_string()))
     }
 
-    pub async fn upload_file_from_data(
+    pub async fn upload_file<R>(
         &self,
         bucket_name: &str,
         file_name: &str,
-        data: Vec<u8>,
+        reader: &mut R,
         passwd: Option<&str>,
-    ) -> Result<TransactionReceipt, AkaveError> {
-        log_debug!(
-            "Starting file data upload: {} to bucket: {}",
-            file_name,
-            bucket_name
-        );
-
-        self.upload_data(bucket_name, file_name, data, passwd).await
-    }
-
-    pub async fn upload_file(
-        &mut self,
-        bucket_name: &str,
-        file_name: &str,
-        file: &mut File,
-        passwd: Option<&str>,
-    ) -> Result<TransactionReceipt, AkaveError> {
+    ) -> Result<TransactionReceipt, AkaveError>
+    where
+        R: Read + Send,
+    {
         log_debug!(
             "Starting file upload: {} to bucket: {}",
             file_name,
             bucket_name
         );
-        let splitter = Splitter::new(
-            file.try_clone()
-                .map_err(|e| AkaveError::FileError(format!("Failed to clone file: {}", e)))?,
-        );
-        self.upload_data(bucket_name, file_name, splitter, passwd)
+
+        let min_file_size = self.min_file_size;
+        let block_size = self.block_size;
+        let max_blocks_in_chunk = self.max_blocks_in_chunk;
+        let block_part_size = self.block_part_size;
+
+        if bucket_name.is_empty() {
+            return Err(AkaveError::InvalidInput("Empty bucket name".to_string()));
+        }
+
+        let bucket = self
+            .storage
+            .get_bucket_by_name(bucket_name.to_string())
             .await
+            .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
+
+        AkaveSDK::create_file_upload(bucket.id.to_vec(), file_name, &self.storage)
+            .await
+            .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
+
+        log_info!("File created successfully: {}", file_name);
+
+        let info = format!("{}/{}", bucket_name, file_name);
+
+        let password = match (passwd, &self.default_encryption_key) {
+            (Some(p), _) => Some(p),
+            (None, Some(default_key)) => Some(default_key.as_str()),
+            _ => None,
+        };
+
+        let encryption = match password {
+            Some(key) => {
+                log_debug!("Setting up encryption");
+                Some(
+                    Encryption::new(key.as_bytes(), info.as_bytes())
+                        .map_err(|e| AkaveError::EncryptionError(e.to_string()))?,
+                )
+            }
+            None => {
+                log_debug!("No encryption key provided");
+                None
+            }
+        };
+
+        let mut buffer_size = block_size * max_blocks_in_chunk;
+        if let Some(erasure_code) = &self.erasure_code {
+            buffer_size = erasure_code.data_blocks * block_size;
+        }
+        log_debug!("Buffer size: {}", buffer_size);
+
+        let encryption_overhead = if encryption.is_some() {
+            ENCRYPTION_OVERHEAD
+        } else {
+            0
+        };
+        buffer_size -= encryption_overhead;
+
+        let root_hasher = Code::Sha2_256;
+        let mut file_size: usize = 0;
+        let mut root_hash = None;
+        let mut idx = 0;
+        let mut no_data = true;
+
+        loop {
+            let mut buffer = vec![0u8; buffer_size];
+            // Read up to buffer_size bytes directly (blocking, but this function is already async)
+            let n = reader
+                .read(&mut buffer)
+                .map_err(|e| AkaveError::FileError(e.to_string()))?;
+
+            if n == 0 {
+                break;
+            }
+            buffer.truncate(n);
+
+            if buffer.is_empty() && no_data {
+                return Err(AkaveError::InvalidInput("Empty file".to_string()));
+            }
+            if no_data && buffer.len() < min_file_size {
+                return Err(AkaveError::InvalidInput(format!(
+                    "File size must be at least {} bytes",
+                    min_file_size
+                )));
+            }
+            no_data = false;
+
+            let file_name = file_name.to_string();
+            let bucket_id = bucket.id;
+
+            log_debug!("Processing chunk {} for file: {}", idx, file_name);
+
+            let encrypted_data = match encryption {
+                Some(ref encryption) => encryption
+                    .encrypt(&buffer[..], format!("block_{}", idx).as_bytes())
+                    .map_err(|e| AkaveError::EncryptionError(e.to_string()))?,
+                None => buffer[..].to_vec().into(),
+            };
+
+            let processed_data = if let Some(ref erasure_code) = self.erasure_code {
+                erasure_code
+                    .encode(&encrypted_data)
+                    .map_err(|e| AkaveError::ErasureCodeError(e.to_string()))?
+            } else {
+                encrypted_data.to_vec()
+            };
+
+            // Sequentially create and upload the chunk
+
+            let mut client = self.client.clone();
+
+            let (chunk, _, ipc_chunk) = AkaveSDK::create_chunk_upload(
+                idx,
+                processed_data,
+                bucket_id,
+                &file_name,
+                self.erasure_code.as_ref(),
+                block_size,
+                &mut client,
+                &self.storage,
+            )
+            .await
+            .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
+
+            // Sequentially upload each block in the chunk
+            let blocks = chunk.blocks.clone();
+            for (index, block_1mb) in blocks.iter().enumerate() {
+                let nonce = crate::get_nonce();
+                let chunk_cid = cid::Cid::from_str(&ipc_chunk.cid)
+                    .map_err(|e| AkaveError::Internal(e.to_string()))?;
+                let node_id = PeerId::from_str(&block_1mb.node_id)
+                    .map_err(|e| AkaveError::Internal(e.to_string()))?;
+                let chain_id = self
+                    .storage
+                    .web3_provider
+                    .eth()
+                    .chain_id()
+                    .await
+                    .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
+                let (data_message, domain, data_types) = create_block_eip712_data(
+                    &block_1mb.cid,
+                    &chunk_cid,
+                    &node_id,
+                    self.storage.akave_storage.address(),
+                    ipc_chunk.index,
+                    index as i64,
+                    chain_id,
+                    nonce,
+                )
+                .map_err(|e| AkaveError::Internal(e.to_string()))?;
+
+                log_debug!(
+                    "Signing data for chunk {}, block {}",
+                    ipc_chunk.index,
+                    index
+                );
+                let signature = self
+                    .storage
+                    .eip712_sign(domain.clone(), data_message.clone(), data_types.clone())
+                    .await
+                    .map_err(|e| {
+                        AkaveError::BlockchainError(format!("Failed to sign data: {}", e))
+                    })?;
+                log_debug!("Signature: {:?}", signature);
+
+                let mut bytes = [0u8; 32];
+                nonce.to_big_endian(&mut bytes);
+
+                AkaveSDK::upload_block_segments(
+                    block_1mb.data.clone(),
+                    bucket_id.to_vec(),
+                    file_name.clone(),
+                    block_1mb.cid.to_string(),
+                    index as i64,
+                    signature,
+                    node_id.to_bytes(),
+                    block_1mb.node_address.as_str(),
+                    bytes.to_vec(),
+                    Some(ipc_chunk.clone()),
+                    block_part_size,
+                )
+                .await
+                .map_err(|e| {
+                    AkaveError::BlockchainError(format!("Failed to upload block segments: {}", e))
+                })?;
+            }
+
+            // Update file size and root hash
+            file_size += chunk.actual_size;
+            root_hash = Some(root_hasher.digest(&chunk.chunk_cid.to_bytes()));
+
+            idx += 1;
+        }
+
+        let root_cid = Cid::new_v1(DAG_PROTOBUF, root_hash.unwrap());
+        let receipt = self
+            .storage
+            .commit_file(
+                bucket.id,
+                file_name.to_string(),
+                U256::from(file_size),
+                root_cid.to_bytes(),
+            )
+            .await
+            .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
+
+        log_info!(
+            "File uploaded successfully: {} to bucket: {}",
+            file_name,
+            bucket_name
+        );
+        Ok(receipt)
     }
 
     pub async fn upload_data<T>(
@@ -813,7 +1008,7 @@ impl AkaveSDK {
         erasure_code: Option<&ErasureCode>,
         block_size: usize,
         client: &mut IpcNodeApiClient<Channel>,
-        storage: &mut BlockchainProvider,
+        storage: &BlockchainProvider,
     ) -> Result<(IpcFileChunkUpload, TransactionReceipt, IpcChunk), AkaveError> {
         log_debug!(
             "Creating chunk upload for file: {}, chunk index: {}",
@@ -1066,204 +1261,171 @@ impl AkaveSDK {
         Ok(FileDownloadResponse { chunks })
     }
 
-    pub fn download_file_data_stream<'a>(
-        &'a self,
-        address: &'a str,
-        bucket_name: &'a str,
-        file_name: &'a str,
-        passwd: Option<&'a str>,
-    ) -> impl Stream<Item = Result<Vec<u8>, AkaveError>> + Send + 'a {
-        try_stream! {
-            let info = vec![bucket_name, file_name].join("/");
-
-            // Use default encryption if provided and no password was specified
-            let password = match (passwd, &self.default_encryption_key) {
-                (Some(p), _) => Some(p),
-                (None, Some(default_key)) => Some(default_key.as_str()),
-                _ => None,
-            };
-
-            let option_encryption = match password {
-                Some(key) => {
-                    log_debug!("Setting up decryption key");
-                    Some(
-                        Encryption::new(key.as_bytes(), info.as_bytes())
-                            .map_err(|e| AkaveError::EncryptionError(e.to_string()))?,
-                    )
-                }
-                None => {
-                    log_debug!("No decryption key provided");
-                    None
-                }
-            };
-
-            let file_download = self
-                .create_file_download(address, bucket_name, file_name)
-                .await
-                .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
-
-            let codec = Cid::try_from(file_download.chunks[0].cid.clone())
-                .map_err(|e| AkaveError::InvalidInput(e.to_string()))?
-                .codec();
-
-            let mut chunk_index = 0;
-
-            for chunk in file_download.chunks {
-                log_debug!("Processing chunk {} for file: {}", chunk_index, file_name);
-                let chunk_cid = chunk.cid.clone();
-                let chunk_size = chunk.size;
-                let chunk_download = self
-                    .create_chunk_download(bucket_name, file_name, address, chunk, chunk_index)
-                    .await
-                    .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
-
-                let mut block_index = 0;
-                let mut blocks_data = vec![];
-
-                for block in chunk_download.blocks {
-                    let mut chunk_data = vec![];
-                    let req = IpcFileDownloadBlockRequest {
-                        address: address.to_string(),
-                        chunk_cid: chunk_cid.clone(),
-                        chunk_index,
-                        block_cid: block.cid.clone(),
-                        block_index,
-                        bucket_name: bucket_name.to_string(),
-                        file_name: file_name.to_string(),
-                    };
-                    log_debug!(
-                        "Downloading block {} for chunk {}",
-                        block_index,
-                        chunk_index
-                    );
-                    let mut node_client =
-                        AkaveSDK::get_client_for_node_address(&block.akave.node_address)
-                            .await
-                            .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
-                    let mut stream = node_client
-                        .file_download_block(req)
-                        .await
-                        .map_err(|e| AkaveError::GrpcError(e.to_string()))?
-                        .into_inner();
-
-                    while let Some(mut message) = stream
-                        .message()
-                        .await
-                        .map_err(|e| AkaveError::GrpcError(e.to_string()))?
-                    {
-                        chunk_data.append(message.data.as_mut());
-                    }
-
-                    let final_data = match codec {
-                        0x55 => chunk_data,
-                        DAG_PROTOBUF => {
-                            let mut reader = BytesReader::from_bytes(&chunk_data);
-
-                            let mut msg = PbData::default();
-                            while !reader.is_eof() {
-                                match reader.next_tag(&chunk_data) {
-                                    Ok(18) => {
-                                        msg.data = Some(
-                                            reader
-                                                .read_bytes(&chunk_data)
-                                                .map_err(|e| AkaveError::InvalidInput(e.to_string()))
-                                                .map(Cow::Borrowed)?,
-                                        )
-                                    }
-                                    Ok(_) => {}
-                                    Err(_) =>
-                                        Err(AkaveError::InvalidInput(
-                                            "error decoding message".to_string(),
-                                        ))?
-
-                                }
-                            }
-
-                            msg.data.unwrap().into_owned()
-                        }
-                        _default =>
-                            Err(AkaveError::InvalidInput(
-                                "Unknown codec for decoding message".to_string(),
-                            ))?
-
-                    };
-
-                    blocks_data.push(final_data);
-                    block_index += 1;
-                }
-
-                // Process the blocks with erasure coding if enabled
-                let processed_data = if let Some(erasure_code) = &self.erasure_code {
-                    // Extract data from blocks (including parity blocks)
-                    let data = erasure_code
-                        .extract_data(blocks_data.clone(), chunk_size as usize)
-                        .map_err(|e| AkaveError::ErasureCodeError(e.to_string()))?;
-                    // Clear blocks_data to remove all blocks including parity blocks
-                    blocks_data.clear();
-                    data
-                } else {
-                    // Just concatenate all blocks if no erasure coding
-                    blocks_data.concat()
-                };
-
-                // Decrypt if encryption is enabled
-                let decrypted_data = match option_encryption {
-                    Some(ref encryption) => {
-                        log_info!("Decrypting chunk: {}", chunk_index);
-                        encryption
-                            .decrypt(&processed_data, format!("block_{}", chunk_index).as_bytes())
-                            .map_err(|e| AkaveError::EncryptionError(e.to_string()))?
-                    }
-                    None => processed_data,
-                };
-
-                yield decrypted_data;
-                chunk_index += 1;
-            }
-        }
-    }
-
-    pub async fn download_file(
-        &mut self,
+    pub async fn download_file<W: Write + Send + 'static>(
+        &self,
         address: &str,
         bucket_name: &str,
         file_name: &str,
         passwd: Option<&str>,
-        destination_path: &str,
+        writer: W,
     ) -> Result<(), AkaveError> {
-        log_debug!(
-            "Starting file download: {} from bucket: {} for address: {}",
-            file_name,
-            bucket_name,
-            address
-        );
+        let info = vec![bucket_name, file_name].join("/");
 
-        let mut destination = utils::destination::Destination::new(destination_path, file_name)
-            .map_err(|e| AkaveError::FileError(e.to_string()))?;
+        // Use default encryption if provided and no password was specified
+        let password = match (passwd, &self.default_encryption_key) {
+            (Some(p), _) => Some(p),
+            (None, Some(default_key)) => Some(default_key.as_str()),
+            _ => None,
+        };
 
-        let stream = self.download_file_data_stream(address, bucket_name, file_name, passwd);
+        let option_encryption = match password {
+            Some(key) => {
+                log_debug!("Setting up decryption key");
+                Some(
+                    Encryption::new(key.as_bytes(), info.as_bytes())
+                        .map_err(|e| AkaveError::EncryptionError(e.to_string()))?,
+                )
+            }
+            None => {
+                log_debug!("No decryption key provided");
+                None
+            }
+        };
 
-        pin!(stream);
+        let file_download = self
+            .create_file_download(address, bucket_name, file_name)
+            .await
+            .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
 
-        while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result?;
-            destination
-                .write(&chunk)
-                .map_err(|e| AkaveError::FileError(e.to_string()))?;
-            destination
-                .flush()
-                .map_err(|e| AkaveError::FileError(e.to_string()))?;
+        let codec = Cid::try_from(file_download.chunks[0].cid.clone())
+            .map_err(|e| AkaveError::InvalidInput(e.to_string()))?
+            .codec();
+
+        let mut chunk_index = 0;
+
+        // Wrap the writer in Arc<Mutex<...>> for safe sharing across tasks
+        let writer = Arc::new(Mutex::new(writer));
+
+        for chunk in file_download.chunks {
+            log_debug!("Processing chunk {} for file: {}", chunk_index, file_name);
+            let chunk_cid = chunk.cid.clone();
+            let chunk_size = chunk.size;
+            let chunk_download = self
+                .create_chunk_download(bucket_name, file_name, address, chunk, chunk_index)
+                .await
+                .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
+
+            let mut block_index = 0;
+            let mut blocks_data = vec![];
+
+            for block in chunk_download.blocks {
+                let mut chunk_data = vec![];
+                let req = IpcFileDownloadBlockRequest {
+                    address: address.to_string(),
+                    chunk_cid: chunk_cid.clone(),
+                    chunk_index,
+                    block_cid: block.cid.clone(),
+                    block_index,
+                    bucket_name: bucket_name.to_string(),
+                    file_name: file_name.to_string(),
+                };
+                log_debug!(
+                    "Downloading block {} for chunk {}",
+                    block_index,
+                    chunk_index
+                );
+                let mut node_client =
+                    AkaveSDK::get_client_for_node_address(&block.akave.node_address)
+                        .await
+                        .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
+                let mut stream = node_client
+                    .file_download_block(req)
+                    .await
+                    .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+                    .into_inner();
+
+                while let Some(mut message) = stream
+                    .message()
+                    .await
+                    .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+                {
+                    chunk_data.append(message.data.as_mut());
+                }
+
+                let final_data = match codec {
+                    0x55 => chunk_data,
+                    DAG_PROTOBUF => {
+                        let mut reader = BytesReader::from_bytes(&chunk_data);
+
+                        let mut msg = PbData::default();
+                        while !reader.is_eof() {
+                            match reader.next_tag(&chunk_data) {
+                                Ok(18) => {
+                                    msg.data = Some(
+                                        reader
+                                            .read_bytes(&chunk_data)
+                                            .map_err(|e| AkaveError::InvalidInput(e.to_string()))
+                                            .map(Cow::Borrowed)?,
+                                    )
+                                }
+                                Ok(_) => {}
+                                Err(_) => Err(AkaveError::InvalidInput(
+                                    "error decoding message".to_string(),
+                                ))?,
+                            }
+                        }
+
+                        msg.data.unwrap().into_owned()
+                    }
+                    _default => Err(AkaveError::InvalidInput(
+                        "Unknown codec for decoding message".to_string(),
+                    ))?,
+                };
+
+                blocks_data.push(final_data);
+                block_index += 1;
+            }
+
+            // Process the blocks with erasure coding if enabled
+            let processed_data = if let Some(erasure_code) = &self.erasure_code {
+                // Extract data from blocks (including parity blocks)
+                let data = erasure_code
+                    .extract_data(blocks_data.clone(), chunk_size as usize)
+                    .map_err(|e| AkaveError::ErasureCodeError(e.to_string()))?;
+                // Clear blocks_data to remove all blocks including parity blocks
+                blocks_data.clear();
+                data
+            } else {
+                // Just concatenate all blocks if no erasure coding
+                blocks_data.concat()
+            };
+
+            // Decrypt if encryption is enabled
+            let decrypted_data = match option_encryption {
+                Some(ref encryption) => {
+                    log_info!("Decrypting chunk: {}", chunk_index);
+                    encryption
+                        .decrypt(&processed_data, format!("block_{}", chunk_index).as_bytes())
+                        .map_err(|e| AkaveError::EncryptionError(e.to_string()))?
+                }
+                None => processed_data,
+            };
+
+            // Write to the writer in a blocking task
+            let writer = Arc::clone(&writer);
+            let data = decrypted_data;
+            task::spawn_blocking(move || {
+                let mut writer = writer.lock().unwrap();
+                writer
+                    .write_all(&data)
+                    .map_err(|e| AkaveError::FileError(e.to_string()))
+            })
+            .await
+            .map_err(|e| AkaveError::FileError(e.to_string()))??;
+
+            chunk_index += 1;
         }
 
-        destination
-            .finalize()
-            .map_err(|e| AkaveError::FileError(e.to_string()))?;
-
-        log_info!(
-            "File downloaded successfully: {} from bucket: {}",
-            file_name,
-            bucket_name
-        );
         Ok(())
     }
 
@@ -1371,7 +1533,6 @@ impl AkaveSDK {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use crate::sdk::{AkaveSDK, AkaveSDKBuilder};
-    use crate::utils::file_size::FileSize;
     use ctor::ctor;
     use env_logger::Builder;
     use log::LevelFilter;
@@ -1537,7 +1698,7 @@ mod tests {
         println!("Testing upload file to bucket: {}", bucket_name);
 
         // Setup
-        let mut sdk = get_sdk().await.unwrap();
+        let sdk = get_sdk().await.unwrap();
         let _ = sdk.create_bucket(&bucket_name).await.unwrap();
 
         // Test upload
@@ -1590,17 +1751,19 @@ mod tests {
         // Setup
         ensure_download_dir();
         let download_path = format!("{}{}", DOWNLOAD_DESTINATION, FILE_NAME_TO_TEST);
-        let mut sdk = get_sdk().await.unwrap();
+        let sdk = get_sdk().await.unwrap();
         let _ = sdk.create_bucket(&bucket_name).await.unwrap();
 
-        let mut file = File::open(format!("test_files/{}", FILE_NAME_TO_TEST)).unwrap();
+        let mut upload_file = File::open(format!("test_files/{}", FILE_NAME_TO_TEST)).unwrap();
         let _ = sdk
-            .upload_file(&bucket_name, FILE_NAME_TO_TEST, &mut file, None)
+            .upload_file(&bucket_name, FILE_NAME_TO_TEST, &mut upload_file, None)
             .await
             .unwrap();
 
         // Clean up any previously downloaded file
         cleanup_download(&download_path);
+
+        let download_file = File::create(&download_path).unwrap();
 
         // Test download
         let download_result = sdk
@@ -1609,7 +1772,7 @@ mod tests {
                 &bucket_name,
                 FILE_NAME_TO_TEST,
                 None,
-                DOWNLOAD_DESTINATION,
+                download_file,
             )
             .await;
 
@@ -1639,17 +1802,19 @@ mod tests {
         // Setup
         ensure_download_dir();
         let download_path = format!("{}{}", DOWNLOAD_DESTINATION, FILE_NAME_TO_TEST);
-        let mut sdk = get_sdk_with_erasure().await.unwrap();
+        let sdk = get_sdk_with_erasure().await.unwrap();
         let _ = sdk.create_bucket(&bucket_name).await.unwrap();
 
-        let mut file = File::open(format!("test_files/{}", FILE_NAME_TO_TEST)).unwrap();
+        let mut upload_file = File::open(format!("test_files/{}", FILE_NAME_TO_TEST)).unwrap();
         let _ = sdk
-            .upload_file(&bucket_name, FILE_NAME_TO_TEST, &mut file, None)
+            .upload_file(&bucket_name, FILE_NAME_TO_TEST, &mut upload_file, None)
             .await
             .unwrap();
 
         // Clean up any previously downloaded file
         cleanup_download(&download_path);
+
+        let download_file = File::create(&download_path).unwrap();
 
         // Test download
         let download_result = sdk
@@ -1658,7 +1823,7 @@ mod tests {
                 &bucket_name,
                 FILE_NAME_TO_TEST,
                 None,
-                DOWNLOAD_DESTINATION,
+                download_file,
             )
             .await;
 
@@ -1688,17 +1853,19 @@ mod tests {
         // Setup
         ensure_download_dir();
         let download_path = format!("{}{}", DOWNLOAD_DESTINATION, FILE_NAME_TO_TEST);
-        let mut sdk = get_sdk_with_encryption().await.unwrap();
+        let sdk = get_sdk_with_encryption().await.unwrap();
         let _ = sdk.create_bucket(&bucket_name).await.unwrap();
 
-        let mut file = File::open(format!("test_files/{}", FILE_NAME_TO_TEST)).unwrap();
+        let mut upload_file = File::open(format!("test_files/{}", FILE_NAME_TO_TEST)).unwrap();
         let _ = sdk
-            .upload_file(&bucket_name, FILE_NAME_TO_TEST, &mut file, None)
+            .upload_file(&bucket_name, FILE_NAME_TO_TEST, &mut upload_file, None)
             .await
             .unwrap();
 
         // Clean up any previously downloaded file
         cleanup_download(&download_path);
+
+        let download_file = File::create(&download_path).unwrap();
 
         // Test download
         let download_result = sdk
@@ -1707,7 +1874,7 @@ mod tests {
                 &bucket_name,
                 FILE_NAME_TO_TEST,
                 None,
-                DOWNLOAD_DESTINATION,
+                download_file,
             )
             .await;
 
@@ -1737,7 +1904,7 @@ mod tests {
         // Setup
         ensure_download_dir();
         let download_path = format!("{}{}", DOWNLOAD_DESTINATION, FILE_NAME_TO_TEST);
-        let mut sdk = get_sdk_with_erasure_and_encryption().await.unwrap();
+        let sdk = get_sdk_with_erasure_and_encryption().await.unwrap();
 
         // Create bucket
         println!("Creating bucket: {}", bucket_name);
@@ -1746,9 +1913,9 @@ mod tests {
 
         // Upload file (using default encryption from SDK)
         println!("Uploading file: {}", FILE_NAME_TO_TEST);
-        let mut file = File::open(format!("test_files/{}", FILE_NAME_TO_TEST)).unwrap();
+        let mut upload_file = File::open(format!("test_files/{}", FILE_NAME_TO_TEST)).unwrap();
         let _ = sdk
-            .upload_file(&bucket_name, FILE_NAME_TO_TEST, &mut file, None)
+            .upload_file(&bucket_name, FILE_NAME_TO_TEST, &mut upload_file, None)
             .await
             .unwrap();
 
@@ -1763,19 +1930,22 @@ mod tests {
 
         // Download file (using default encryption from SDK)
         cleanup_download(&download_path); // Clean up any previously downloaded file
+
+        let download_file = File::create(&download_path).unwrap();
+
         let download_result = sdk
             .download_file(
                 ADDRESS,
                 &bucket_name,
                 FILE_NAME_TO_TEST,
                 None,
-                DOWNLOAD_DESTINATION,
+                download_file,
             )
             .await;
         assert!(download_result.is_ok());
         assert!(Path::new(&download_path).exists());
         let file = File::open(&download_path).unwrap();
-        let fsize = file.size();
+        let fsize = file.metadata().unwrap().len();
         assert_eq!(fsize, 920840);
 
         // Cleanup

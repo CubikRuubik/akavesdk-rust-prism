@@ -57,6 +57,7 @@ thiserror = "1.0"
 libp2p = "0.55.0"
 async-stream = "0.3"
 tokio-stream = "0.1.17"
+async-trait = "0.1.88"
 
 
 [dev-dependencies]
