@@ -203,7 +203,7 @@ impl BlockchainProvider {
             let current_block = eth
                 .block_number()
                 .await
-                .map_err(|e| ProviderError::BlockNumber(e.to_string()))?;
+                .map_err(|e| ProviderError::BlockNumberError(e.to_string()))?;
             log_debug!("Current block number: {}", current_block);
 
             // Get transaction receipt
@@ -303,7 +303,7 @@ impl BlockchainProvider {
                 .akave_storage
                 .signed_call(function_name, params, txopts, key_ref)
                 .await
-                .map_err(|e| ProviderError::ContractCall(e.to_string()))?;
+                .map_err(|e| ProviderError::ContractCallError(e.to_string()))?;
 
             return Ok(hash);
         }
@@ -546,7 +546,12 @@ impl BlockchainProvider {
         let result = self
             .call_contract_with_confirmations(
                 DELETE_FILE,
-                (file.id.to_bytes(), bucket_id.to_bytes(), file_name, file_idx),
+                (
+                    file.id.to_bytes(),
+                    bucket_id.to_bytes(),
+                    file_name,
+                    file_idx,
+                ),
             )
             .await;
         match &result {
@@ -692,10 +697,10 @@ impl BlockchainProvider {
 pub enum ProviderError {
     #[error("transaction error: {0}")]
     TransactionError(String),
-    #[error("transaction confirmation error: {0}")]
+    #[error("transaction confirmation timeout: {0}")]
     TransactionConfirmTimeout(String),
     #[error("block number error: {0}")]
-    BlockNumber(String),
+    BlockNumberError(String),
     #[error("contract call error: {0}")]
     ContractCallError(String),
     #[error("address error: {0}")]
@@ -704,4 +709,6 @@ pub enum ProviderError {
     EncodeError(String),
     #[error("account error: {0}")]
     AccountError(String),
+    #[error("key error: {0}")]
+    KeyError(String),
 }

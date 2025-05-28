@@ -1,9 +1,9 @@
+use crate::types::BucketId;
 use crate::utils::timestamp::timestamp_serde_direct;
 use cid::Cid;
 use prost_types::Timestamp;
 use std::str::FromStr;
 use thiserror::Error;
-use crate::types::BucketId;
 
 #[derive(Error, Debug)]
 pub enum AkaveError {
@@ -41,10 +41,10 @@ pub enum AkaveError {
     PermissionDenied(String),
 
     #[error("internal error: {0}")]
-    Internal(String),
+    InternalError(String),
 
     #[error("provider error: {0}")]
-    FromProvider(String),
+    ProviderError(String),
 
     #[error("bucket error: {0}")]
     BucketError(String),

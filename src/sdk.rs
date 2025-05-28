@@ -457,12 +457,12 @@ impl AkaveSDK {
         self.storage
             .create_bucket(bucket_name.into())
             .await
-            .map_err(|e| AkaveError::FromProvider(e.to_string()))?;
+            .map_err(|e| AkaveError::ProviderError(e.to_string()))?;
         log_info!("Bucket created successfully: {}", bucket_name);
         self.storage
             .get_bucket_by_name(bucket_name.into())
             .await
-            .map_err(|e| AkaveError::FromProvider(e.to_string()))
+            .map_err(|e| AkaveError::ProviderError(e.to_string()))
     }
 
     // Delete an existing bucket
@@ -668,9 +668,9 @@ impl AkaveSDK {
             for (index, block_1mb) in blocks.iter().enumerate() {
                 let nonce = crate::get_nonce();
                 let chunk_cid = cid::Cid::from_str(&ipc_chunk.cid)
-                    .map_err(|e| AkaveError::Internal(e.to_string()))?;
+                    .map_err(|e| AkaveError::InternalError(e.to_string()))?;
                 let node_id = PeerId::from_str(&block_1mb.node_id)
-                    .map_err(|e| AkaveError::Internal(e.to_string()))?;
+                    .map_err(|e| AkaveError::InternalError(e.to_string()))?;
                 let chain_id = self
                     .storage
                     .web3_provider
@@ -688,7 +688,7 @@ impl AkaveSDK {
                     chain_id,
                     nonce,
                 )
-                .map_err(|e| AkaveError::Internal(e.to_string()))?;
+                .map_err(|e| AkaveError::InternalError(e.to_string()))?;
 
                 log_debug!(
                     "Signing data for chunk {}, block {}",
