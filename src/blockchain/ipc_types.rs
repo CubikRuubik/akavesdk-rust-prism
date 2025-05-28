@@ -3,6 +3,7 @@ use web3::{
     ethabi::Token,
     types::{Address, U256},
 };
+use crate::types::{BucketId, FileId};
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
@@ -15,11 +16,11 @@ pub(crate) struct DeleteBucketResponse {}
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
 pub struct BucketResponse {
-    pub id: [u8; 32],
+    pub id: BucketId,
     pub name: String,
     pub created_at: U256,
     pub owner: Address,
-    pub files: Vec<[u8; 32]>,
+    pub files: Vec<FileId>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -36,9 +37,9 @@ pub(crate) struct IStorageChunk {
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
 pub(crate) struct FileResponse {
-    pub id: [u8; 32],
+    pub id: FileId,
     pub file_cid: Vec<u8>,
-    pub bucket_id: [u8; 32],
+    pub bucket_id: BucketId,
     pub name: String,
     encoded_size: U256,
     created_at: U256,
@@ -59,14 +60,14 @@ impl Detokenize for BucketResponse {
                         if let Token::FixedBytes(bytes) = token {
                             let mut file_bytes = [0u8; 32];
                             file_bytes.copy_from_slice(bytes);
-                            Ok(file_bytes)
+                            Ok(FileId::from(file_bytes))
                         } else {
                             Err(web3::contract::Error::InterfaceUnsupported)
                         }
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(BucketResponse {
-                    id: id_bytes,
+                    id: BucketId::from(id_bytes),
                     name: name.clone(),
                     created_at: *created_at,
                     owner: *owner,
@@ -96,9 +97,9 @@ impl Detokenize for FileResponse {
                 let chunks = IStorageChunk::from_tokens(vec![Token::Tuple(chunks_tokens.clone())])?;
 
                 Ok(FileResponse {
-                    id: id_bytes,
+                    id: FileId::from(id_bytes),
                     file_cid: file_cid.clone(),
-                    bucket_id: bucket_id_bytes,
+                    bucket_id: BucketId::from(bucket_id_bytes),
                     name: name.clone(),
                     encoded_size: *encoded_size,
                     created_at: *created_at,

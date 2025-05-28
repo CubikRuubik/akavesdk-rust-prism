@@ -14,6 +14,7 @@ use web3::{
 // Internal imports
 use super::ipc_types::{BucketResponse, FileResponse};
 use crate::blockchain::eip712_types::{Domain, TypedData};
+use crate::types::BucketId;
 use crate::{log_debug, log_error, log_info};
 
 // Target-specific imports
@@ -356,18 +357,17 @@ impl BlockchainProvider {
 
     pub async fn create_file(
         &self,
-        bucket_id: Vec<u8>,
+        bucket_id: BucketId,
         file_name: String,
     ) -> Result<TransactionReceipt, ProviderError> {
         let file_name_clone = file_name.clone();
         log_debug!(
-            "Creating file: {} in bucket: {:?}",
+            "Creating file: {} in bucket: {}",
             file_name_clone,
             bucket_id
         );
-        let id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
         let result = self
-            .call_contract_with_confirmations(CREATE_FILE, (id, file_name))
+            .call_contract_with_confirmations(CREATE_FILE, (bucket_id.to_bytes(), file_name))
             .await;
         match &result {
             Ok(_) => log_info!("File created successfully: {}", file_name_clone),
@@ -378,19 +378,22 @@ impl BlockchainProvider {
 
     pub async fn commit_file(
         &self,
-        bucket_id: [u8; 32],
+        bucket_id: BucketId,
         file_name: String,
         size: U256,
         root_cid: Vec<u8>,
     ) -> Result<TransactionReceipt, ProviderError> {
         let file_name_clone = file_name.clone();
         log_debug!(
-            "Committing file: {} in bucket: {:?}",
+            "Committing file: {} in bucket: {}",
             file_name_clone,
             bucket_id
         );
         let result = self
-            .call_contract_with_confirmations(COMMIT_FILE, (bucket_id, file_name, size, root_cid))
+            .call_contract_with_confirmations(
+                COMMIT_FILE,
+                (bucket_id.to_bytes(), file_name, size, root_cid),
+            )
             .await;
         match &result {
             Ok(_) => log_info!("File committed successfully: {}", file_name_clone),
@@ -402,7 +405,7 @@ impl BlockchainProvider {
     pub async fn add_file_chunk(
         &self,
         root_cid: Vec<u8>,
-        bucket_id: [u8; 32],
+        bucket_id: BucketId,
         file_name: String,
         size: U256,
         cids: Vec<[u8; 32]>,
@@ -411,14 +414,22 @@ impl BlockchainProvider {
     ) -> Result<TransactionReceipt, ProviderError> {
         let file_name_clone = file_name.clone();
         log_debug!(
-            "Adding file chunk for file: {} in bucket: {:?}",
+            "Adding file chunk for file: {} in bucket: {}",
             file_name_clone,
             bucket_id
         );
         let result = self
             .call_contract_with_confirmations(
                 ADD_FILE_CHUNK,
-                (root_cid, bucket_id, file_name, size, cids, sizes, index),
+                (
+                    root_cid,
+                    bucket_id.to_bytes(),
+                    file_name,
+                    size,
+                    cids,
+                    sizes,
+                    index,
+                ),
             )
             .await;
         match &result {
@@ -449,19 +460,21 @@ impl BlockchainProvider {
 
     pub async fn delete_bucket(
         &self,
-        bucket_id: Vec<u8>,
+        bucket_id: BucketId,
         bucket_name: String,
         bucket_idx: U256,
     ) -> Result<TransactionReceipt, ProviderError> {
         let bucket_name_clone = bucket_name.clone();
         log_debug!(
-            "Deleting bucket: {} with ID: {:?}",
+            "Deleting bucket: {} with ID: {}",
             bucket_name_clone,
             bucket_id
         );
-        let id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
         let result = self
-            .call_contract_with_confirmations(DELETE_BUCKET, (id, bucket_name, bucket_idx))
+            .call_contract_with_confirmations(
+                DELETE_BUCKET,
+                (bucket_id.to_bytes(), bucket_name, bucket_idx),
+            )
             .await;
         match &result {
             Ok(_) => log_info!("Bucket deleted successfully: {}", bucket_name_clone),
@@ -515,15 +528,14 @@ impl BlockchainProvider {
     pub async fn delete_file(
         &self,
         file_name: String,
-        bucket_id: Vec<u8>,
+        bucket_id: BucketId,
     ) -> Result<TransactionReceipt, ProviderError> {
         let file_name_clone = file_name.clone();
         log_debug!(
-            "Deleting file: {} from bucket: {:?}",
+            "Deleting file: {} from bucket: {}",
             file_name_clone,
             bucket_id
         );
-        let parsed_bucket_id: [u8; 32] = bucket_id.clone().try_into().expect("bucket_id error");
 
         let file = self
             .get_file_by_name(bucket_id, file_name.to_string())
@@ -534,7 +546,7 @@ impl BlockchainProvider {
         let result = self
             .call_contract_with_confirmations(
                 DELETE_FILE,
-                (file.id, parsed_bucket_id, file_name, file_idx),
+                (file.id.to_bytes(), bucket_id.to_bytes(), file_name, file_idx),
             )
             .await;
         match &result {
@@ -569,22 +581,21 @@ impl BlockchainProvider {
 
     pub async fn get_file_by_name(
         &self,
-        bucket_id: Vec<u8>,
+        bucket_id: BucketId,
         file_name: String,
     ) -> Result<FileResponse, ProviderError> {
         let file_name_clone = file_name.clone();
         log_debug!(
-            "Getting file by name: {} from bucket: {:?}",
+            "Getting file by name: {} from bucket: {}",
             file_name_clone,
             bucket_id
         );
         let address = self.get_address().await?;
-        let parsed_id: [u8; 32] = bucket_id.try_into().expect("bucket_id error");
         let result = self
             .akave_storage
             .query(
                 GET_FILE_BY_NAME,
-                (parsed_id, file_name),
+                (bucket_id.to_bytes(), file_name),
                 address,
                 Options::default(),
                 None,

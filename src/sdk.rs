@@ -18,22 +18,6 @@ use std::{
 // ==========================
 // External crate imports
 // ==========================
-use crate::{
-    blockchain::eip712_utils::create_block_eip712_data,
-    blockchain::ipc_types::BucketResponse,
-    blockchain::provider::BlockchainProvider,
-    log_debug, log_error, log_info,
-    sdk_types::{
-        AkaveBlockData, AkaveError, BucketListItem, BucketListResponse, BucketViewResponse,
-        FileBlockDownload, FileChunk, FileChunkDownload, FileDownloadResponse, FileListItem,
-        FileListResponse, FileViewResponse, IpcFileChunkUpload,
-    },
-    utils,
-    utils::dag::{ChunkDag, DAG_PROTOBUF},
-    utils::encryption::Encryption,
-    utils::erasure::ErasureCode,
-    utils::pb_data::PbData,
-};
 use alloy::hex;
 use bytesize::{ByteSize, MB};
 use cid::{
@@ -42,6 +26,28 @@ use cid::{
 };
 use quick_protobuf::BytesReader;
 use web3::types::{TransactionReceipt, U256};
+
+// ==========================
+// Internal crate imports
+// ==========================
+use crate::{
+    blockchain::{
+        eip712_utils::create_block_eip712_data, ipc_types::BucketResponse,
+        provider::BlockchainProvider,
+    },
+    log_debug, log_error, log_info,
+    sdk_types::{
+        AkaveBlockData, AkaveError, BucketListItem, BucketListResponse, BucketViewResponse,
+        FileBlockDownload, FileChunk, FileChunkDownload, FileDownloadResponse, FileListItem,
+        FileListResponse, FileViewResponse, IpcFileChunkUpload,
+    },
+    types::BucketId,
+    utils,
+    utils::dag::{ChunkDag, DAG_PROTOBUF},
+    utils::encryption::Encryption,
+    utils::erasure::ErasureCode,
+    utils::pb_data::PbData,
+};
 
 // ==========================
 // Proto-related imports
@@ -467,7 +473,8 @@ impl AkaveSDK {
     ) -> Result<(), Box<dyn std::error::Error>> {
         log_debug!("Deleting bucket: {} for address: {}", bucket_name, address);
         let bucket = self.view_bucket(address, bucket_name).await?;
-        let bucket_id = hex::decode(bucket.id.clone())?;
+        let bucket_id_bytes = hex::decode(bucket.id.clone())?;
+        let bucket_id = BucketId::from_slice(&bucket_id_bytes).ok_or("Invalid bucket ID length")?;
         let bucket_idx = self
             .storage
             .get_bucket_index_by_name(bucket_name.to_string())
@@ -494,7 +501,8 @@ impl AkaveSDK {
             address
         );
         let bucket = self.view_bucket(address, bucket_name).await?;
-        let bucket_id = hex::decode(bucket.id.clone())?;
+        let bucket_id_bytes = hex::decode(bucket.id.clone())?;
+        let bucket_id = BucketId::from_slice(&bucket_id_bytes).ok_or("Invalid bucket ID length")?;
         self.storage
             .delete_file(file_name.to_string(), bucket_id)
             .await?;
@@ -507,7 +515,7 @@ impl AkaveSDK {
     }
 
     async fn create_file_upload(
-        bucket_id: Vec<u8>,
+        bucket_id: BucketId,
         file_name: &str,
         storage: &BlockchainProvider,
     ) -> Result<TransactionReceipt, AkaveError> {
@@ -548,7 +556,7 @@ impl AkaveSDK {
             .await
             .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
 
-        AkaveSDK::create_file_upload(bucket.id.to_vec(), file_name, &self.storage)
+        AkaveSDK::create_file_upload(bucket.id, file_name, &self.storage)
             .await
             .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
 
@@ -748,7 +756,7 @@ impl AkaveSDK {
     async fn create_chunk_upload(
         index: usize,
         data: Vec<u8>,
-        bucket_id: [u8; 32],
+        bucket_id: BucketId,
         file_name: &str,
         erasure_code: Option<&ErasureCode>,
         block_size: usize,
