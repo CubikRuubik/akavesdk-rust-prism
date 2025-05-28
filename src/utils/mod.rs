@@ -1,4 +1,3 @@
-pub mod chunkable;
 pub mod dag;
 pub mod encryption;
 pub mod erasure;

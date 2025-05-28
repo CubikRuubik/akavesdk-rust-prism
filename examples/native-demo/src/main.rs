@@ -17,7 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     // Initialize the SDK
-    let mut sdk = AkaveSDKBuilder::new("http://23.227.172.82:5001")
+    let sdk = AkaveSDKBuilder::new("http://23.227.172.82:5001")
         .with_default_encryption(TEST_PASSWORD)
         .with_erasure_coding(4, 2)
         .build()
@@ -45,11 +45,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !Path::new(&test_file_path).exists() {
         return Err(format!("Test file not found at: {}", test_file_path).into());
     }
-    let mut file = File::open(&test_file_path)?;
+    let mut upload_file = File::open(&test_file_path)?;
 
     // Upload the file
     println!("Uploading file to bucket...");
-    sdk.upload_file(&bucket_name, FILE_NAME_TO_TEST, &mut file, None)
+    sdk.upload_file(&bucket_name, FILE_NAME_TO_TEST, &mut upload_file, None)
         .await?;
 
     // List files in the bucket
@@ -70,6 +70,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create downloads directory if it doesn't exist
     std::fs::create_dir_all("test_files/downloads")?;
 
+    let download_file = File::create(Path::new("test_files/downloads").join(FILE_NAME_TO_TEST))
+        .map_err(|e| format!("Failed to open test file: {}", e))?;
+
     // sleep(Duration::from_secs(5));
     // Download the file
     println!("Downloading file...");
@@ -78,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &bucket_name,
         FILE_NAME_TO_TEST,
         None,
-        "test_files/downloads/",
+        download_file,
     )
     .await?;
     println!("File downloaded successfully!");

@@ -47,6 +47,9 @@ pub enum AkaveError {
 
     #[error("bucket error: {0}")]
     BucketError(String),
+
+    #[error("channel error: {0}")]
+    ChannelError(String),
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

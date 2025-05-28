@@ -3,7 +3,7 @@ pub(crate) mod ipcnodeapi {
     tonic::include_proto!("ipcnodeapi");
 }
 
-use tokio::task::{self, JoinSet};
+use tokio::task::{self};
 use tokio_stream::{self, StreamExt};
 // Standard library imports
 use libp2p::PeerId;
@@ -15,10 +15,7 @@ use std::{
 };
 
 // External crate imports (general)
-use crate::{
-    blockchain::eip712_utils::create_block_eip712_data,
-    utils::{chunkable::Chunkable, erasure::ErasureCode},
-};
+use crate::{blockchain::eip712_utils::create_block_eip712_data, utils::erasure::ErasureCode};
 use alloy::hex;
 use bytesize::{ByteSize, MB};
 use cid::{
@@ -171,9 +168,12 @@ impl AkaveSDKBuilder {
     }
 
     /// Build the AkaveSDK instance
-    pub async fn build(self) -> Result<AkaveSDK, Box<dyn std::error::Error>> {
+    pub async fn build(self) -> Result<AkaveSDK, AkaveError> {
         let erasure_code = match (self.data_blocks, self.parity_blocks) {
-            (Some(data), Some(parity)) => Some(utils::erasure::ErasureCode::new(data, parity)?),
+            (Some(data), Some(parity)) => Some(
+                utils::erasure::ErasureCode::new(data, parity)
+                    .map_err(|e| AkaveError::ErasureCodeError(e.to_string()))?,
+            ),
             _ => None,
         };
 
@@ -193,7 +193,7 @@ impl AkaveSDKBuilder {
 
 impl AkaveSDK {
     /// Creates a new AkaveSDK instance with default parameters
-    pub async fn new(server_address: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new(server_address: &str) -> Result<Self, AkaveError> {
         Self::new_with_params(
             server_address,
             None,
@@ -217,7 +217,7 @@ impl AkaveSDK {
         max_blocks_in_chunk: usize,
         block_part_size: usize,
         min_file_size: usize,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> Result<Self, AkaveError> {
         log_info!(
             "Initializing AkaveSDK with server address: {}",
             server_address
@@ -255,10 +255,13 @@ impl AkaveSDK {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let tls_config = ClientTlsConfig::new().with_native_roots();
-            let channel = Channel::from_shared(server_address.to_string())?
-                .tls_config(tls_config)?
+            let channel = Channel::from_shared(server_address.to_string())
+                .map_err(|e| AkaveError::ChannelError(e.to_string()))?
+                .tls_config(tls_config)
+                .map_err(|e| AkaveError::ChannelError(e.to_string()))?
                 .connect()
-                .await?;
+                .await
+                .map_err(|e| AkaveError::ChannelError(e.to_string()))?;
 
             let mut client = IpcNodeApiClient::new(channel)
                 .max_decoding_message_size(usize::MAX)
@@ -266,7 +269,8 @@ impl AkaveSDK {
             log_debug!("Requesting connection parameters...");
             let connection_params = client
                 .connection_params(ConnectionParamsRequest {})
-                .await?
+                .await
+                .map_err(|e| AkaveError::GrpcError(e.to_string()))?
                 .into_inner();
 
             log_debug!("Creating blockchain provider...");
@@ -720,269 +724,6 @@ impl AkaveSDK {
         let root_cid = Cid::new_v1(DAG_PROTOBUF, root_hash.unwrap());
         let receipt = self
             .storage
-            .commit_file(
-                bucket.id,
-                file_name.to_string(),
-                U256::from(file_size),
-                root_cid.to_bytes(),
-            )
-            .await
-            .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
-
-        log_info!(
-            "File uploaded successfully: {} to bucket: {}",
-            file_name,
-            bucket_name
-        );
-        Ok(receipt)
-    }
-
-    pub async fn upload_data<T>(
-        &self,
-        bucket_name: &str,
-        file_name: &str,
-        mut splitter: T,
-        passwd: Option<&str>,
-    ) -> Result<TransactionReceipt, AkaveError>
-    where
-        T: Chunkable + Send + 'static,
-    {
-        let min_file_size = self.min_file_size;
-        let mut storage = self.storage.clone();
-        let default_encryption_key = self.default_encryption_key.clone();
-        let block_size = self.block_size;
-        let max_blocks_in_chunk = self.max_blocks_in_chunk;
-        let erasure_code: Option<ErasureCode> = self.erasure_code.clone();
-        let client = self.client.clone();
-        let block_part_size = self.block_part_size;
-
-        let data_size = splitter.data_size() as usize;
-
-        if bucket_name.is_empty() {
-            return Err(AkaveError::InvalidInput("Empty bucket name".to_string()));
-        }
-        if data_size < min_file_size {
-            return Err(AkaveError::InvalidInput(
-                format!("Data size must be at least {} bytes", min_file_size).to_string(),
-            ));
-        }
-
-        let bucket = storage
-            .get_bucket_by_name(bucket_name.to_string())
-            .await
-            .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
-
-        AkaveSDK::create_file_upload(bucket.id.to_vec(), file_name, &mut storage)
-            .await
-            .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
-
-        log_info!("File created successfully: {}", file_name);
-
-        let info = format!("{}/{}", bucket_name, file_name);
-
-        let password = match (passwd, &default_encryption_key) {
-            (Some(p), _) => Some(p),
-            (None, Some(default_key)) => Some(default_key.as_str()),
-            _ => None,
-        };
-
-        let encryption = match password {
-            Some(key) => {
-                log_debug!("Setting up encryption");
-                Some(
-                    Encryption::new(key.as_bytes(), info.as_bytes())
-                        .map_err(|e| AkaveError::EncryptionError(e.to_string()))?,
-                )
-            }
-            None => {
-                log_debug!("No encryption key provided");
-                None
-            }
-        };
-
-        let mut buffer_size = block_size * max_blocks_in_chunk;
-        if let Some(erasure_code) = &erasure_code {
-            buffer_size = erasure_code.data_blocks * block_size;
-        }
-        log_debug!("Buffer size: {}", buffer_size);
-
-        let encryption_overhead = if encryption.is_some() {
-            ENCRYPTION_OVERHEAD
-        } else {
-            0
-        };
-        buffer_size -= encryption_overhead;
-
-        let chunk_size = buffer_size.min(data_size);
-        let root_hasher = Code::Sha2_256;
-        let mut file_size: usize = 0;
-        let mut root_hash = None;
-        let mut idx = 0;
-        let mut is_empty_file = true;
-
-        // Use Tokio's JoinSet for concurrent chunk uploads
-        let mut chunk_join_set = JoinSet::new();
-
-        loop {
-            let chunk_result = splitter.next_chunk(chunk_size).await;
-            if chunk_result.is_none() {
-                break;
-            }
-            let buffer = match chunk_result.unwrap() {
-                Ok(data) => data,
-                Err(e) => return Err(AkaveError::FileError(e.to_string())),
-            };
-
-            if buffer.is_empty() && is_empty_file {
-                return Err(AkaveError::InvalidInput("Empty file".to_string()));
-            }
-            is_empty_file = false;
-
-            let encryption = encryption.clone();
-            let erasure_code = erasure_code.clone();
-            let mut client = client.clone();
-            let mut storage = storage.clone();
-            let file_name = file_name.to_string();
-            let bucket_id = bucket.id;
-            let idx_copy = idx;
-            let block_size = block_size;
-            let block_part_size = block_part_size;
-            let root_hasher = root_hasher.clone();
-
-            chunk_join_set.spawn(async move {
-                log_debug!("Processing chunk {} for file: {}", idx_copy, file_name);
-
-                let encrypted_data = match encryption {
-                    Some(encryption) => encryption
-                        .encrypt(&buffer[..], format!("block_{}", idx_copy).as_bytes())
-                        .map_err(|e| AkaveError::EncryptionError(e.to_string()))?,
-                    None => buffer[..].to_vec().into(),
-                };
-
-                let processed_data = if let Some(ref erasure_code) = erasure_code {
-                    erasure_code
-                        .encode(&encrypted_data)
-                        .map_err(|e| AkaveError::ErasureCodeError(e.to_string()))?
-                } else {
-                    encrypted_data.to_vec()
-                };
-
-                let (chunk, _, ipc_chunk) = AkaveSDK::create_chunk_upload(
-                    idx_copy,
-                    processed_data,
-                    bucket_id,
-                    &file_name,
-                    erasure_code.as_ref(),
-                    block_size,
-                    &mut client,
-                    &mut storage,
-                )
-                .await
-                .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
-
-                // Concurrent block uploads for this chunk
-                let mut block_join_set = JoinSet::new();
-                let blocks = chunk.blocks.clone();
-                for (index, block_1mb) in blocks.iter().enumerate() {
-                    let block_1mb = block_1mb.clone();
-                    let ipc_chunk = ipc_chunk.clone();
-                    let storage = storage.clone();
-                    let file_name = file_name.clone();
-                    let bucket_id = bucket_id;
-                    let block_part_size = block_part_size;
-                    block_join_set.spawn(async move {
-                        let nonce = crate::get_nonce();
-                        let chunk_cid = cid::Cid::from_str(&ipc_chunk.cid)
-                            .map_err(|e| AkaveError::Internal(e.to_string()))?;
-                        let node_id = PeerId::from_str(&block_1mb.node_id)
-                            .map_err(|e| AkaveError::Internal(e.to_string()))?;
-                        let chain_id = storage
-                            .web3_provider
-                            .eth()
-                            .chain_id()
-                            .await
-                            .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
-                        let (data_message, domain, data_types) = create_block_eip712_data(
-                            &block_1mb.cid,
-                            &chunk_cid,
-                            &node_id,
-                            storage.akave_storage.address(),
-                            ipc_chunk.index,
-                            index as i64,
-                            chain_id,
-                            nonce,
-                        )
-                        .map_err(|e| AkaveError::Internal(e.to_string()))?;
-
-                        log_debug!(
-                            "Signing data for chunk {}, block {}",
-                            ipc_chunk.index,
-                            index
-                        );
-                        let signature = storage
-                            .eip712_sign(domain.clone(), data_message.clone(), data_types.clone())
-                            .await
-                            .map_err(|e| {
-                                AkaveError::BlockchainError(format!("Failed to sign data: {}", e))
-                            })?;
-                        log_debug!("Signature: {:?}", signature);
-
-                        let mut bytes = [0u8; 32];
-                        nonce.to_big_endian(&mut bytes);
-
-                        AkaveSDK::upload_block_segments(
-                            block_1mb.data.clone(),
-                            bucket_id.to_vec(),
-                            file_name.clone(),
-                            block_1mb.cid.to_string(),
-                            index as i64,
-                            signature,
-                            node_id.to_bytes(),
-                            block_1mb.node_address.as_str(),
-                            bytes.to_vec(),
-                            Some(ipc_chunk.clone()),
-                            block_part_size,
-                        )
-                        .await
-                        .map_err(|e| {
-                            AkaveError::BlockchainError(format!(
-                                "Failed to upload block segments: {}",
-                                e
-                            ))
-                        })
-                    });
-                }
-
-                // Await all block uploads for this chunk concurrently
-                while let Some(res) = block_join_set.join_next().await {
-                    res.map_err(|e| {
-                        AkaveError::BlockError(format!("Failed to upload block: {}", e))
-                    })?
-                    .map_err(|e| {
-                        AkaveError::BlockError(format!("Failed to upload block: {}", e))
-                    })?;
-                }
-
-                Ok::<_, AkaveError>((
-                    chunk.actual_size,
-                    root_hasher.digest(&chunk.chunk_cid.to_bytes()),
-                ))
-            });
-
-            idx += 1;
-        }
-
-        // Await all chunk uploads concurrently
-        while let Some(res) = chunk_join_set.join_next().await {
-            let (actual_size, hash) = res
-                .map_err(|e| AkaveError::ChunkError(format!("Failed to upload chunk: {}", e)))?
-                .map_err(|e| AkaveError::ChunkError(format!("Failed to upload chunk: {}", e)))?;
-            file_size += actual_size;
-            root_hash = Some(hash);
-        }
-
-        let root_cid = Cid::new_v1(DAG_PROTOBUF, root_hash.unwrap());
-        let receipt = storage
             .commit_file(
                 bucket.id,
                 file_name.to_string(),
@@ -1485,7 +1226,7 @@ impl AkaveSDK {
 
     async fn get_client_for_node_address(
         node_address: &str,
-    ) -> Result<IpcNodeApiClient<ClientTransport>, Box<dyn std::error::Error>> {
+    ) -> Result<IpcNodeApiClient<ClientTransport>, AkaveError> {
         #[cfg(target_arch = "wasm32")]
         {
             // Parse node address and modify port
@@ -1514,8 +1255,10 @@ impl AkaveSDK {
                 node_address.to_string()
             };
 
-            let channel = Channel::from_shared(address.clone())?
-                .tls_config(tls_config)?
+            let channel = Channel::from_shared(address.clone())
+                .map_err(|e| AkaveError::ChannelError(e.to_string()))?
+                .tls_config(tls_config)
+                .map_err(|e| AkaveError::ChannelError(e.to_string()))?
                 .connect()
                 .await
                 .map_err(|e| {
@@ -1533,6 +1276,7 @@ impl AkaveSDK {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use crate::sdk::{AkaveSDK, AkaveSDKBuilder};
+    use crate::sdk_types::AkaveError;
     use ctor::ctor;
     use env_logger::Builder;
     use log::LevelFilter;
@@ -1564,14 +1308,14 @@ mod tests {
     }
 
     // Get basic SDK with no erasure coding or encryption
-    async fn get_sdk() -> Result<AkaveSDK, Box<(dyn std::error::Error + 'static)>> {
+    async fn get_sdk() -> Result<AkaveSDK, AkaveError> {
         AkaveSDKBuilder::new("http://connect.akave.ai:5500")
             .build()
             .await
     }
 
     // Get SDK with erasure coding only
-    async fn get_sdk_with_erasure() -> Result<AkaveSDK, Box<(dyn std::error::Error + 'static)>> {
+    async fn get_sdk_with_erasure() -> Result<AkaveSDK, AkaveError> {
         AkaveSDKBuilder::new("http://connect.akave.ai:5500")
             .with_erasure_coding(3, 2)
             .build()
@@ -1579,7 +1323,7 @@ mod tests {
     }
 
     // Get SDK with default encryption only
-    async fn get_sdk_with_encryption() -> Result<AkaveSDK, Box<(dyn std::error::Error + 'static)>> {
+    async fn get_sdk_with_encryption() -> Result<AkaveSDK, AkaveError> {
         AkaveSDKBuilder::new("http://connect.akave.ai:5500")
             .with_default_encryption(TEST_PASSWORD)
             .build()
@@ -1587,8 +1331,7 @@ mod tests {
     }
 
     // Get SDK with both erasure coding and encryption
-    async fn get_sdk_with_erasure_and_encryption(
-    ) -> Result<AkaveSDK, Box<(dyn std::error::Error + 'static)>> {
+    async fn get_sdk_with_erasure_and_encryption() -> Result<AkaveSDK, AkaveError> {
         AkaveSDKBuilder::new("http://connect.akave.ai:5500")
             .with_erasure_coding(3, 2)
             .with_default_encryption(TEST_PASSWORD)
