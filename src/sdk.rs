@@ -1,21 +1,39 @@
+// ==========================
 // Proto module definition
+// ==========================
 pub(crate) mod ipcnodeapi {
     tonic::include_proto!("ipcnodeapi");
 }
 
-use tokio::task::{self};
-use tokio_stream::{self, StreamExt};
+// ==========================
 // Standard library imports
+// ==========================
 use libp2p::PeerId;
 use std::{
     borrow::Cow,
     io::{Read, Write},
     str::FromStr,
-    sync::{Arc, Mutex},
 };
 
-// External crate imports (general)
-use crate::{blockchain::eip712_utils::create_block_eip712_data, utils::erasure::ErasureCode};
+// ==========================
+// External crate imports
+// ==========================
+use crate::{
+    blockchain::eip712_utils::create_block_eip712_data,
+    blockchain::ipc_types::BucketResponse,
+    blockchain::provider::BlockchainProvider,
+    log_debug, log_error, log_info,
+    sdk_types::{
+        AkaveBlockData, AkaveError, BucketListItem, BucketListResponse, BucketViewResponse,
+        FileBlockDownload, FileChunk, FileChunkDownload, FileDownloadResponse, FileListItem,
+        FileListResponse, FileViewResponse, IpcFileChunkUpload,
+    },
+    utils,
+    utils::dag::{ChunkDag, DAG_PROTOBUF},
+    utils::encryption::Encryption,
+    utils::erasure::ErasureCode,
+    utils::pb_data::PbData,
+};
 use alloy::hex;
 use bytesize::{ByteSize, MB};
 use cid::{
@@ -25,7 +43,9 @@ use cid::{
 use quick_protobuf::BytesReader;
 use web3::types::{TransactionReceipt, U256};
 
+// ==========================
 // Proto-related imports
+// ==========================
 use ipcnodeapi::{
     ipc_chunk::Block, ipc_node_api_client::IpcNodeApiClient, ConnectionParamsRequest,
     IpcBucketListRequest, IpcBucketViewRequest, IpcChunk, IpcFileBlockData,
@@ -33,45 +53,28 @@ use ipcnodeapi::{
     IpcFileListRequest, IpcFileUploadChunkCreateRequest, IpcFileViewRequest,
 };
 
-// Internal crate imports
-use crate::sdk_types::{
-    AkaveError, BucketListItem, BucketListResponse, BucketViewResponse, FileChunk,
-    FileDownloadResponse, FileListItem, FileListResponse, FileViewResponse,
-};
-use crate::utils::dag::{ChunkDag, DAG_PROTOBUF}; // Removed unused RAW import
-use crate::utils::encryption::Encryption;
-use crate::utils::pb_data::PbData;
-use crate::{
-    blockchain::ipc_types::BucketResponse,
-    sdk_types::{AkaveBlockData, FileBlockDownload, FileChunkDownload, IpcFileChunkUpload},
-};
-use crate::{blockchain::provider::BlockchainProvider, utils};
-use crate::{log_debug, log_error, log_info};
-
+// ==========================
 // Target-specific imports and types
+// ==========================
 #[cfg(target_arch = "wasm32")]
-mod wasm_imports {
-    pub use crate::utils::seekable_web_file::SeekableWebFile as File;
+mod wasm_support {
     pub use tonic_web_wasm_client::Client as GrpcWebClient;
+    pub type ClientTransport = GrpcWebClient;
+    // Add more WASM-specific imports/types here if needed
 }
-
 #[cfg(target_arch = "wasm32")]
-use wasm_imports::*;
+use wasm_support::*;
 
 #[cfg(not(target_arch = "wasm32"))]
-mod native_imports {
+mod native_support {
+    pub use std::sync::{Arc, Mutex};
+    pub use tokio_stream::{self, StreamExt};
     pub use tonic::transport::{Channel, ClientTlsConfig};
+    pub type ClientTransport = Channel;
+    // Add more native-specific imports/types here if needed
 }
-
 #[cfg(not(target_arch = "wasm32"))]
-use native_imports::*;
-
-// Target-specific type definitions
-#[cfg(target_arch = "wasm32")]
-type ClientTransport = GrpcWebClient;
-
-#[cfg(not(target_arch = "wasm32"))]
-type ClientTransport = Channel;
+use native_support::*;
 
 // Constants
 const ENCRYPTION_OVERHEAD: usize = 32;
@@ -230,7 +233,8 @@ impl AkaveSDK {
             log_debug!("Requesting connection parameters...");
             let connection_params = client
                 .connection_params(ConnectionParamsRequest {})
-                .await?
+                .await
+                .map_err(|e| AkaveError::GrpcError(e.to_string()))?
                 .into_inner();
             log_debug!("Creating blockchain provider...");
             let storage = BlockchainProvider::new(
@@ -748,7 +752,7 @@ impl AkaveSDK {
         file_name: &str,
         erasure_code: Option<&ErasureCode>,
         block_size: usize,
-        client: &mut IpcNodeApiClient<Channel>,
+        client: &mut IpcNodeApiClient<ClientTransport>,
         storage: &BlockchainProvider,
     ) -> Result<(IpcFileChunkUpload, TransactionReceipt, IpcChunk), AkaveError> {
         log_debug!(
@@ -1008,8 +1012,8 @@ impl AkaveSDK {
         bucket_name: &str,
         file_name: &str,
         passwd: Option<&str>,
-        writer: W,
-    ) -> Result<(), AkaveError> {
+        mut writer: W,
+    ) -> Result<W, AkaveError> {
         let info = vec![bucket_name, file_name].join("/");
 
         // Use default encryption if provided and no password was specified
@@ -1043,9 +1047,6 @@ impl AkaveSDK {
             .codec();
 
         let mut chunk_index = 0;
-
-        // Wrap the writer in Arc<Mutex<...>> for safe sharing across tasks
-        let writer = Arc::new(Mutex::new(writer));
 
         for chunk in file_download.chunks {
             log_debug!("Processing chunk {} for file: {}", chunk_index, file_name);
@@ -1152,22 +1153,15 @@ impl AkaveSDK {
                 None => processed_data,
             };
 
-            // Write to the writer in a blocking task
-            let writer = Arc::clone(&writer);
-            let data = decrypted_data;
-            task::spawn_blocking(move || {
-                let mut writer = writer.lock().unwrap();
-                writer
-                    .write_all(&data)
-                    .map_err(|e| AkaveError::FileError(e.to_string()))
-            })
-            .await
-            .map_err(|e| AkaveError::FileError(e.to_string()))??;
+            // Write to the writer directly (sequential, no blocking task)
+            writer
+                .write_all(&decrypted_data)
+                .map_err(|e| AkaveError::FileError(e.to_string()))?;
 
             chunk_index += 1;
         }
 
-        Ok(())
+        Ok(writer)
     }
 
     async fn create_chunk_download(
@@ -1232,11 +1226,15 @@ impl AkaveSDK {
             // Parse node address and modify port
             let parts: Vec<&str> = node_address.split(':').collect();
             if parts.len() != 2 {
-                return Err("Invalid node address format, expected IP:PORT".into());
+                return Err(AkaveError::GrpcError(
+                    "Invalid node address format, expected IP:PORT".to_string(),
+                ));
             }
 
             let host = parts[0];
-            let port = parts[1].parse::<u16>().map_err(|_| "Invalid port number")?;
+            let port = parts[1]
+                .parse::<u16>()
+                .map_err(|_| AkaveError::GrpcError("Invalid port number".to_string()))?;
 
             let address = format!("http://{}:{}/grpc", host, port + 2000);
 

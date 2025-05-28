@@ -180,7 +180,7 @@ impl BlockchainProvider {
         let hash = self
             .call_contract(function_name, params)
             .await
-            .map_err(|e| ProviderError::ContractCall(e.to_string()))?;
+            .map_err(|e| ProviderError::ContractCallError(e.to_string()))?;
         log_debug!("Transaction hash: {}", hash);
 
         // Initial backoff parameters
@@ -295,7 +295,7 @@ impl BlockchainProvider {
                 .key
                 .as_ref()
                 .ok_or("Missing key for signed call")
-                .map_err(|e| ProviderError::ContractCall(e.to_string()))?;
+                .map_err(|e| ProviderError::KeyError(e.to_string()))?;
             let key_ref = SecretKeyRef::new(key);
 
             let hash = self
@@ -309,7 +309,12 @@ impl BlockchainProvider {
 
         #[cfg(target_arch = "wasm32")]
         {
-            let address = self.web3_provider.eth().accounts().await?[0];
+            let address = self
+                .web3_provider
+                .eth()
+                .accounts()
+                .await
+                .map_err(|e| ProviderError::AddressError(e.to_string()))?[0];
             log_debug!(
                 "Calling contract function: {} with confirmations, with address: {}",
                 function_name,
@@ -318,7 +323,8 @@ impl BlockchainProvider {
             return Ok(self
                 .akave_storage
                 .call(function_name, params, address, txopts)
-                .await?);
+                .await
+                .map_err(|e| ProviderError::ContractCallError(e.to_string()))?);
         }
     }
 
@@ -326,7 +332,12 @@ impl BlockchainProvider {
         log_debug!("Getting provider address");
         #[cfg(target_arch = "wasm32")]
         {
-            Ok(self.web3_provider.eth().accounts().await?[0])
+            Ok(self
+                .web3_provider
+                .eth()
+                .accounts()
+                .await
+                .map_err(|e| ProviderError::AccountError(e.to_string()))?[0])
         }
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -497,7 +508,7 @@ impl BlockchainProvider {
                 None,
             )
             .await
-            .map_err(|e| ProviderError::ContractCall(e.to_string()))?;
+            .map_err(|e| ProviderError::ContractCallError(e.to_string()))?;
         Ok(result)
     }
 
@@ -552,7 +563,7 @@ impl BlockchainProvider {
                 None,
             )
             .await
-            .map_err(|e| ProviderError::ContractCall(e.to_string()))?;
+            .map_err(|e| ProviderError::ContractCallError(e.to_string()))?;
         Ok(result)
     }
 
@@ -623,15 +634,21 @@ impl BlockchainProvider {
             );
 
             // Get the current account
-            let accounts = self.web3_provider.eth().accounts().await?;
+            let accounts = self
+                .web3_provider
+                .eth()
+                .accounts()
+                .await
+                .map_err(|e| ProviderError::AccountError(e.to_string()))?;
             if accounts.is_empty() {
-                return Err("No accounts available".into());
+                return Err(ProviderError::AccountError("No accounts available".into()));
             }
 
             // Call the provider's eth_signTypedData_v4 method
             // Prepare parameters for the JSON-RPC call
             let account = format!("{:?}", accounts[0]);
-            let typed_data_json = serde_json::to_string(&eip712_request)?;
+            let typed_data_json = serde_json::to_string(&eip712_request)
+                .map_err(|e| ProviderError::EncodeError(e.to_string()))?;
 
             // Call the RPC method with proper parameters
             let params = vec![
@@ -645,7 +662,8 @@ impl BlockchainProvider {
                 .web3_provider
                 .transport()
                 .execute("eth_signTypedData_v4", params)
-                .await?
+                .await
+                .map_err(|e| ProviderError::TransactionError(e.to_string()))?
                 .to_string();
             log_debug!("Received signature hex: {}", signature_hex);
 
@@ -668,9 +686,11 @@ pub enum ProviderError {
     #[error("block number error: {0}")]
     BlockNumber(String),
     #[error("contract call error: {0}")]
-    ContractCall(String),
+    ContractCallError(String),
     #[error("address error: {0}")]
     AddressError(String),
     #[error("encode error: {0}")]
     EncodeError(String),
+    #[error("account error: {0}")]
+    AccountError(String),
 }

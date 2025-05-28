@@ -1,12 +1,15 @@
+use std::io::Cursor;
+
 use crate::blockchain::ipc_types::BucketResponse;
 use crate::panic_handler::initialize_panic_handler;
 use crate::sdk::{AkaveSDK, AkaveSDKBuilder};
-use crate::sdk_types::{BucketListResponse, BucketViewResponse, FileListResponse, FileViewResponse};
+use crate::sdk_types::{
+    BucketListResponse, BucketViewResponse, FileListResponse, FileViewResponse,
+};
 use crate::{log_debug, log_error, log_info};
 
+use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
-use crate::utils::seekable_web_file::SeekableWebFile;
-use web_sys::File;
 
 #[wasm_bindgen]
 pub struct AkaveWebSDK {
@@ -27,47 +30,53 @@ impl AkaveWebSDKBuilder {
             inner_builder: AkaveSDKBuilder::new(server_address),
         }
     }
-    
+
     #[wasm_bindgen(js_name = "withErasureCoding")]
     pub fn with_erasure_coding(mut self, data_blocks: usize, parity_blocks: usize) -> Self {
-        self.inner_builder = self.inner_builder.with_erasure_coding(data_blocks, parity_blocks);
+        self.inner_builder = self
+            .inner_builder
+            .with_erasure_coding(data_blocks, parity_blocks);
         self
     }
-    
+
     #[wasm_bindgen(js_name = "withDefaultEncryption")]
     pub fn with_default_encryption(mut self, encryption_key: &str) -> Self {
         self.inner_builder = self.inner_builder.with_default_encryption(encryption_key);
         self
     }
-    
+
     #[wasm_bindgen(js_name = "withBlockSize")]
     pub fn with_block_size(mut self, block_size: usize) -> Self {
         self.inner_builder = self.inner_builder.with_block_size(block_size);
         self
     }
-    
+
     #[wasm_bindgen(js_name = "withMinBucketLength")]
     pub fn with_min_bucket_length(mut self, min_bucket_name_length: usize) -> Self {
-        self.inner_builder = self.inner_builder.with_min_bucket_length(min_bucket_name_length);
+        self.inner_builder = self
+            .inner_builder
+            .with_min_bucket_length(min_bucket_name_length);
         self
     }
-    
+
     #[wasm_bindgen(js_name = "withMaxBlocksInChunk")]
     pub fn with_max_blocks_in_chunk(mut self, max_blocks_in_chunk: usize) -> Self {
-        self.inner_builder = self.inner_builder.with_max_blocks_in_chunk(max_blocks_in_chunk);
+        self.inner_builder = self
+            .inner_builder
+            .with_max_blocks_in_chunk(max_blocks_in_chunk);
         self
     }
-    
+
     #[wasm_bindgen(js_name = "withBlockPartSize")]
     pub fn with_block_part_size(mut self, block_part_size: usize) -> Self {
         self.inner_builder = self.inner_builder.with_block_part_size(block_part_size);
         self
     }
-    
+
     #[wasm_bindgen(js_name = "build")]
     pub async fn build(self) -> Result<AkaveWebSDK, JsError> {
         log_info!("Building AkaveWebSDK with configured options");
-        
+
         match self.inner_builder.build().await {
             Ok(sdk) => {
                 log_info!("AkaveWebSDK initialized successfully");
@@ -86,7 +95,9 @@ impl AkaveWebSDK {
     pub async fn new() -> Result<AkaveWebSDK, JsError> {
         log_info!("Initializing AkaveWebSDK with default settings");
         initialize_panic_handler();
-        AkaveWebSDKBuilder::new("http://localhost:3000").build().await
+        AkaveWebSDKBuilder::new("http://localhost:3000")
+            .build()
+            .await
     }
 
     #[wasm_bindgen(constructor)]
@@ -97,10 +108,7 @@ impl AkaveWebSDK {
     }
 
     #[wasm_bindgen(js_name = "listBuckets")]
-    pub async fn list_buckets(
-        &mut self,
-        address: &str,
-    ) -> Result<BucketListResponse, JsError> {
+    pub async fn list_buckets(&mut self, address: &str) -> Result<BucketListResponse, JsError> {
         log_debug!("Listing buckets for address: {}", address);
         let response = self.sdk.list_buckets(address).await;
         match response {
@@ -257,17 +265,17 @@ impl AkaveWebSDK {
         &mut self,
         bucket_name: &str,
         file_name: &str,
-        file: File,
+        data: &[u8],
     ) -> Result<(), JsError> {
         log_debug!("Uploading file: {} to bucket: {}", file_name, bucket_name);
-        
-        let seekable_file = SeekableWebFile::new(file);
-        
+
+        let mut reader = Cursor::new(data.to_vec());
+
         let response = self
             .sdk
-            .upload_file(bucket_name, file_name, seekable_file, None)
+            .upload_file(bucket_name, file_name, &mut reader, None)
             .await;
-        
+
         match response {
             Ok(_) => {
                 log_info!(
@@ -290,31 +298,24 @@ impl AkaveWebSDK {
         address: &str,
         bucket_name: &str,
         file_name: &str,
-        destination_path: &str,
-    ) -> Result<(), JsError> {
+    ) -> Result<Uint8Array, JsError> {
         log_debug!(
             "Downloading file: {} from bucket: {} for address: {}",
             file_name,
             bucket_name,
             address
         );
-        let response = self
+
+        let mut data = Vec::new();
+
+        data = self
             .sdk
-            .download_file(address, bucket_name, file_name, None, destination_path)
-            .await;
-        match response {
-            Ok(_) => {
-                log_info!(
-                    "Successfully downloaded file: {} from bucket: {}",
-                    file_name,
-                    bucket_name
-                );
-                Ok(())
-            }
-            Err(e) => {
-                log_error!("Failed to download file: {}", e);
-                Err(JsError::new(e.to_string().as_str()))
-            }
-        }
+            .download_file(address, bucket_name, file_name, None, data)
+            .await
+            .map_err(|e| JsError::new(&format!("Download failed: {:?}", e)))?
+            .to_vec();
+
+        // Return as Uint8Array to JS
+        Ok(js_sys::Uint8Array::from(&data[..]))
     }
 }
