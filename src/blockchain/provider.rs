@@ -386,7 +386,8 @@ impl BlockchainProvider {
         &self,
         bucket_id: BucketId,
         file_name: String,
-        size: U256,
+        encode_size: U256,
+        actual_size: U256,
         root_cid: Vec<u8>,
     ) -> Result<TransactionReceipt, ProviderError> {
         let file_name_clone = file_name.clone();
@@ -398,7 +399,13 @@ impl BlockchainProvider {
         let result = self
             .call_contract_with_confirmations(
                 COMMIT_FILE,
-                (bucket_id.to_bytes(), file_name, size, root_cid),
+                (
+                    bucket_id.to_bytes(),
+                    file_name,
+                    encode_size,
+                    actual_size,
+                    root_cid,
+                ),
             )
             .await;
         match &result {

@@ -614,7 +614,8 @@ impl AkaveSDK {
         buffer_size -= encryption_overhead;
 
         let root_hasher = Code::Sha2_256;
-        let mut file_size: usize = 0;
+        let mut encode_file_size: usize = 0;
+        let mut actual_file_size: usize = 0;
         let mut root_hash = None;
         let mut idx = 0;
         let mut no_data = true;
@@ -630,6 +631,8 @@ impl AkaveSDK {
                 break;
             }
             buffer.truncate(n);
+
+            actual_file_size += buffer.len();
 
             if buffer.is_empty() && no_data {
                 return Err(AkaveError::InvalidInput("Empty file".to_string()));
@@ -743,7 +746,7 @@ impl AkaveSDK {
             }
 
             // Update file size and root hash
-            file_size += chunk.actual_size;
+            encode_file_size += chunk.actual_size;
             root_hash = Some(root_hasher.digest(&chunk.chunk_cid.to_bytes()));
 
             idx += 1;
@@ -755,7 +758,8 @@ impl AkaveSDK {
             .commit_file(
                 bucket.id,
                 file_name.to_string(),
-                U256::from(file_size),
+                U256::from(encode_file_size),
+                U256::from(actual_file_size),
                 root_cid.to_bytes(),
             )
             .await
