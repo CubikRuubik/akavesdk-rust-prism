@@ -333,24 +333,41 @@ impl BlockchainProvider {
         log_debug!("Getting provider address");
         #[cfg(target_arch = "wasm32")]
         {
-            Ok(self
+            let accounts = self
                 .web3_provider
                 .eth()
                 .accounts()
                 .await
-                .map_err(|e| ProviderError::AccountError(e.to_string()))?[0])
+                .map_err(|e| ProviderError::AccountError(e.to_string()))?;
+
+            if accounts.is_empty() {
+                log_error!("No accounts available. Please connect your wallet.");
+                return Err(ProviderError::AccountError(
+                    "No accounts available. Please connect your wallet.".into(),
+                ));
+            }
+
+            Ok(accounts[0])
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
             match self.key {
                 Some(key) => Ok(SecretKeyRef::new(&key).address()),
-                None => Ok(self
-                    .web3_provider
-                    .eth()
-                    .accounts()
-                    .await
-                    .map_err(|e| ProviderError::AddressError(e.to_string()))?[0]),
+                None => {
+                    let accounts = self
+                        .web3_provider
+                        .eth()
+                        .accounts()
+                        .await
+                        .map_err(|e| ProviderError::AddressError(e.to_string()))?;
+
+                    if accounts.is_empty() {
+                        return Err(ProviderError::AccountError("No accounts available".into()));
+                    }
+
+                    Ok(accounts[0])
+                }
             }
         }
     }
