@@ -132,7 +132,7 @@ wasm-pack build --target web
 <!--
 wasm-pack --verbose build --target web
 cargo build --target wasm32-unknown-unknown --release
-wasm-bindgen target/wasm32-unknown-unknown/release/akave-rs.wasm \
+wasm-bindgen target/wasm32-unknown-unknown/release/akave_rs.wasm \
   --out-dir ./pkg \
   --target web
 -->
