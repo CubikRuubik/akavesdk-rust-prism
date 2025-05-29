@@ -306,7 +306,12 @@ impl AkaveSDK {
     }
 
     /// List all buckets
-    pub async fn list_buckets(&mut self, address: &str) -> Result<BucketListResponse, AkaveError> {
+    pub async fn list_buckets(&mut self) -> Result<BucketListResponse, AkaveError> {
+        let address = self
+            .storage
+            .get_hex_address()
+            .await
+            .map_err(|e| AkaveError::AccountError(e.to_string()))?;
         log_debug!("Listing buckets for address: {}", address);
         let request = IpcBucketListRequest {
             address: address.to_string(),
@@ -333,11 +338,12 @@ impl AkaveSDK {
     }
 
     /// View a bucket
-    pub async fn view_bucket(
-        &self,
-        address: &str,
-        bucket_name: &str,
-    ) -> Result<BucketViewResponse, AkaveError> {
+    pub async fn view_bucket(&self, bucket_name: &str) -> Result<BucketViewResponse, AkaveError> {
+        let address = self
+            .storage
+            .get_hex_address()
+            .await
+            .map_err(|e| AkaveError::AccountError(e.to_string()))?;
         log_debug!("Viewing bucket: {} for address: {}", bucket_name, address);
         let request = IpcBucketViewRequest {
             name: bucket_name.to_string(),
@@ -363,11 +369,12 @@ impl AkaveSDK {
     }
 
     /// List files in a bucket
-    pub async fn list_files(
-        &self,
-        address: &str,
-        bucket_name: &str,
-    ) -> Result<FileListResponse, AkaveError> {
+    pub async fn list_files(&self, bucket_name: &str) -> Result<FileListResponse, AkaveError> {
+        let address = self
+            .storage
+            .get_hex_address()
+            .await
+            .map_err(|e| AkaveError::AccountError(e.to_string()))?;
         log_debug!(
             "Listing files in bucket: {} for address: {}",
             bucket_name,
@@ -403,10 +410,14 @@ impl AkaveSDK {
     /// View file information
     pub async fn view_file_info(
         &self,
-        address: &str,
         bucket_name: &str,
         file_name: &str,
     ) -> Result<FileViewResponse, AkaveError> {
+        let address = self
+            .storage
+            .get_hex_address()
+            .await
+            .map_err(|e| AkaveError::AccountError(e.to_string()))?;
         log_debug!(
             "Viewing file info: {} in bucket: {} for address: {}",
             file_name,
@@ -466,13 +477,14 @@ impl AkaveSDK {
     }
 
     // Delete an existing bucket
-    pub async fn delete_bucket(
-        &self,
-        address: &str,
-        bucket_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn delete_bucket(&self, bucket_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let address = self
+            .storage
+            .get_hex_address()
+            .await
+            .map_err(|e| AkaveError::AccountError(e.to_string()))?;
         log_debug!("Deleting bucket: {} for address: {}", bucket_name, address);
-        let bucket = self.view_bucket(address, bucket_name).await?;
+        let bucket = self.view_bucket(bucket_name).await?;
         let bucket_id_bytes = hex::decode(bucket.id.clone())?;
         let bucket_id = BucketId::from_slice(&bucket_id_bytes).ok_or("Invalid bucket ID length")?;
         let bucket_idx = self
@@ -490,17 +502,21 @@ impl AkaveSDK {
     // Delete an existing file
     pub async fn delete_file(
         &self,
-        address: &str,
         bucket_name: &str,
         file_name: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let address = self
+            .storage
+            .get_hex_address()
+            .await
+            .map_err(|e| AkaveError::AccountError(e.to_string()))?;
         log_debug!(
             "Deleting file: {} from bucket: {} for address: {}",
             file_name,
             bucket_name,
             address
         );
-        let bucket = self.view_bucket(address, bucket_name).await?;
+        let bucket = self.view_bucket(bucket_name).await?;
         let bucket_id_bytes = hex::decode(bucket.id.clone())?;
         let bucket_id = BucketId::from_slice(&bucket_id_bytes).ok_or("Invalid bucket ID length")?;
         self.storage
@@ -1016,12 +1032,16 @@ impl AkaveSDK {
 
     pub async fn download_file<W: Write + Send + 'static>(
         &self,
-        address: &str,
         bucket_name: &str,
         file_name: &str,
         passwd: Option<&str>,
         mut writer: W,
     ) -> Result<W, AkaveError> {
+        let address = self
+            .storage
+            .get_hex_address()
+            .await
+            .map_err(|e| AkaveError::AccountError(e.to_string()))?;
         let info = vec![bucket_name, file_name].join("/");
 
         // Use default encryption if provided and no password was specified
@@ -1046,7 +1066,7 @@ impl AkaveSDK {
         };
 
         let file_download = self
-            .create_file_download(address, bucket_name, file_name)
+            .create_file_download(&address, bucket_name, file_name)
             .await
             .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
 
@@ -1061,7 +1081,7 @@ impl AkaveSDK {
             let chunk_cid = chunk.cid.clone();
             let chunk_size = chunk.size;
             let chunk_download = self
-                .create_chunk_download(bucket_name, file_name, address, chunk, chunk_index)
+                .create_chunk_download(bucket_name, file_name, &address, chunk, chunk_index)
                 .await
                 .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
 
@@ -1291,7 +1311,6 @@ mod tests {
     use std::path::Path;
     use uuid::Uuid;
 
-    const ADDRESS: &str = "0x7975eD6b732D1A4748516F66216EE703f4856759";
     const FILE_NAME_TO_TEST: &str = "1MB.txt";
     const DOWNLOAD_DESTINATION: &str = "/tmp/akave-tests/";
     const TEST_PASSWORD: &str = "testkey123";
@@ -1376,7 +1395,7 @@ mod tests {
         assert_eq!(bucket_resp.name, bucket_name);
 
         // Cleanup
-        let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
+        let _ = sdk.delete_bucket(&bucket_name).await;
     }
 
     #[tokio::test]
@@ -1389,13 +1408,13 @@ mod tests {
         let _ = sdk.create_bucket(&bucket_name).await.unwrap();
 
         // Test
-        let buckets = sdk.list_buckets(ADDRESS).await.unwrap();
+        let buckets = sdk.list_buckets().await.unwrap();
         let len = buckets.buckets.len();
         println!("Found {} buckets", len);
         assert_ne!(len, 0, "there should be buckets in this account");
 
         // Cleanup
-        let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
+        let _ = sdk.delete_bucket(&bucket_name).await;
     }
 
     #[tokio::test]
@@ -1408,11 +1427,11 @@ mod tests {
         let _ = sdk.create_bucket(&bucket_name).await.unwrap();
 
         // Test
-        let bucket = sdk.view_bucket(ADDRESS, &bucket_name).await.unwrap();
+        let bucket = sdk.view_bucket(&bucket_name).await.unwrap();
         assert_eq!(bucket.name, bucket_name);
 
         // Cleanup
-        let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
+        let _ = sdk.delete_bucket(&bucket_name).await;
     }
 
     #[tokio::test]
@@ -1425,7 +1444,7 @@ mod tests {
         let _ = sdk.create_bucket(&bucket_name).await.unwrap();
 
         // Test delete
-        let result = sdk.delete_bucket(ADDRESS, &bucket_name).await;
+        let result = sdk.delete_bucket(&bucket_name).await;
         assert!(
             result.is_ok(),
             "Failed to delete bucket: {:?}",
@@ -1434,7 +1453,7 @@ mod tests {
 
         // Verify deletion - this might need adjustment based on expected behavior
         // If view_bucket is expected to return an error for non-existent buckets:
-        let view_result = sdk.view_bucket(ADDRESS, &bucket_name).await;
+        let view_result = sdk.view_bucket(&bucket_name).await;
         assert!(
             view_result.is_err() || view_result.unwrap().name != bucket_name,
             "Bucket should not exist after deletion"
@@ -1462,7 +1481,7 @@ mod tests {
         );
 
         // Test list files
-        let file_list = sdk.list_files(ADDRESS, &bucket_name).await.unwrap();
+        let file_list = sdk.list_files(&bucket_name).await.unwrap();
         assert_ne!(
             file_list.files.len(),
             0,
@@ -1477,11 +1496,11 @@ mod tests {
         // Test delete files and list
         for file in file_list.files {
             let _ = sdk
-                .delete_file(ADDRESS, &bucket_name, &file.name)
+                .delete_file(&bucket_name, &file.name)
                 .await
                 .expect("failed to delete file");
         }
-        let file_list = sdk.list_files(ADDRESS, &bucket_name).await.unwrap();
+        let file_list = sdk.list_files(&bucket_name).await.unwrap();
         assert_eq!(
             file_list.files.len(),
             0,
@@ -1489,7 +1508,7 @@ mod tests {
         );
 
         // Cleanup
-        let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
+        let _ = sdk.delete_bucket(&bucket_name).await;
     }
 
     #[tokio::test]
@@ -1516,13 +1535,7 @@ mod tests {
 
         // Test download
         let download_result = sdk
-            .download_file(
-                ADDRESS,
-                &bucket_name,
-                FILE_NAME_TO_TEST,
-                None,
-                download_file,
-            )
+            .download_file(&bucket_name, FILE_NAME_TO_TEST, None, download_file)
             .await;
 
         assert!(
@@ -1537,7 +1550,7 @@ mod tests {
 
         // Cleanup
         cleanup_download(&download_path);
-        let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
+        let _ = sdk.delete_bucket(&bucket_name).await;
     }
 
     #[tokio::test]
@@ -1567,13 +1580,7 @@ mod tests {
 
         // Test download
         let download_result = sdk
-            .download_file(
-                ADDRESS,
-                &bucket_name,
-                FILE_NAME_TO_TEST,
-                None,
-                download_file,
-            )
+            .download_file(&bucket_name, FILE_NAME_TO_TEST, None, download_file)
             .await;
 
         assert!(
@@ -1588,7 +1595,7 @@ mod tests {
 
         // Cleanup
         cleanup_download(&download_path);
-        let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
+        let _ = sdk.delete_bucket(&bucket_name).await;
     }
 
     #[tokio::test]
@@ -1618,13 +1625,7 @@ mod tests {
 
         // Test download
         let download_result = sdk
-            .download_file(
-                ADDRESS,
-                &bucket_name,
-                FILE_NAME_TO_TEST,
-                None,
-                download_file,
-            )
+            .download_file(&bucket_name, FILE_NAME_TO_TEST, None, download_file)
             .await;
 
         assert!(
@@ -1639,7 +1640,7 @@ mod tests {
 
         // Cleanup
         cleanup_download(&download_path);
-        let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
+        let _ = sdk.delete_bucket(&bucket_name).await;
     }
 
     #[tokio::test]
@@ -1670,7 +1671,7 @@ mod tests {
 
         // List files
         println!("listing files in bucket {}", bucket_name);
-        let file_list = sdk.list_files(ADDRESS, &bucket_name).await.unwrap();
+        let file_list = sdk.list_files(&bucket_name).await.unwrap();
         let has_test_file = file_list
             .files
             .iter()
@@ -1683,13 +1684,7 @@ mod tests {
         let download_file = File::create(&download_path).unwrap();
 
         let download_result = sdk
-            .download_file(
-                ADDRESS,
-                &bucket_name,
-                FILE_NAME_TO_TEST,
-                None,
-                download_file,
-            )
+            .download_file(&bucket_name, FILE_NAME_TO_TEST, None, download_file)
             .await;
         assert!(download_result.is_ok());
         assert!(Path::new(&download_path).exists());
@@ -1702,11 +1697,11 @@ mod tests {
 
         // Delete file
         println!("deleting file {}", FILE_NAME_TO_TEST);
-        let _ = sdk.delete_file(ADDRESS, &bucket_name, FILE_NAME_TO_TEST);
+        let _ = sdk.delete_file(&bucket_name, FILE_NAME_TO_TEST);
 
         // Delete bucket
         println!("deleting bucket {}", bucket_name);
-        let _ = sdk.delete_bucket(ADDRESS, &bucket_name).await;
+        let _ = sdk.delete_bucket(&bucket_name).await;
     }
 
     // helper cleanup function
@@ -1717,7 +1712,7 @@ mod tests {
 
         // 1. List all buckets
         println!("Listing all buckets to find test buckets...");
-        let buckets = match sdk.list_buckets(ADDRESS).await {
+        let buckets = match sdk.list_buckets().await {
             Ok(bucket_list) => bucket_list.buckets,
             Err(e) => {
                 println!("Error listing buckets: {:?}", e);
@@ -1751,16 +1746,16 @@ mod tests {
         for bucket in test_buckets {
             println!("Deleting test bucket: {}", bucket.name);
             // TODO: fixme when invalid files are deleted
-            // let files = sdk.list_files(ADDRESS, &bucket.name).await.expect("Failed to list files for specified (address, bucket_name)");
+            // let files = sdk.list_files(&bucket.name).await.expect("Failed to list files for specified (address, bucket_name)");
 
             // for file in files {
             //     println!("Deleting test file: {}, from bucket: {}", file.name, bucket.name);
-            //     match sdk.delete_file(ADDRESS, bucket.name.as_str(), file.name.as_str()).await {
+            //     match sdk.delete_file(bucket.name.as_str(), file.name.as_str()).await {
             //         Ok(_) => println!("Successfully deleted file: {}", file.name),
             //         Err(e) => println!("Error deleting bucket {}: {:?}", bucket.name, e),
             //     }
             // }
-            match sdk.delete_bucket(ADDRESS, &bucket.name).await {
+            match sdk.delete_bucket(&bucket.name).await {
                 Ok(_) => println!("Successfully deleted bucket: {}", bucket.name),
                 Err(e) => println!("Error deleting bucket {}: {:?}", bucket.name, e),
             }

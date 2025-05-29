@@ -355,6 +355,12 @@ impl BlockchainProvider {
         }
     }
 
+    pub async fn get_hex_address(&self) -> Result<String, ProviderError> {
+        log_debug!("Getting provider hex address");
+        let address = self.get_address().await?;
+        Ok(format!("0x{:x}", address))
+    }
+
     pub async fn create_file(
         &self,
         bucket_id: BucketId,

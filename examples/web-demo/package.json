@@ -9,7 +9,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@akave/akave-web-sdk": "file:../../pkg"
+    "@akave/akave-rs": "file:../../pkg"
   },
   "devDependencies": {
     "@types/node": "^20.11.24",

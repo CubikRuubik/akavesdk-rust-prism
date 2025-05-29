@@ -108,9 +108,9 @@ impl AkaveWebSDK {
     }
 
     #[wasm_bindgen(js_name = "listBuckets")]
-    pub async fn list_buckets(&mut self, address: &str) -> Result<BucketListResponse, JsError> {
-        log_debug!("Listing buckets for address: {}", address);
-        let response = self.sdk.list_buckets(address).await;
+    pub async fn list_buckets(&mut self) -> Result<BucketListResponse, JsError> {
+        log_debug!("Listing buckets");
+        let response = self.sdk.list_buckets().await;
         match response {
             Ok(bucket_list_response) => {
                 log_info!("Successfully retrieved bucket list");
@@ -124,13 +124,9 @@ impl AkaveWebSDK {
     }
 
     #[wasm_bindgen(js_name = "viewBucket")]
-    pub async fn view_bucket(
-        &mut self,
-        address: &str,
-        bucket_name: &str,
-    ) -> Result<BucketViewResponse, JsError> {
-        log_debug!("Viewing bucket: {} for address: {}", bucket_name, address);
-        let response = self.sdk.view_bucket(address, bucket_name).await;
+    pub async fn view_bucket(&mut self, bucket_name: &str) -> Result<BucketViewResponse, JsError> {
+        log_debug!("Viewing bucket: {}", bucket_name);
+        let response = self.sdk.view_bucket(bucket_name).await;
         match response {
             Ok(bucket_view_response) => {
                 log_info!("Successfully retrieved bucket details");
@@ -146,20 +142,15 @@ impl AkaveWebSDK {
     #[wasm_bindgen(js_name = "viewFileInfo")]
     pub async fn view_file_info(
         &mut self,
-        address: &str,
         bucket_name: &str,
         file_name: &str,
     ) -> Result<FileViewResponse, JsError> {
         log_debug!(
-            "Viewing file info: {} in bucket: {} for address: {}",
+            "Viewing file info: {} in bucket: {}",
             file_name,
             bucket_name,
-            address
         );
-        let response = self
-            .sdk
-            .view_file_info(address, bucket_name, file_name)
-            .await;
+        let response = self.sdk.view_file_info(bucket_name, file_name).await;
 
         match response {
             Ok(file_view_response) => {
@@ -174,17 +165,9 @@ impl AkaveWebSDK {
     }
 
     #[wasm_bindgen(js_name = "listFiles")]
-    pub async fn list_files(
-        &mut self,
-        address: &str,
-        bucket_name: &str,
-    ) -> Result<FileListResponse, JsError> {
-        log_debug!(
-            "Listing files in bucket: {} for address: {}",
-            bucket_name,
-            address
-        );
-        let response = self.sdk.list_files(address, bucket_name).await;
+    pub async fn list_files(&mut self, bucket_name: &str) -> Result<FileListResponse, JsError> {
+        log_debug!("Listing files in bucket: {}", bucket_name,);
+        let response = self.sdk.list_files(bucket_name).await;
 
         match response {
             Ok(file_list_response) => {
@@ -215,9 +198,9 @@ impl AkaveWebSDK {
     }
 
     #[wasm_bindgen(js_name = "deleteBucket")]
-    pub async fn delete_bucket(&mut self, address: &str, bucket_name: &str) -> Result<(), JsError> {
-        log_debug!("Deleting bucket: {} for address: {}", bucket_name, address);
-        let response = self.sdk.delete_bucket(address, bucket_name).await;
+    pub async fn delete_bucket(&mut self, bucket_name: &str) -> Result<(), JsError> {
+        log_debug!("Deleting bucket: {}", bucket_name);
+        let response = self.sdk.delete_bucket(bucket_name).await;
         match response {
             Ok(_) => {
                 log_info!("Successfully deleted bucket: {}", bucket_name);
@@ -231,19 +214,9 @@ impl AkaveWebSDK {
     }
 
     #[wasm_bindgen(js_name = "deleteFile")]
-    pub async fn delete_file(
-        &mut self,
-        address: &str,
-        bucket_name: &str,
-        file_name: &str,
-    ) -> Result<(), JsError> {
-        log_debug!(
-            "Deleting file: {} from bucket: {} for address: {}",
-            file_name,
-            bucket_name,
-            address
-        );
-        let response = self.sdk.delete_file(address, bucket_name, file_name).await;
+    pub async fn delete_file(&mut self, bucket_name: &str, file_name: &str) -> Result<(), JsError> {
+        log_debug!("Deleting file: {} from bucket: {}", file_name, bucket_name,);
+        let response = self.sdk.delete_file(bucket_name, file_name).await;
         match response {
             Ok(_) => {
                 log_info!(
@@ -295,22 +268,20 @@ impl AkaveWebSDK {
     #[wasm_bindgen(js_name = "downloadFile")]
     pub async fn download_file(
         &mut self,
-        address: &str,
         bucket_name: &str,
         file_name: &str,
     ) -> Result<Uint8Array, JsError> {
         log_debug!(
-            "Downloading file: {} from bucket: {} for address: {}",
+            "Downloading file: {} from bucket: {}",
             file_name,
             bucket_name,
-            address
         );
 
         let mut data = Vec::new();
 
         data = self
             .sdk
-            .download_file(address, bucket_name, file_name, None, data)
+            .download_file(bucket_name, file_name, None, data)
             .await
             .map_err(|e| JsError::new(&format!("Download failed: {:?}", e)))?
             .to_vec();

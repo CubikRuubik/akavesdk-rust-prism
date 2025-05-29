@@ -1,4 +1,4 @@
-import init, { AkaveWebSDKBuilder } from "@akave/akave-web-sdk";
+import init, { AkaveWebSDKBuilder } from "@akave/akave-rs";
 import { AppState, Bucket, File, Notification } from "./types";
 import "./styles.css";
 
@@ -190,9 +190,7 @@ class App {
       if (!this.state.currentAddress || !this.state.sdk) return;
 
       console.log(`Fetching buckets for address: ${this.state.currentAddress}`);
-      const response = await this.state.sdk.listBuckets(
-        this.state.currentAddress
-      );
+      const response = await this.state.sdk.listBuckets();
       console.log(`Found ${response.buckets.length} buckets`, response.buckets);
 
       this.bucketsList.innerHTML = "";
@@ -235,7 +233,7 @@ class App {
       if (!this.state.currentAddress || !this.state.sdk) return;
 
       console.log(`Deleting bucket: ${bucketName}`);
-      await this.state.sdk.deleteBucket(this.state.currentAddress, bucketName);
+      await this.state.sdk.deleteBucket(bucketName);
       console.log(`Bucket "${bucketName}" deleted successfully`);
 
       this.showNotification({
@@ -260,10 +258,7 @@ class App {
       if (!this.state.currentAddress || !this.state.sdk) return;
 
       console.log(`Fetching files for bucket: ${bucketName}`);
-      const response = await this.state.sdk.listFiles(
-        this.state.currentAddress,
-        bucketName
-      );
+      const response = await this.state.sdk.listFiles(bucketName);
       console.log(
         `Found ${response.files.length} files in bucket ${bucketName}`
       );
@@ -323,12 +318,7 @@ class App {
       const tempPath = "download"; // The actual path is handled by the WASM implementation
 
       // Trigger download from SDK
-      await this.state.sdk.downloadFile(
-        this.state.currentAddress,
-        bucketName,
-        fileName,
-        tempPath
-      );
+      await this.state.sdk.downloadFile(bucketName, fileName);
 
       console.log(`File "${fileName}" download initiated successfully`);
 
@@ -354,11 +344,7 @@ class App {
       if (!this.state.currentAddress || !this.state.sdk) return;
 
       console.log(`Deleting file: ${fileName}`);
-      await this.state.sdk.deleteFile(
-        this.state.currentAddress,
-        bucketName,
-        fileName
-      );
+      await this.state.sdk.deleteFile(bucketName, fileName);
       console.log(`File "${fileName}" deleted successfully`);
 
       this.showNotification({
@@ -391,7 +377,7 @@ class App {
       }
 
       console.log(`Uploading file: ${file.name} to bucket: ${bucketName}`);
-      await this.state.sdk.uploadFile(bucketName, file.name, file);
+      // await this.state.sdk.uploadFile(bucketName, file.name, file);
       console.log(`File "${file.name}" uploaded successfully`);
 
       this.showNotification({

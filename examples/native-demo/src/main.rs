@@ -6,7 +6,6 @@ use std::path::Path;
 
 const TEST_PASSWORD: &str = "testkey123";
 const FILE_NAME_TO_TEST: &str = "2MB.txt";
-const TEST_ADDRESS: &str = "0x7975eD6b732D1A4748516F66216EE703f4856759";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // View bucket details
     println!("Viewing bucket details...");
-    let bucket_view = sdk.view_bucket(TEST_ADDRESS, &bucket_name).await?;
+    let bucket_view = sdk.view_bucket(&bucket_name).await?;
     println!("Bucket name: {}", bucket_view.name);
 
     // Read the test file
@@ -54,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // List files in the bucket
     println!("Listing files in bucket...");
-    let file_list = sdk.list_files(TEST_ADDRESS, &bucket_name).await?;
+    let file_list = sdk.list_files(&bucket_name).await?;
     println!("Files in bucket:");
     for file in file_list.files {
         println!("- {}", file.name);
@@ -62,9 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // View file info
     println!("Viewing file info...");
-    let file_info = sdk
-        .view_file_info(TEST_ADDRESS, &bucket_name, FILE_NAME_TO_TEST)
-        .await?;
+    let file_info = sdk.view_file_info(&bucket_name, FILE_NAME_TO_TEST).await?;
     println!("File info: {:?}", file_info);
 
     // Create downloads directory if it doesn't exist
@@ -76,25 +73,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // sleep(Duration::from_secs(5));
     // Download the file
     println!("Downloading file...");
-    sdk.download_file(
-        TEST_ADDRESS,
-        &bucket_name,
-        FILE_NAME_TO_TEST,
-        None,
-        download_file,
-    )
-    .await?;
+    sdk.download_file(&bucket_name, FILE_NAME_TO_TEST, None, download_file)
+        .await?;
     println!("File downloaded successfully!");
 
     // Delete the file
     println!("Deleting file...");
-    sdk.delete_file(TEST_ADDRESS, &bucket_name, FILE_NAME_TO_TEST)
-        .await?;
+    sdk.delete_file(&bucket_name, FILE_NAME_TO_TEST).await?;
     println!("File deleted successfully!");
 
     // Clean up
     println!("Cleaning up...");
-    sdk.delete_bucket(TEST_ADDRESS, &bucket_name).await?;
+    sdk.delete_bucket(&bucket_name).await?;
     println!("Demo completed successfully!");
 
     Ok(())

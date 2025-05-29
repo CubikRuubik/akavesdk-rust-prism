@@ -5,6 +5,9 @@ authors = ["Gilberto Conde <gilberto.conde@lightshift.xyz>",
     "Sam Hassan <sam.hassan@lightshift.xyz>"]
 edition = "2021"
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
 [lib]
 # Support for both WebAssembly and native builds
 crate-type = ["cdylib", "rlib"]

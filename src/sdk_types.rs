@@ -51,6 +51,9 @@ pub enum AkaveError {
 
     #[error("channel error: {0}")]
     ChannelError(String),
+
+    #[error("account error: {0}")]
+    AccountError(String),
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
