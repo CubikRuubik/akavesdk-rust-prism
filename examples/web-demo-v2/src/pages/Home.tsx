@@ -2,10 +2,16 @@ import { useAccount } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { Link } from "react-router-dom";
 import { useListBuckets } from "../hooks/useAkave";
+import { AddBucketButton } from "../components/AddBucketButton";
 
 export default function Home() {
   const { address } = useAccount();
-  const { data: buckets, isLoading, error } = useListBuckets(!!address);
+  const {
+    data: buckets,
+    isLoading,
+    error,
+    refetch,
+  } = useListBuckets(!!address);
 
   if (!address) {
     return (
@@ -26,6 +32,7 @@ export default function Home() {
         <h1 className="text-2xl font-bold mb-6 text-[rgb(var(--color-primary)/1)]">
           Buckets
         </h1>
+        {address && <AddBucketButton onSuccess={refetch} />}
         {isLoading && <div>Loading buckets...</div>}
         {error && (
           <div className="text-red-500">{(error as Error).message}</div>
@@ -35,7 +42,8 @@ export default function Home() {
             <li key={bucket.id}>
               <Link
                 to={`/buckets/${encodeURIComponent(bucket.id)}`}
-                className="block w-full text-left px-4 py-2 rounded transition-colors hover:bg-[rgb(var(--color-primary)/0.08)]"
+                className="max-w-full block w-full text-left px-4 py-2 rounded transition-colors hover:bg-[rgb(var(--color-primary)/0.08)] truncate"
+                title={bucket.name}
               >
                 {bucket.name}
               </Link>

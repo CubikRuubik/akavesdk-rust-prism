@@ -1,42 +1,29 @@
-// src/providers/AkaveProvider.tsx
-import React, { useEffect, useState } from "react";
-import init, { AkaveWebSDK, AkaveWebSDKBuilder } from "../../../akave-rs";
+import React, { useState } from "react";
 import { AkaveContext } from "./akave-context.js";
-
-const AKAVE_NODE_ADDRESS: string = import.meta.env.VITE_AKAVE_NODE_ADDRESS;
+import { getAkaveSDK } from "./akave-sdk-singleton";
+import type { AkaveWebSDK } from "../../../akave-rs";
+import { useAccount } from "wagmi";
 
 export const AkaveProvider: React.FC<React.PropsWithChildren> = ({
   children,
 }) => {
   const [sdk, setSdk] = useState<AkaveWebSDK | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+  const account = useAccount();
 
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        await init(); // Initialize WASM
-        const builder = new AkaveWebSDKBuilder(AKAVE_NODE_ADDRESS);
-        const sdkInstance = await builder.build();
-        if (mounted) {
-          setSdk(sdkInstance);
-          setLoading(false);
-        }
-      } catch (err) {
-        if (mounted) {
-          setError(err as Error);
-          setLoading(false);
-        }
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  if (account.isConnected && !sdk) {
+    getAkaveSDK().then((sdkInstance) => {
+      setSdk(sdkInstance);
+      setLoading(false);
+    });
+  } else if (!account.isConnected && sdk) {
+    sdk.free();
+    setSdk(null);
+    setLoading(true);
+  }
 
   return (
-    <AkaveContext.Provider value={{ sdk, loading, error }}>
+    <AkaveContext.Provider value={{ sdk, loading }}>
       {children}
     </AkaveContext.Provider>
   );

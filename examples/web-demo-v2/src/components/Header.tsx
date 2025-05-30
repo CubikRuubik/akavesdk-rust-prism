@@ -29,7 +29,7 @@ const Header = () => {
             cycleTheme();
             window.location.reload();
           }}
-          className="flex items-center gap-2 px-4 py-2 rounded transition-colors bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 font-medium"
+          className="flex cursor-pointer items-center gap-2 px-4 py-2 rounded transition-colors bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 font-medium"
           title="Toggle theme"
         >
           <ThemeIcon theme={theme} />

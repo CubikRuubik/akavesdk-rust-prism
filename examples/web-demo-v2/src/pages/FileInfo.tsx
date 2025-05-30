@@ -37,20 +37,38 @@ export default function FileInfoPage() {
   return (
     <section className="flex flex-col items-center justify-center flex-1 py-24">
       <div className="bg-[rgb(var(--color-secondary)/1)] rounded-xl shadow-lg p-10 flex flex-col items-center min-w-[320px] max-w-lg w-full">
-        <h2 className="text-lg font-semibold mb-2 text-[rgb(var(--color-text)/1)]">
-          File Info: <span className="font-mono">{fileName}</span>
+        <h2 className="max-w-full text-lg font-semibold mb-2 text-[rgb(var(--color-text)/1)]">
+          File Info:{" "}
+          <span
+            className="max-w-full block font-mono truncate"
+            title={fileName}
+          >
+            {fileName}
+          </span>
         </h2>
         {isLoading && <div>Loading file info...</div>}
         {error && (
           <div className="text-red-500">{(error as Error).message}</div>
         )}
         {fileInfo && (
-          <pre className="bg-[rgb(var(--color-bg)/1)] rounded p-4 text-sm overflow-x-auto mb-4">
+          <pre
+            className="bg-[rgb(var(--color-bg)/1)] rounded p-4 text-sm overflow-x-auto max-w-full"
+            style={{ whiteSpace: "pre", wordBreak: "break-all" }}
+          >
             {JSON.stringify(fileInfo, null, 2)}
           </pre>
         )}
         <button
-          className="btn"
+          className="
+            px-4 py-2 rounded font-semibold transition-colors border
+            bg-[rgb(var(--color-secondary)/0.7)] 
+            dark:bg-[rgb(var(--color-secondary)/0.7)]
+            text-[rgb(var(--color-text)/1)]
+            border-[rgb(var(--color-primary)/0.2)]
+            hover:bg-[rgb(var(--color-secondary)/1)]
+            hover:border-[rgb(var(--color-primary)/0.5)]
+            mt-4 cursor-pointer
+          "
           onClick={handleDownload}
           disabled={downloadLoading}
         >
