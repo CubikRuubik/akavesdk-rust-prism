@@ -146,7 +146,14 @@ impl BlockchainProvider {
                     )
                     .unwrap();
 
-                    let key = SecretKey::from_str(pvkey.as_str()).unwrap();
+                    let key = SecretKey::from_str(pvkey.trim())
+                        .map_err(|e| {
+                            log_error!("Failed to parse private key: {}. Make sure the key is a valid 64-character hex string (with or without 0x prefix)", e);
+                            Error::Decoder(format!(
+                                "Invalid private key format: {}. Expected 64-character hex string",
+                                e
+                            ))
+                        })?;
 
                     log_info!("BlockchainProvider initialized successfully for native");
                     Ok(Self {
