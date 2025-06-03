@@ -99,6 +99,7 @@ impl BlockchainProvider {
                             include_bytes!("storage.json"),
                         )
                         .unwrap();
+                        log_info!("Akave contract address: 0x{:x}", akave_storage.address());
                         log_info!("BlockchainProvider initialized successfully for WASM");
                         Ok(Self {
                             web3_provider,
@@ -145,6 +146,8 @@ impl BlockchainProvider {
                         include_bytes!("storage.json"),
                     )
                     .unwrap();
+
+                    log_info!("Akave contract address: 0x{:x}", akave_storage.address());
 
                     let key = SecretKey::from_str(pvkey.trim())
                         .map_err(|e| {
@@ -416,9 +419,15 @@ impl BlockchainProvider {
     ) -> Result<TransactionReceipt, ProviderError> {
         let file_name_clone = file_name.clone();
         log_debug!(
-            "Committing file: {} in bucket: {}",
+            "Committing file: {} in bucket: {}, encoded size: {}, actual size: {}",
             file_name_clone,
-            bucket_id
+            bucket_id,
+            encode_size,
+            actual_size
+        );
+        println!(
+            "Committing file: {} in bucket: {}, encoded size: {}, actual size: {}",
+            file_name_clone, bucket_id, encode_size, actual_size
         );
         let result = self
             .call_contract_with_confirmations(
@@ -427,7 +436,7 @@ impl BlockchainProvider {
                     bucket_id.to_bytes(),
                     file_name,
                     encode_size,
-                    actual_size,
+                    // actual_size,
                     root_cid,
                 ),
             )
@@ -746,6 +755,7 @@ pub enum ProviderError {
     EncodeError(String),
     #[error("account error: {0}")]
     AccountError(String),
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("key error: {0}")]
     KeyError(String),
 }

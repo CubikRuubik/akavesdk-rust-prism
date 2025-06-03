@@ -377,7 +377,12 @@ class App {
       }
 
       console.log(`Uploading file: ${file.name} to bucket: ${bucketName}`);
-      // await this.state.sdk.uploadFile(bucketName, file.name, file);
+      const arrayBuffer = await file.arrayBuffer();
+      await this.state.sdk.uploadFile(
+        bucketName,
+        file.name,
+        new Uint8Array(arrayBuffer)
+      );
       console.log(`File "${file.name}" uploaded successfully`);
 
       this.showNotification({

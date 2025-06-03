@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "postinstall": "cp -r ../../pkg ./akave-rs"
+    "postinstall": "rm -rf ./akave-rs && cp -r ../../pkg ./akave-rs"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",

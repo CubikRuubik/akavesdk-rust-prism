@@ -73,7 +73,6 @@ use wasm_support::*;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native_support {
-    pub use std::sync::{Arc, Mutex};
     pub use tokio_stream::{self, StreamExt};
     pub use tonic::transport::{Channel, ClientTlsConfig};
     pub type ClientTransport = Channel;
@@ -911,10 +910,11 @@ impl AkaveSDK {
         }
 
         log_debug!(
-            "Uploading block segments. CID: {}, length: {}, block index: {}",
+            "Uploading block segments. CID: {}, length: {}, block index: {}, part size: {}",
             block_cid,
             data_len,
-            block_index
+            block_index,
+            block_part_size
         );
 
         #[cfg(target_arch = "wasm32")]
@@ -1338,14 +1338,14 @@ mod tests {
 
     // Get basic SDK with no erasure coding or encryption
     async fn get_sdk() -> Result<AkaveSDK, AkaveError> {
-        AkaveSDKBuilder::new("http://connect.akave.ai:5500")
+        AkaveSDKBuilder::new("http://23.227.172.82:5001")
             .build()
             .await
     }
 
     // Get SDK with erasure coding only
     async fn get_sdk_with_erasure() -> Result<AkaveSDK, AkaveError> {
-        AkaveSDKBuilder::new("http://connect.akave.ai:5500")
+        AkaveSDKBuilder::new("http://23.227.172.82:5001")
             .with_erasure_coding(3, 2)
             .build()
             .await
@@ -1353,7 +1353,7 @@ mod tests {
 
     // Get SDK with default encryption only
     async fn get_sdk_with_encryption() -> Result<AkaveSDK, AkaveError> {
-        AkaveSDKBuilder::new("http://connect.akave.ai:5500")
+        AkaveSDKBuilder::new("http://23.227.172.82:5001")
             .with_default_encryption(TEST_PASSWORD)
             .build()
             .await
@@ -1361,7 +1361,7 @@ mod tests {
 
     // Get SDK with both erasure coding and encryption
     async fn get_sdk_with_erasure_and_encryption() -> Result<AkaveSDK, AkaveError> {
-        AkaveSDKBuilder::new("http://connect.akave.ai:5500")
+        AkaveSDKBuilder::new("http://23.227.172.82:5001")
             .with_erasure_coding(3, 2)
             .with_default_encryption(TEST_PASSWORD)
             .build()
