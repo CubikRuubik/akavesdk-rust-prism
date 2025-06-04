@@ -8,7 +8,7 @@ pub(crate) mod ipcnodeapi {
 // ==========================
 // Standard library imports
 // ==========================
-use libp2p::PeerId;
+use crate::utils::peer_id::PeerId;
 use std::{
     borrow::Cow,
     io::{Read, Write},

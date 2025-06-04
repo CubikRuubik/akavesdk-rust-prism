@@ -329,7 +329,7 @@ fn encode_value(value: &serde_json::Value, type_name: &str) -> Result<Vec<u8>, E
 mod tests {
     use super::*;
     use cid::multibase::Base;
-    use libp2p::PeerId;
+    use crate::utils::peer_id::PeerId;
     use web3::{signing::SecretKeyRef, types::H160};
 
     #[test]
