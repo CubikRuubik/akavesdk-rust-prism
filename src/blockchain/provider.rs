@@ -93,12 +93,20 @@ impl BlockchainProvider {
                         let transport = web3::transports::eip_1193::Eip1193::new(provider);
                         let web3_provider = web3::Web3::new(transport);
                         log_debug!("Creating contract instance");
+                        let storage_address = access_address.parse::<H160>().map_err(|e| {
+                            Error::Decoder(format!("Invalid contract address: {}", e))
+                        })?;
                         let akave_storage = Contract::from_json(
                             web3_provider.eth(),
-                            access_address.parse::<H160>().unwrap(),
+                            storage_address,
                             include_bytes!("storage.json"),
                         )
-                        .unwrap();
+                        .map_err(|e| {
+                            Error::Decoder(format!(
+                                "Failed to create contract instance: {}",
+                                e
+                            ))
+                        })?;
                         log_info!("Akave contract address: 0x{:x}", akave_storage.address());
                         log_info!("BlockchainProvider initialized successfully for WASM");
                         Ok(Self {
@@ -140,12 +148,17 @@ impl BlockchainProvider {
                 Ok(transport_option) => {
                     let web3_provider = Web3::new(transport_option);
                     log_debug!("Creating contract instance");
+                    let storage_address = access_address.parse::<H160>().map_err(|e| {
+                        Error::Decoder(format!("Invalid contract address: {}", e))
+                    })?;
                     let akave_storage = Contract::from_json(
                         web3_provider.eth(),
-                        access_address.parse::<H160>().unwrap(),
+                        storage_address,
                         include_bytes!("storage.json"),
                     )
-                    .unwrap();
+                    .map_err(|e| {
+                        Error::Decoder(format!("Failed to create contract instance: {}", e))
+                    })?;
 
                     log_info!("Akave contract address: 0x{:x}", akave_storage.address());
 
@@ -546,7 +559,7 @@ impl BlockchainProvider {
                 None,
             )
             .await
-            .unwrap();
+            .map_err(|e| ProviderError::ContractCallError(e.to_string()))?;
         Ok(result)
     }
 
@@ -652,7 +665,7 @@ impl BlockchainProvider {
                 None,
             )
             .await
-            .unwrap();
+            .map_err(|e| ProviderError::ContractCallError(e.to_string()))?;
         Ok(result)
     }
 

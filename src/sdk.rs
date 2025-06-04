@@ -246,11 +246,11 @@ impl AkaveSDK {
                 &connection_params.dial_uri,
                 &connection_params.storage_address,
                 None,
-            );
+            )?;
             log_info!("AkaveSDK initialized successfully");
             Ok(Self {
                 client,
-                storage: storage.unwrap(),
+                storage,
                 erasure_code,
                 default_encryption_key,
                 block_size,
@@ -287,12 +287,12 @@ impl AkaveSDK {
                 &connection_params.dial_uri,
                 &connection_params.storage_address,
                 None,
-            );
+            )?;
 
             log_info!("AkaveSDK initialized successfully");
             Ok(Self {
                 client,
-                storage: storage.unwrap(),
+                storage,
                 erasure_code,
                 default_encryption_key,
                 block_size,
@@ -751,7 +751,14 @@ impl AkaveSDK {
             idx += 1;
         }
 
-        let root_cid = Cid::new_v1(DAG_PROTOBUF, root_hash.unwrap());
+        let root_cid = Cid::new_v1(
+            DAG_PROTOBUF,
+            root_hash.ok_or_else(|| {
+                AkaveError::InvalidInput(
+                    "No chunks processed, cannot compute root hash".to_string(),
+                )
+            })?,
+        );
         let receipt = self
             .storage
             .commit_file(
@@ -1149,7 +1156,11 @@ impl AkaveSDK {
                             }
                         }
 
-                        msg.data.unwrap().into_owned()
+                        msg.data
+                            .ok_or_else(|| {
+                                AkaveError::InvalidInput("Message data not found".to_string())
+                            })?
+                            .into_owned()
                     }
                     _default => Err(AkaveError::InvalidInput(
                         "Unknown codec for decoding message".to_string(),
