@@ -318,14 +318,30 @@ class App {
       const tempPath = "download"; // The actual path is handled by the WASM implementation
 
       // Trigger download from SDK
-      await this.state.sdk.downloadFile(bucketName, fileName);
+      const result = await this.state.sdk.downloadFile(bucketName, fileName);
 
       console.log(`File "${fileName}" download initiated successfully`);
 
-      this.showNotification({
-        message: `File "${fileName}" downloaded successfully!`,
-        type: "success",
-      });
+      if (result) {
+        const blob = new Blob([result]);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "file.txt";
+        a.click();
+        URL.revokeObjectURL(url);
+
+        this.showNotification({
+          message: `File "${fileName}" downloaded successfully!`,
+          type: "success",
+        });
+      } else {
+        console.error("Download result is empty");
+        this.showNotification({
+          message: "Failed to download file. No data received.",
+          type: "error",
+        });
+      }
     } catch (error) {
       console.error("Failed to download file:", error);
       this.showNotification({

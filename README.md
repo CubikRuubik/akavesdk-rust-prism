@@ -21,6 +21,18 @@ The Akave SDK is a Rust-based software development kit that provides a unified i
   - Transaction management
   - Wallet integration (MetaMask for WASM)
 
+## Examples
+
+See the `examples` directory for complete usage examples and ready to use base boilerplates:
+
+- `native-demo/` - Native Rust e2e example
+- `web-demo/` - Browser-based example application
+- `web-demo-react/` - Real world browser-based typescript React example project:
+  - TanStack Query for robust, declarative data fetching and state management.
+  - RainbowKit for seamless wallet connection and a polished user experience.
+  - Wagmi & Viem for type-safe, high-performance Ethereum (EVM) blockchain interactions, including integration with the Akave blockchain.
+  - All components are written in TypeScript and designed for real-world scalability and maintainability.
+
 ## Installation
 
 ### Native Rust
@@ -29,7 +41,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-akave-rs = "1.0.0"
+akave-rs = "0.1.1"
 ```
 
 ### WebAssembly
@@ -37,7 +49,7 @@ akave-rs = "1.0.0"
 Install the WASM package via npm:
 
 ```bash
-npm install @akave/akave-web-sdk
+npm install @akave/akave-rs
 ```
 
 ## Usage
@@ -87,11 +99,6 @@ async function initialize() {
     .withErasureCoding(4, 2)
     .build();
 
-  // Get wallet address from MetaMask (requires MetaMask to be connected separately)
-  const address = (
-    await window.ethereum.request({ method: "eth_requestAccounts" })
-  )[0];
-
   // Create bucket
   await sdk.createBucket("my-bucket");
 
@@ -101,33 +108,46 @@ async function initialize() {
   // Upload file
   const fileInput = document.querySelector('input[type="file"]');
   const file = fileInput.files[0];
-  await sdk.uploadFile("my-bucket", "file.txt", file);
+  const arrayBuffer = await file.arrayBuffer();
+  await sdk.uploadFile("my-bucket", "file.txt", arrayBuffer);
 
   // List files
   const files = await sdk.listFiles("my-bucket");
 
   // Download file
-  await sdk.downloadFile("my-bucket", "file.txt", "download");
+  const result = await sdk.downloadFile("my-bucket", "file.txt", "download");
+  if (result) {
+    const blob = new Blob([result]);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "file.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 }
 ```
 
 ## Build from source
 
-```
+```bash
 git clone git@github.com:lightshiftdev/akave-rs.git
 cd akave-rs
 ```
 
 ### Native build
 
-```
+```bash
 cargo build
 ```
 
 ### Web wasm
 
-```
+```bash
 wasm-pack build --target web
+wasm-bindgen target/wasm32-unknown-unknown/release/akave_rs.wasm \
+  --out-dir ./pkg \
+  --target web
 ```
 
 <!--
@@ -205,13 +225,6 @@ The SDK provides comprehensive error handling for both platforms:
 - Secure wallet integration
 - TLS encryption for all network communications
 - Transaction signing and verification
-
-## Examples
-
-See the `examples` directory for complete usage examples:
-
-- `web-demo/` - Browser-based example application
-- `native-demo/` Native Rust e2e example
 
 ## Contributing
 
