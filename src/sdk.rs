@@ -305,7 +305,7 @@ impl AkaveSDK {
     }
 
     /// List all buckets
-    pub async fn list_buckets(&mut self) -> Result<BucketListResponse, AkaveError> {
+    pub async fn list_buckets(&self) -> Result<BucketListResponse, AkaveError> {
         let address = self
             .storage
             .get_hex_address()
@@ -315,8 +315,8 @@ impl AkaveSDK {
         let request = IpcBucketListRequest {
             address: address.to_string(),
         };
-        let response = self
-            .client
+        let mut client = self.client.clone();
+        let response = client
             .bucket_list(request)
             .await
             .map_err(|e| AkaveError::GrpcError(e.to_string()))?
