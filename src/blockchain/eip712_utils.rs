@@ -1,6 +1,6 @@
 use crate::blockchain::eip712_types::{Domain, TypedData};
 use cid::Cid;
-use libp2p::PeerId;
+use crate::utils::peer_id::PeerId;
 use std::collections::HashMap;
 use web3::types::{H160, U256};
 
