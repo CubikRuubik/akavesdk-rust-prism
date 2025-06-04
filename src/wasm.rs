@@ -73,6 +73,12 @@ impl AkaveWebSDKBuilder {
         self
     }
 
+    #[wasm_bindgen(js_name = "withMinFileSize")]
+    pub fn with_min_file_size(mut self, min_file_size: usize) -> Self {
+        self.inner_builder = self.inner_builder.with_min_file_size(min_file_size);
+        self
+    }
+
     #[wasm_bindgen(js_name = "build")]
     pub async fn build(self) -> Result<AkaveWebSDK, JsError> {
         log_info!("Building AkaveWebSDK with configured options");
