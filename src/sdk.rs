@@ -36,12 +36,14 @@ use crate::{
         provider::BlockchainProvider,
     },
     log_debug, log_error, log_info,
-    sdk_types::{
-        AkaveBlockData, AkaveError, BucketListItem, BucketListResponse, BucketViewResponse,
-        FileBlockDownload, FileChunk, FileChunkDownload, FileDownloadResponse, FileListItem,
-        FileListResponse, FileViewResponse, IpcFileChunkUpload,
+    types::{
+        sdk_types::{
+            AkaveBlockData, AkaveError, BucketListItem, BucketListResponse, BucketViewResponse,
+            FileBlockDownload, FileChunk, FileChunkDownload, FileDownloadResponse, FileListItem,
+            FileListResponse, FileViewResponse, IpcFileChunkUpload,
+        },
+        BucketId,
     },
-    types::BucketId,
     utils,
     utils::dag::{ChunkDag, DAG_PROTOBUF},
     utils::encryption::Encryption,
@@ -1306,7 +1308,7 @@ impl AkaveSDK {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use crate::sdk::{AkaveSDK, AkaveSDKBuilder};
-    use crate::sdk_types::AkaveError;
+    use crate::types::sdk_types::AkaveError;
     use ctor::ctor;
     use env_logger::Builder;
     use log::LevelFilter;

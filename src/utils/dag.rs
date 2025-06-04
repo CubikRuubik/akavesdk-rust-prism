@@ -4,7 +4,7 @@ use cid::{
 };
 use ipfs_unixfs::file::adder::{BalancedCollector, Chunker, Collector, FileAdder};
 
-use crate::sdk_types::FileBlockUpload;
+use crate::types::sdk_types::FileBlockUpload;
 
 pub const DAG_PROTOBUF: u64 = 0x70;
 // pub const RAW: u64 = 0x55;  // Unused constant
