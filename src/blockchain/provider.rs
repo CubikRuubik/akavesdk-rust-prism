@@ -438,7 +438,7 @@ impl BlockchainProvider {
             encode_size,
             actual_size
         );
-        println!(
+        log_info!(
             "Committing file: {} in bucket: {}, encoded size: {}, actual size: {}",
             file_name_clone, bucket_id, encode_size, actual_size
         );
