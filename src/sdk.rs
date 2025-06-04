@@ -476,7 +476,7 @@ impl AkaveSDK {
     }
 
     // Delete an existing bucket
-    pub async fn delete_bucket(&self, bucket_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn delete_bucket(&self, bucket_name: &str) -> Result<(), AkaveError> {
         let address = self
             .storage
             .get_hex_address()
@@ -484,26 +484,26 @@ impl AkaveSDK {
             .map_err(|e| AkaveError::AccountError(e.to_string()))?;
         log_debug!("Deleting bucket: {} for address: {}", bucket_name, address);
         let bucket = self.view_bucket(bucket_name).await?;
-        let bucket_id_bytes = hex::decode(bucket.id.clone())?;
-        let bucket_id = BucketId::from_slice(&bucket_id_bytes).ok_or("Invalid bucket ID length")?;
+        let bucket_id_bytes = hex::decode(bucket.id.clone())
+            .map_err(|e| AkaveError::InvalidInput(format!("Invalid bucket ID hex: {}", e)))?;
+        let bucket_id = BucketId::from_slice(&bucket_id_bytes)
+            .ok_or_else(|| AkaveError::InvalidInput("Invalid bucket ID length".to_string()))?;
         let bucket_idx = self
             .storage
             .get_bucket_index_by_name(bucket_name.to_string())
-            .await?;
+            .await
+            .map_err(|e| AkaveError::ProviderError(e.to_string()))?;
 
         self.storage
             .delete_bucket(bucket_id, bucket_name.into(), bucket_idx)
-            .await?;
+            .await
+            .map_err(|e| AkaveError::ProviderError(e.to_string()))?;
         log_info!("Bucket deleted successfully: {}", bucket_name);
         Ok(())
     }
 
     // Delete an existing file
-    pub async fn delete_file(
-        &self,
-        bucket_name: &str,
-        file_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn delete_file(&self, bucket_name: &str, file_name: &str) -> Result<(), AkaveError> {
         let address = self
             .storage
             .get_hex_address()
@@ -516,11 +516,14 @@ impl AkaveSDK {
             address
         );
         let bucket = self.view_bucket(bucket_name).await?;
-        let bucket_id_bytes = hex::decode(bucket.id.clone())?;
-        let bucket_id = BucketId::from_slice(&bucket_id_bytes).ok_or("Invalid bucket ID length")?;
+        let bucket_id_bytes = hex::decode(bucket.id.clone())
+            .map_err(|e| AkaveError::InvalidInput(format!("Invalid bucket ID hex: {}", e)))?;
+        let bucket_id = BucketId::from_slice(&bucket_id_bytes)
+            .ok_or_else(|| AkaveError::InvalidInput("Invalid bucket ID length".to_string()))?;
         self.storage
             .delete_file(file_name.to_string(), bucket_id)
-            .await?;
+            .await
+            .map_err(|e| AkaveError::ProviderError(e.to_string()))?;
         log_info!(
             "File deleted successfully: {} from bucket: {}",
             file_name,
