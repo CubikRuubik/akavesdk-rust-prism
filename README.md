@@ -62,10 +62,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sdk.upload_file(bucket_name, "file.txt", file, None).await?;
 
     // List files
-    let files = sdk.list_files("your-address", "my-bucket").await?;
+    let files = sdk.list_files(bucket_name).await?;
 
     // Download a file
-    sdk.download_file("your-address", bucket_name, "file.txt", None, "/path/to/save/").await?;
+    let output_file = File::create("/path/to/save/file.txt")?;
+    sdk.download_file(bucket_name, "file.txt", output_file, None).await?;
 
     Ok(())
 }
@@ -95,7 +96,7 @@ async function initialize() {
   await sdk.createBucket("my-bucket");
 
   // List buckets
-  const buckets = await sdk.listBuckets(address);
+  const buckets = await sdk.listBuckets();
 
   // Upload file
   const fileInput = document.querySelector('input[type="file"]');
@@ -103,10 +104,10 @@ async function initialize() {
   await sdk.uploadFile("my-bucket", "file.txt", file);
 
   // List files
-  const files = await sdk.listFiles(address, "my-bucket");
+  const files = await sdk.listFiles("my-bucket");
 
   // Download file
-  await sdk.downloadFile(address, "my-bucket", "file.txt", "download");
+  await sdk.downloadFile("my-bucket", "file.txt", "download");
 }
 ```
 
@@ -144,16 +145,16 @@ wasm-bindgen target/wasm32-unknown-unknown/release/akave_rs.wasm \
 #### Bucket Operations
 
 - `create_bucket(name: &str) -> Result<BucketResponse>` - Creates a new bucket with the specified name.
-- `delete_bucket(address: &str, name: &str) -> Result<()>` - Deletes the specified bucket for the given address.
-- `list_buckets(address: &str) -> Result<BucketListResponse>` - Lists all buckets associated with the specified address.
-- `view_bucket(address: &str, name: &str) -> Result<BucketViewResponse>` - Retrieves details of the specified bucket for the given address.
+- `delete_bucket(name: &str) -> Result<()>` - Deletes the specified bucket.
+- `list_buckets(&mut self) -> Result<BucketListResponse>` - Lists all buckets for the current user.
+- `view_bucket(name: &str) -> Result<BucketViewResponse>` - Retrieves details of the specified bucket.
 
 #### File Operations
 
-- `upload_file(bucket_name: &str, file_name: &str, file: File, password: Option<&str>) -> Result<TransactionReceipt>` - Uploads a file to the specified bucket with optional encryption.
-- `download_file(address: &str, bucket_name: &str, file_name: &str, password: Option<&str>, destination: &str) -> Result<()>` - Downloads the specified file from the bucket to the given destination path with optional decryption.
-- `list_files(address: &str, bucket_name: &str) -> Result<FileListResponse>` - Lists all files within the specified bucket for the given address.
-- `delete_file(address: &str, bucket_name: &str, file_name: &str) -> Result<()>` - Deletes the specified file from the given bucket for the address.
+- `upload_file<R: Read>(bucket_name: &str, file_name: &str, file: R, password: Option<&str>) -> Result<TransactionReceipt>` - Uploads a file to the specified bucket with optional encryption.
+- `download_file<W: Write>(bucket_name: &str, file_name: &str, writer: W, password: Option<&str>) -> Result<()>` - Downloads the specified file from the bucket to the given writer with optional decryption.
+- `list_files(bucket_name: &str) -> Result<FileListResponse>` - Lists all files within the specified bucket.
+- `delete_file(bucket_name: &str, file_name: &str) -> Result<()>` - Deletes the specified file from the given bucket.
 
 ### WASM-Specific Methods
 
