@@ -56,6 +56,18 @@ pub enum AkaveError {
     AccountError(String),
 }
 
+impl From<web3::Error> for AkaveError {
+    fn from(err: web3::Error) -> Self {
+        AkaveError::ProviderError(err.to_string())
+    }
+}
+
+impl From<crate::utils::encryption::EncryptionError> for AkaveError {
+    fn from(err: crate::utils::encryption::EncryptionError) -> Self {
+        AkaveError::EncryptionError(err.to_string())
+    }
+}
+
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]

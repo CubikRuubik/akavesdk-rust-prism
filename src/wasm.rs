@@ -73,6 +73,12 @@ impl AkaveWebSDKBuilder {
         self
     }
 
+    #[wasm_bindgen(js_name = "withMinFileSize")]
+    pub fn with_min_file_size(mut self, min_file_size: usize) -> Self {
+        self.inner_builder = self.inner_builder.with_min_file_size(min_file_size);
+        self
+    }
+
     #[wasm_bindgen(js_name = "build")]
     pub async fn build(self) -> Result<AkaveWebSDK, JsError> {
         log_info!("Building AkaveWebSDK with configured options");
@@ -108,7 +114,7 @@ impl AkaveWebSDK {
     }
 
     #[wasm_bindgen(js_name = "listBuckets")]
-    pub async fn list_buckets(&mut self) -> Result<BucketListResponse, JsError> {
+    pub async fn list_buckets(&self) -> Result<BucketListResponse, JsError> {
         log_debug!("Listing buckets");
         let response = self.sdk.list_buckets().await;
         match response {
@@ -124,7 +130,7 @@ impl AkaveWebSDK {
     }
 
     #[wasm_bindgen(js_name = "viewBucket")]
-    pub async fn view_bucket(&mut self, bucket_name: &str) -> Result<BucketViewResponse, JsError> {
+    pub async fn view_bucket(&self, bucket_name: &str) -> Result<BucketViewResponse, JsError> {
         log_debug!("Viewing bucket: {}", bucket_name);
         let response = self.sdk.view_bucket(bucket_name).await;
         match response {
@@ -141,7 +147,7 @@ impl AkaveWebSDK {
 
     #[wasm_bindgen(js_name = "viewFileInfo")]
     pub async fn view_file_info(
-        &mut self,
+        &self,
         bucket_name: &str,
         file_name: &str,
     ) -> Result<FileViewResponse, JsError> {
@@ -165,7 +171,7 @@ impl AkaveWebSDK {
     }
 
     #[wasm_bindgen(js_name = "listFiles")]
-    pub async fn list_files(&mut self, bucket_name: &str) -> Result<FileListResponse, JsError> {
+    pub async fn list_files(&self, bucket_name: &str) -> Result<FileListResponse, JsError> {
         log_debug!("Listing files in bucket: {}", bucket_name,);
         let response = self.sdk.list_files(bucket_name).await;
 

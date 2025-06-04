@@ -65,7 +65,10 @@ impl ChunkDag {
         });
 
         // let proto_node_size = blocks.last().unwrap().data.len();  // Unused variable
-        let cid = blocks.last().unwrap().cid;
+        let cid = blocks
+            .last()
+            .expect("blocks should not be empty at this point")
+            .cid;
 
         if blocks.len() > 1 {
             let _ = blocks.pop();

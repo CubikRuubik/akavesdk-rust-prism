@@ -1,9 +1,25 @@
 use aes_gcm::{AeadInPlace, Aes256Gcm, Key, KeyInit, Nonce};
 use hkdf::Hkdf;
 use sha2::Sha256;
+use thiserror::Error;
 
 #[cfg(not(target_arch = "wasm32"))]
 use aes_gcm::aead::{rand_core::RngCore, OsRng};
+
+#[derive(Error, Debug)]
+pub(crate) enum EncryptionError {
+    #[error("key derivation failed: {0}")]
+    KeyDerivation(String),
+
+    #[error("encryption failed: {0}")]
+    EncryptionFailed(String),
+
+    #[error("decryption failed: {0}")]
+    DecryptionFailed(String),
+
+    #[error("no encryption key available")]
+    NoKeyAvailable,
+}
 
 pub const KEY_LEN: usize = 32;
 pub const GCM_NONCE_SIZE: usize = 12;
@@ -14,15 +30,12 @@ pub(crate) struct Encryption {
 }
 
 impl Encryption {
-    pub fn new(key: &[u8], info: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(key: &[u8], info: &[u8]) -> Result<Self, EncryptionError> {
         let key = Encryption::derive_key(key, info)?;
         Ok(Self { key })
     }
 
-    fn derive_key(
-        key: &[u8],
-        info: &[u8],
-    ) -> Result<Option<[u8; KEY_LEN]>, Box<dyn std::error::Error>> {
+    fn derive_key(key: &[u8], info: &[u8]) -> Result<Option<[u8; KEY_LEN]>, EncryptionError> {
         if key.is_empty() {
             return Ok(None);
         }
@@ -30,16 +43,21 @@ impl Encryption {
         let mut derived = [0u8; KEY_LEN];
         match hk.expand(info, &mut derived) {
             Ok(_) => Ok(Some(derived)),
-            Err(_) => Err(Box::from("hk.expand failed: invalid length")),
+            Err(e) => Err(EncryptionError::KeyDerivation(format!(
+                "HKDF expansion failed: {:?}",
+                e
+            ))),
         }
     }
 
-    fn make_gcm_cipher(&self, info: &[u8]) -> Result<Aes256Gcm, Box<dyn std::error::Error>> {
+    fn make_gcm_cipher(&self, info: &[u8]) -> Result<Aes256Gcm, EncryptionError> {
         let key = match self.key {
             Some(k) => Self::derive_key(&k, info)?,
-            None => return Err("No encryption key available".into()),
+            None => return Err(EncryptionError::NoKeyAvailable),
         };
-        let key = key.ok_or("Failed deriving key")?;
+        let key = key.ok_or(EncryptionError::KeyDerivation(
+            "Failed deriving key".to_string(),
+        ))?;
         Ok(Aes256Gcm::new(&Key::<Aes256Gcm>::from_slice(&key)))
     }
 
@@ -68,11 +86,7 @@ impl Encryption {
         nonce
     }
 
-    pub fn encrypt(
-        &self,
-        data: &[u8],
-        info: &[u8],
-    ) -> Result<Box<[u8]>, Box<dyn std::error::Error>> {
+    pub fn encrypt(&self, data: &[u8], info: &[u8]) -> Result<Box<[u8]>, EncryptionError> {
         let gcm = self.make_gcm_cipher(info)?;
         let nonce = Self::generate_nonce();
         let nonce_array = Nonce::from_slice(&nonce);
@@ -87,15 +101,20 @@ impl Encryption {
 
                 Ok(result.into_boxed_slice())
             }
-            Err(_) => Err(Box::from("gcm encrypt error")),
+            Err(e) => Err(EncryptionError::EncryptionFailed(format!(
+                "GCM encryption failed: {:?}",
+                e
+            ))),
         }
     }
 
-    pub fn decrypt(&self, data: &[u8], info: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    pub fn decrypt(&self, data: &[u8], info: &[u8]) -> Result<Vec<u8>, EncryptionError> {
         let gcm = self.make_gcm_cipher(info)?;
 
         if data.len() < GCM_NONCE_SIZE {
-            return Err("Invalid encrypted data".into());
+            return Err(EncryptionError::DecryptionFailed(
+                "Invalid encrypted data: too short".to_string(),
+            ));
         }
 
         let (encrypted_data, nonce) = data.split_at(data.len() - GCM_NONCE_SIZE);
@@ -106,7 +125,10 @@ impl Encryption {
 
         match gcm.decrypt_in_place(nonce_array, b"", &mut buffer) {
             Ok(_) => Ok(buffer),
-            Err(_) => Err(Box::from("gcm decrypt error")),
+            Err(e) => Err(EncryptionError::DecryptionFailed(format!(
+                "GCM decryption failed: {:?}",
+                e
+            ))),
         }
     }
 }

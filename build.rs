@@ -130,5 +130,3 @@ fn build(dir: &Path, proto: &str, target_arch: String) {
     let descriptor = FileDescriptorSet::decode(&descriptor_bytes[..]).unwrap();
     prost_wkt_build::add_serde(out, descriptor);
 }
-
-

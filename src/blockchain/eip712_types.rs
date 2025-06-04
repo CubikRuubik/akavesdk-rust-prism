@@ -1,5 +1,5 @@
-use web3::types::{Address, U256};
 use serde::{Deserialize, Serialize};
+use web3::types::{Address, U256};
 
 /// TypedData contains data type and name.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
