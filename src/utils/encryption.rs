@@ -1,10 +1,9 @@
+#[cfg(not(target_arch = "wasm32"))]
+use aes_gcm::aead::{rand_core::RngCore, OsRng};
 use aes_gcm::{AeadInPlace, Aes256Gcm, Key, KeyInit, Nonce};
 use hkdf::Hkdf;
 use sha2::Sha256;
 use thiserror::Error;
-
-#[cfg(not(target_arch = "wasm32"))]
-use aes_gcm::aead::{rand_core::RngCore, OsRng};
 
 #[derive(Error, Debug)]
 pub(crate) enum EncryptionError {

@@ -1,11 +1,14 @@
-use crate::blockchain::eip712_types::{Domain, TypedData};
-use cid::Cid;
-use crate::utils::peer_id::PeerId;
 use std::collections::HashMap;
-use web3::types::{H160, U256};
 
+use cid::Cid;
 #[cfg(target_arch = "wasm32")]
 use serde_json::Value as JsonValue;
+use web3::types::{H160, U256};
+
+use crate::{
+    blockchain::eip712_types::{Domain, TypedData},
+    utils::peer_id::PeerId,
+};
 
 //create_block_eip712_data(&block_1mb.cid, &ipc_chunk.cid, b_node_id, self.storage.akave_storage.address(), index as i64, ipc_chunk.cid, nonce)?;
 pub fn create_block_eip712_data(

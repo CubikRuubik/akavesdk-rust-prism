@@ -1,7 +1,10 @@
 use std::{collections::HashMap, fmt, str::FromStr};
+
 use thiserror::Error;
-use web3::signing::{keccak256, Key, SecretKey};
-use web3::types::{Address, H256, U256};
+use web3::{
+    signing::{keccak256, Key, SecretKey},
+    types::{Address, H256, U256},
+};
 
 use crate::{
     blockchain::eip712_types::{Domain, TypedData},
@@ -327,10 +330,11 @@ fn encode_value(value: &serde_json::Value, type_name: &str) -> Result<Vec<u8>, E
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use cid::multibase::Base;
-    use crate::utils::peer_id::PeerId;
     use web3::{signing::SecretKeyRef, types::H160};
+
+    use super::*;
+    use crate::utils::peer_id::PeerId;
 
     #[test]
     #[ignore]

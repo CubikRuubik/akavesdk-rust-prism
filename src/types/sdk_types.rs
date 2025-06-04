@@ -1,9 +1,10 @@
-use crate::types::BucketId;
-use crate::utils::timestamp::timestamp_serde_direct;
+use std::str::FromStr;
+
 use cid::Cid;
 use prost_types::Timestamp;
-use std::str::FromStr;
 use thiserror::Error;
+
+use crate::{types::BucketId, utils::timestamp::timestamp_serde_direct};
 
 #[derive(Error, Debug)]
 pub enum AkaveError {

@@ -8,7 +8,6 @@ pub(crate) mod ipcnodeapi {
 // ==========================
 // Standard library imports
 // ==========================
-use crate::utils::peer_id::PeerId;
 use std::{
     borrow::Cow,
     io::{Read, Write},
@@ -24,9 +23,19 @@ use cid::{
     multihash::{Code, MultihashDigest},
     Cid,
 };
+// ==========================
+// Proto-related imports
+// ==========================
+use ipcnodeapi::{
+    ipc_chunk::Block, ipc_node_api_client::IpcNodeApiClient, ConnectionParamsRequest,
+    IpcBucketListRequest, IpcBucketViewRequest, IpcChunk, IpcFileBlockData,
+    IpcFileDownloadBlockRequest, IpcFileDownloadChunkCreateRequest, IpcFileDownloadCreateRequest,
+    IpcFileListRequest, IpcFileUploadChunkCreateRequest, IpcFileViewRequest,
+};
 use quick_protobuf::BytesReader;
 use web3::types::{TransactionReceipt, U256};
 
+use crate::utils::peer_id::PeerId;
 // ==========================
 // Internal crate imports
 // ==========================
@@ -49,16 +58,6 @@ use crate::{
     utils::encryption::Encryption,
     utils::erasure::ErasureCode,
     utils::pb_data::PbData,
-};
-
-// ==========================
-// Proto-related imports
-// ==========================
-use ipcnodeapi::{
-    ipc_chunk::Block, ipc_node_api_client::IpcNodeApiClient, ConnectionParamsRequest,
-    IpcBucketListRequest, IpcBucketViewRequest, IpcChunk, IpcFileBlockData,
-    IpcFileDownloadBlockRequest, IpcFileDownloadChunkCreateRequest, IpcFileDownloadCreateRequest,
-    IpcFileListRequest, IpcFileUploadChunkCreateRequest, IpcFileViewRequest,
 };
 
 // ==========================
@@ -1321,15 +1320,21 @@ impl AkaveSDK {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use crate::sdk::{AkaveSDK, AkaveSDKBuilder};
-    use crate::types::sdk_types::AkaveError;
+    use std::{
+        fs::{self, File},
+        path::Path,
+    };
+
     use ctor::ctor;
     use env_logger::Builder;
     use log::LevelFilter;
     use pretty_assertions::{assert_eq, assert_ne};
-    use std::fs::{self, File};
-    use std::path::Path;
     use uuid::Uuid;
+
+    use crate::{
+        sdk::{AkaveSDK, AkaveSDKBuilder},
+        types::sdk_types::AkaveError,
+    };
 
     const FILE_NAME_TO_TEST: &str = "1MB.txt";
     const DOWNLOAD_DESTINATION: &str = "/tmp/akave-tests/";

@@ -1,15 +1,15 @@
 use std::io::Cursor;
 
-use crate::blockchain::ipc_types::BucketResponse;
-use crate::panic_handler::initialize_panic_handler;
-use crate::sdk::{AkaveSDK, AkaveSDKBuilder};
-use crate::sdk_types::{
-    BucketListResponse, BucketViewResponse, FileListResponse, FileViewResponse,
-};
-use crate::{log_debug, log_error, log_info};
-
 use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
+
+use crate::{
+    blockchain::ipc_types::BucketResponse,
+    log_debug, log_error, log_info,
+    panic_handler::initialize_panic_handler,
+    sdk::{AkaveSDK, AkaveSDKBuilder},
+    sdk_types::{BucketListResponse, BucketViewResponse, FileListResponse, FileViewResponse},
+};
 
 #[wasm_bindgen]
 pub struct AkaveWebSDK {

@@ -1,5 +1,5 @@
-use std::fmt;
-use std::str::FromStr;
+use std::{fmt, str::FromStr};
+
 use thiserror::Error;
 
 /// A lightweight implementation of PeerId without libp2p dependency

@@ -1,9 +1,10 @@
-use crate::types::{BucketId, FileId};
 use web3::{
     contract::tokens::Detokenize,
     ethabi::Token,
     types::{Address, U256},
 };
+
+use crate::types::{BucketId, FileId};
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]

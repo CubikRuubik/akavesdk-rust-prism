@@ -13,15 +13,19 @@ use web3::{
 
 // Internal imports
 use super::ipc_types::{BucketResponse, FileResponse};
-use crate::blockchain::eip712_types::{Domain, TypedData};
-use crate::types::BucketId;
-use crate::{log_debug, log_error, log_info};
+use crate::{
+    blockchain::eip712_types::{Domain, TypedData},
+    log_debug, log_error, log_info,
+    types::BucketId,
+};
 
 // Target-specific imports
 #[cfg(target_arch = "wasm32")]
 mod wasm_imports {
-    pub use web3::transports::eip_1193::{Eip1193, Provider};
-    pub use web3::Transport;
+    pub use web3::{
+        transports::eip_1193::{Eip1193, Provider},
+        Transport,
+    };
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -30,8 +34,11 @@ use wasm_imports::*;
 #[cfg(not(target_arch = "wasm32"))]
 mod native_imports {
     pub use std::str::FromStr;
-    pub use web3::signing::{Key, SecretKey, SecretKeyRef};
-    pub use web3::transports::http::Http;
+
+    pub use web3::{
+        signing::{Key, SecretKey, SecretKeyRef},
+        transports::http::Http,
+    };
 }
 
 #[cfg(not(target_arch = "wasm32"))]

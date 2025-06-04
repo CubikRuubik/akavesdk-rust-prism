@@ -1,10 +1,9 @@
 use std::fmt::Arguments;
 
-#[cfg(target_arch = "wasm32")]
-use web_sys::console;
-
 #[cfg(not(target_arch = "wasm32"))]
 use log::{debug, error, info, warn};
+#[cfg(target_arch = "wasm32")]
+use web_sys::console;
 
 pub struct Logger;
 
