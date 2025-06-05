@@ -8,7 +8,9 @@ use crate::{
     log_debug, log_error, log_info,
     panic_handler::initialize_panic_handler,
     sdk::{AkaveSDK, AkaveSDKBuilder},
-    sdk_types::{BucketListResponse, BucketViewResponse, FileListResponse, FileViewResponse},
+    types::sdk_types::{
+        BucketListResponse, BucketViewResponse, FileListResponse, FileViewResponse,
+    },
 };
 
 #[wasm_bindgen]
