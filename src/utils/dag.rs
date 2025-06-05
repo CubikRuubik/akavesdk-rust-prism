@@ -4,7 +4,7 @@ use cid::{
 };
 use ipfs_unixfs::file::adder::{BalancedCollector, Chunker, Collector, FileAdder};
 
-use crate::sdk_types::FileBlockUpload;
+use crate::types::sdk_types::FileBlockUpload;
 
 pub const DAG_PROTOBUF: u64 = 0x70;
 // pub const RAW: u64 = 0x55;  // Unused constant
@@ -65,7 +65,10 @@ impl ChunkDag {
         });
 
         // let proto_node_size = blocks.last().unwrap().data.len();  // Unused variable
-        let cid = blocks.last().unwrap().cid;
+        let cid = blocks
+            .last()
+            .expect("blocks should not be empty at this point")
+            .cid;
 
         if blocks.len() > 1 {
             let _ = blocks.pop();

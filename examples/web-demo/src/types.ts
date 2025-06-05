@@ -1,30 +1,30 @@
-import { AkaveWebSDK } from '@akave/akave-web-sdk';
+import { AkaveWebSDK } from "@akave/akave-rs";
 
 declare global {
-    interface Window {
-        ethereum?: {
-            request: (args: { method: string; params?: any[] }) => Promise<any>;
-            isMetaMask?: boolean;
-            isCoinbaseWallet?: boolean;
-            isWalletConnect?: boolean;
-        };
-    }
+  interface Window {
+    ethereum?: {
+      request: (args: { method: string; params?: any[] }) => Promise<any>;
+      isMetaMask?: boolean;
+      isCoinbaseWallet?: boolean;
+      isWalletConnect?: boolean;
+    };
+  }
 }
 
 export interface Bucket {
-    name: string;
+  name: string;
 }
 
 export interface File {
-    name: string;
+  name: string;
 }
 
 export interface AppState {
-    sdk: AkaveWebSDK | null;
-    currentAddress: string | null;
+  sdk: AkaveWebSDK | null;
+  currentAddress: string | null;
 }
 
 export interface Notification {
-    message: string;
-    type: 'error' | 'success' | 'info';
+  message: string;
+  type: "error" | "success" | "info";
 }

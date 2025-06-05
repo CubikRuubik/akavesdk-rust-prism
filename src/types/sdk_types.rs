@@ -1,13 +1,21 @@
-use crate::utils::timestamp::timestamp_serde_direct;
+use std::str::FromStr;
+
 use cid::Cid;
 use prost_types::Timestamp;
-use std::str::FromStr;
 use thiserror::Error;
+
+use crate::{types::BucketId, utils::timestamp::timestamp_serde_direct};
 
 #[derive(Error, Debug)]
 pub enum AkaveError {
     #[error("blockchain error: {0}")]
     BlockchainError(String),
+
+    #[error("block error: {0}")]
+    BlockError(String),
+
+    #[error("chunk error: {0}")]
+    ChunkError(String),
 
     #[error("grpc error: {0}")]
     GrpcError(String),
@@ -34,7 +42,31 @@ pub enum AkaveError {
     PermissionDenied(String),
 
     #[error("internal error: {0}")]
-    Internal(String),
+    InternalError(String),
+
+    #[error("provider error: {0}")]
+    ProviderError(String),
+
+    #[error("bucket error: {0}")]
+    BucketError(String),
+
+    #[error("channel error: {0}")]
+    ChannelError(String),
+
+    #[error("account error: {0}")]
+    AccountError(String),
+}
+
+impl From<web3::Error> for AkaveError {
+    fn from(err: web3::Error) -> Self {
+        AkaveError::ProviderError(err.to_string())
+    }
+}
+
+impl From<crate::utils::encryption::EncryptionError> for AkaveError {
+    fn from(err: crate::utils::encryption::EncryptionError) -> Self {
+        AkaveError::EncryptionError(err.to_string())
+    }
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -75,7 +107,7 @@ where
     Cid::from_str(&cid_str).map_err(serde::de::Error::custom)
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
@@ -100,7 +132,7 @@ pub(crate) struct IpcFileChunkUpload {
     pub raw_data_size: usize,
     pub proto_node_size: usize,
     pub blocks: Vec<FileBlockUpload>,
-    pub bucket_id: [u8; 32],
+    pub bucket_id: BucketId,
     pub file_name: String,
 }
 

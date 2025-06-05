@@ -1,9 +1,12 @@
 [package]
 name = "akave-rs"                                      # TODO: rename
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Gilberto Conde <gilberto.conde@lightshift.xyz>",
     "Sam Hassan <sam.hassan@lightshift.xyz>"]
 edition = "2021"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
 
 [lib]
 # Support for both WebAssembly and native builds
@@ -35,15 +38,13 @@ overflow-checks = false # Remove overflow checks
 # Dependencies shared by all targets
 serde = { version = "1.0", features = ["derive"] }
 prost = "0.13"
-prost-types = "0.13.4" 
+prost-types = "0.13.4"
 time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
 prost-wkt = "0.6"
 # prost-wkt-types = "0.6"
 serde_json = "1.0.134"
 hex = "0.4.3"
 sha2 = "0.10.8"
-async-trait = "0.1.85"
-futures = "0.3.31"
 derivative = "2.2.0"
 chrono = { version = "0.4.27", default-features = false, features = ["serde"] }
 alloy = "0.11.0"
@@ -56,7 +57,10 @@ ipfs-unixfs = "0.2.0"
 quick-protobuf = "0.8.0"
 reed-solomon-erasure = "4.0.0" # higher versions do not support wasm32. If you want to use more recent versions, you need to import under the non wasm deps and keep wasm deps locked at 4.0.
 thiserror = "1.0"
-libp2p = "0.55.0"
+bs58 = "0.5"
+async-stream = "0.3"
+tokio-stream = "0.1.17"
+async-trait = "0.1.88"
 
 
 [dev-dependencies]
@@ -149,11 +153,10 @@ getrandom = { version = "0.2.15", features = ["std"] }
 web3 = { version = "0.19.0", features = ["http", "signing"] }
 hex-literal = "0.3.4"
 uuid = { version = "1.15.1", features = [ "v4",] }
-log = "0.4.26"
+log = "0.4.22"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 env_logger = "0.11.7"
 test-log = "0.2.17"
 ctor = "0.4.1"
 # -----------------------------------------
-

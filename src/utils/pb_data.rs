@@ -2,8 +2,9 @@
 #![allow(non_snake_case)]
 
 use prost::alloc::borrow::Cow;
-use quick_protobuf::sizeofs::*;
-use quick_protobuf::{BytesReader, MessageRead, MessageWrite, Result, Writer, WriterBackend};
+use quick_protobuf::{
+    sizeofs::*, BytesReader, MessageRead, MessageWrite, Result, Writer, WriterBackend,
+};
 
 #[derive(Debug, Default, PartialEq, Clone)]
 pub(crate) struct PbData<'a> {
