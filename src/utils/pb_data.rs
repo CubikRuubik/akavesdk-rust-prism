@@ -41,39 +41,39 @@ impl<'a> MessageRead<'a> for PbData<'a> {
 }
 impl<'a> MessageWrite for PbData<'a> {
     fn get_size(&self) -> usize {
-        0 + 1
-            + sizeof_varint(*(&self.data_type) as u64)
+        1
+            + sizeof_varint(self.data_type as u64)
             + self.data.as_ref().map_or(0, |m| 1 + sizeof_len((m).len()))
             + self
                 .file_size
                 .as_ref()
-                .map_or(0, |m| 1 + sizeof_varint(*(m) as u64))
+                .map_or(0, |m| 1 + sizeof_varint(*m))
             + self
                 .block_sizes
                 .iter()
-                .map(|s| 1 + sizeof_varint(*(s) as u64))
+                .map(|s| 1 + sizeof_varint(*s))
                 .sum::<usize>()
             + self
                 .hash_type
                 .as_ref()
-                .map_or(0, |m| 1 + sizeof_varint(*(m) as u64))
+                .map_or(0, |m| 1 + sizeof_varint(*m))
             + self
                 .fan_out
                 .as_ref()
-                .map_or(0, |m| 1 + sizeof_varint(*(m) as u64))
+                .map_or(0, |m| 1 + sizeof_varint(*m))
             + self
                 .mode
                 .as_ref()
-                .map_or(0, |m| 1 + sizeof_varint(*(m) as u64))
+                .map_or(0, |m| 1 + sizeof_varint(*m as u64))
             + self
                 .mtime
                 .as_ref()
                 .map_or(0, |m| 1 + sizeof_len((m).get_size()))
     }
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
-        w.write_with_tag(8, |w| w.write_enum(*&self.data_type as i32))?;
+        w.write_with_tag(8, |w| w.write_enum(self.data_type as i32))?;
         if let Some(ref s) = self.data {
-            w.write_with_tag(18, |w| w.write_bytes(&**s))?;
+            w.write_with_tag(18, |w| w.write_bytes(s))?;
         }
         if let Some(ref s) = self.file_size {
             w.write_with_tag(24, |w| w.write_uint64(*s))?;
@@ -98,19 +98,15 @@ impl<'a> MessageWrite for PbData<'a> {
 }
 
 pub mod mod_Data {
-    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
     pub enum DataType {
+        #[default]
         Raw = 0,
         Directory = 1,
         File = 2,
         Metadata = 3,
         Symlink = 4,
         HAMTShard = 5,
-    }
-    impl Default for DataType {
-        fn default() -> Self {
-            DataType::Raw
-        }
     }
     impl From<i32> for DataType {
         fn from(i: i32) -> Self {
@@ -175,12 +171,12 @@ impl<'a> MessageRead<'a> for UnixTime {
 }
 impl MessageWrite for UnixTime {
     fn get_size(&self) -> usize {
-        0 + 1
-            + sizeof_varint(*(&self.Seconds) as u64)
+        1
+            + sizeof_varint(self.Seconds as u64)
             + self.FractionalNanoseconds.as_ref().map_or(0, |_| 1 + 4)
     }
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
-        w.write_with_tag(8, |w| w.write_int64(*&self.Seconds))?;
+        w.write_with_tag(8, |w| w.write_int64(self.Seconds))?;
         if let Some(ref s) = self.FractionalNanoseconds {
             w.write_with_tag(21, |w| w.write_fixed32(*s))?;
         }
@@ -208,14 +204,14 @@ impl<'a> MessageRead<'a> for Metadata<'a> {
 }
 impl<'a> MessageWrite for Metadata<'a> {
     fn get_size(&self) -> usize {
-        0 + self
+        self
             .MimeType
             .as_ref()
             .map_or(0, |m| 1 + sizeof_len((m).len()))
     }
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
         if let Some(ref s) = self.MimeType {
-            w.write_with_tag(10, |w| w.write_string(&**s))?;
+            w.write_with_tag(10, |w| w.write_string(s))?;
         }
         Ok(())
     }

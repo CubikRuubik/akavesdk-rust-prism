@@ -808,13 +808,13 @@ impl AkaveSDK {
         };
 
         let chunk_dag = ChunkDag::new(block_size, data);
-        let mut dag = chunk_dag.blocks.iter();
+        let dag = chunk_dag.blocks.iter();
 
         let mut cids: Vec<[u8; 32]> = vec![];
         let mut sizes = vec![];
         let mut chunk_blocks = vec![];
 
-        while let Some(block) = dag.next() {
+        for block in dag {
             let block_cid = block.cid.to_bytes()[4..36]
                 .to_vec()
                 .try_into()
@@ -960,7 +960,7 @@ impl AkaveSDK {
         {
             // Create a stream that generates block data on demand
             let stream = tokio_stream::iter(
-                0..((data_len + block_part_size - 1) / block_part_size),
+                0..(data_len.div_ceil(block_part_size)),
             )
             .map(move |segment_index| {
                 let start = segment_index * block_part_size;
@@ -1057,7 +1057,7 @@ impl AkaveSDK {
             .get_hex_address()
             .await
             .map_err(|e| AkaveError::AccountError(e.to_string()))?;
-        let info = vec![bucket_name, file_name].join("/");
+        let info = [bucket_name, file_name].join("/");
 
         // Use default encryption if provided and no password was specified
         let password = match (passwd, &self.default_encryption_key) {
@@ -1089,28 +1089,25 @@ impl AkaveSDK {
             .map_err(|e| AkaveError::InvalidInput(e.to_string()))?
             .codec();
 
-        let mut chunk_index = 0;
-
-        for chunk in file_download.chunks {
+        for (chunk_index, chunk) in file_download.chunks.into_iter().enumerate() {
             log_debug!("Processing chunk {} for file: {}", chunk_index, file_name);
             let chunk_cid = chunk.cid.clone();
             let chunk_size = chunk.size;
             let chunk_download = self
-                .create_chunk_download(bucket_name, file_name, &address, chunk, chunk_index)
+                .create_chunk_download(bucket_name, file_name, &address, chunk, chunk_index as i64)
                 .await
                 .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
 
-            let mut block_index = 0;
             let mut blocks_data = vec![];
 
-            for block in chunk_download.blocks {
+            for (block_index, block) in chunk_download.blocks.into_iter().enumerate() {
                 let mut chunk_data = vec![];
                 let req = IpcFileDownloadBlockRequest {
                     address: address.to_string(),
                     chunk_cid: chunk_cid.clone(),
-                    chunk_index,
+                    chunk_index: chunk_index as i64,
                     block_cid: block.cid.clone(),
-                    block_index,
+                    block_index: block_index as i64,
                     bucket_name: bucket_name.to_string(),
                     file_name: file_name.to_string(),
                 };
@@ -1172,7 +1169,6 @@ impl AkaveSDK {
                 };
 
                 blocks_data.push(final_data);
-                block_index += 1;
             }
 
             // Process the blocks with erasure coding if enabled
@@ -1205,7 +1201,6 @@ impl AkaveSDK {
                 .write_all(&decrypted_data)
                 .map_err(|e| AkaveError::FileError(e.to_string()))?;
 
-            chunk_index += 1;
         }
 
         Ok(writer)

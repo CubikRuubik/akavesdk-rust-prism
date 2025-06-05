@@ -85,10 +85,7 @@ impl BlockchainProvider {
             access_address
         );
 
-        let confirmations_opt = match confirmations {
-            Some(value) => value,
-            None => 0,
-        };
+        let confirmations_opt = confirmations.unwrap_or(0);
 
         #[cfg(target_arch = "wasm32")]
         {
@@ -185,9 +182,9 @@ impl BlockchainProvider {
                 }
                 Err(e) => {
                     log_error!("Failed to get HTTP web3 transport: {}", e);
-                    Err(Error::Transport(TransportError::Message(format!(
-                        "failed to get http web3 transport"
-                    ))))
+                    Err(Error::Transport(TransportError::Message(
+                        "failed to get http web3 transport".to_string()
+                    )))
                 }
             }
         }
@@ -249,8 +246,7 @@ impl BlockchainProvider {
                                     format!(
                                         "Transaction {}-{} failed with status 0",
                                         receipt.transaction_hash, function_name
-                                    )
-                                    .into(),
+                                    ),
                                 ));
                             }
                         }
@@ -332,7 +328,7 @@ impl BlockchainProvider {
                 .await
                 .map_err(|e| ProviderError::ContractCallError(e.to_string()))?;
 
-            return Ok(hash);
+            Ok(hash)
         }
 
         #[cfg(target_arch = "wasm32")]

@@ -32,18 +32,18 @@ impl FileId {
     }
 
     /// Get the underlying bytes as an array
-    pub fn to_bytes(&self) -> [u8; 32] {
+    pub fn to_bytes(self) -> [u8; 32] {
         self.0
     }
 
     /// Convert to a Vec<u8>
-    pub fn to_vec(&self) -> Vec<u8> {
+    pub fn to_vec(self) -> Vec<u8> {
         self.0.to_vec()
     }
 
     /// Get a hex string representation
-    pub fn to_hex(&self) -> String {
-        hex::encode(&self.0)
+    pub fn to_hex(self) -> String {
+        hex::encode(self.0)
     }
 }
 

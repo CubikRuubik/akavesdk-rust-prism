@@ -43,7 +43,7 @@ impl ErasureCode {
     pub fn encode(&self, data: &[u8]) -> Result<Vec<u8>, ErasureCodeError> {
         // Split the data into shards
         let total_blocks = self.data_blocks + self.parity_blocks;
-        let shard_size = (data.len() + self.data_blocks - 1) / self.data_blocks;
+        let shard_size = data.len().div_ceil(self.data_blocks);
 
         // Create shards
         let mut shards = vec![vec![0u8; shard_size]; total_blocks];

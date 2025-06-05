@@ -56,27 +56,27 @@ impl Logger {
 #[macro_export]
 macro_rules! log_info {
     ($($arg:tt)*) => {
-        crate::logger::Logger::info(format_args!($($arg)*))
+        $crate::logger::Logger::info(format_args!($($arg)*))
     };
 }
 
 #[macro_export]
 macro_rules! log_error {
     ($($arg:tt)*) => {
-        crate::logger::Logger::error(format_args!($($arg)*))
+        $crate::logger::Logger::error(format_args!($($arg)*))
     };
 }
 
 #[macro_export]
 macro_rules! log_warn {
     ($($arg:tt)*) => {
-        crate::logger::Logger::warn(format_args!($($arg)*))
+        $crate::logger::Logger::warn(format_args!($($arg)*))
     };
 }
 
 #[macro_export]
 macro_rules! log_debug {
     ($($arg:tt)*) => {
-        crate::logger::Logger::debug(format_args!($($arg)*))
+        $crate::logger::Logger::debug(format_args!($($arg)*))
     };
 }

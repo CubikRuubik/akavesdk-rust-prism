@@ -52,7 +52,7 @@ impl ChunkDag {
         // let mut raw_data_size = 0;  // Unused variable
 
         dag_blocks.iter().for_each(|(_, block_data)| {
-            let hash: Multihash = Code::Sha2_256.digest(&block_data);
+            let hash: Multihash = Code::Sha2_256.digest(block_data);
             let cid = Cid::new_v1(DAG_PROTOBUF, hash);
             // raw_data_size += block_data.len();  // Unused calculation
             blocks.push(FileBlockUpload {
@@ -74,11 +74,11 @@ impl ChunkDag {
             let _ = blocks.pop();
         }
 
-        return Self {
+        Self {
             cid,
             // raw_data_size,  // Removed unused field
             // proto_node_size,  // Removed unused field
             blocks,
-        };
+        }
     }
 }
