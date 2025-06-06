@@ -959,26 +959,25 @@ impl AkaveSDK {
         #[cfg(not(target_arch = "wasm32"))]
         {
             // Create a stream that generates block data on demand
-            let stream = tokio_stream::iter(
-                0..(data_len.div_ceil(block_part_size)),
-            )
-            .map(move |segment_index| {
-                let start = segment_index * block_part_size;
-                let end = std::cmp::min(start + block_part_size, data_len);
-                let segment_data = data[start..end].to_vec();
+            let stream = tokio_stream::iter(0..(data_len.div_ceil(block_part_size))).map(
+                move |segment_index| {
+                    let start = segment_index * block_part_size;
+                    let end = std::cmp::min(start + block_part_size, data_len);
+                    let segment_data = data[start..end].to_vec();
 
-                IpcFileBlockData {
-                    bucket_id: bucket_id.clone(),
-                    data: segment_data,
-                    cid: block_cid.clone(),
-                    chunk: chunk.clone(),
-                    file_name: file_name.clone(),
-                    index: block_index,
-                    signature: signature.clone(),
-                    node_id: node_id.clone(),
-                    nonce: nonce.clone(),
-                }
-            });
+                    IpcFileBlockData {
+                        bucket_id: bucket_id.clone(),
+                        data: segment_data,
+                        cid: block_cid.clone(),
+                        chunk: chunk.clone(),
+                        file_name: file_name.clone(),
+                        index: block_index,
+                        signature: signature.clone(),
+                        node_id: node_id.clone(),
+                        nonce: nonce.clone(),
+                    }
+                },
+            );
 
             // Send the stream to the server
             log_debug!(
@@ -1200,7 +1199,6 @@ impl AkaveSDK {
             writer
                 .write_all(&decrypted_data)
                 .map_err(|e| AkaveError::FileError(e.to_string()))?;
-
         }
 
         Ok(writer)

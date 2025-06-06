@@ -41,26 +41,16 @@ impl<'a> MessageRead<'a> for PbData<'a> {
 }
 impl<'a> MessageWrite for PbData<'a> {
     fn get_size(&self) -> usize {
-        1
-            + sizeof_varint(self.data_type as u64)
+        1 + sizeof_varint(self.data_type as u64)
             + self.data.as_ref().map_or(0, |m| 1 + sizeof_len((m).len()))
-            + self
-                .file_size
-                .as_ref()
-                .map_or(0, |m| 1 + sizeof_varint(*m))
+            + self.file_size.as_ref().map_or(0, |m| 1 + sizeof_varint(*m))
             + self
                 .block_sizes
                 .iter()
                 .map(|s| 1 + sizeof_varint(*s))
                 .sum::<usize>()
-            + self
-                .hash_type
-                .as_ref()
-                .map_or(0, |m| 1 + sizeof_varint(*m))
-            + self
-                .fan_out
-                .as_ref()
-                .map_or(0, |m| 1 + sizeof_varint(*m))
+            + self.hash_type.as_ref().map_or(0, |m| 1 + sizeof_varint(*m))
+            + self.fan_out.as_ref().map_or(0, |m| 1 + sizeof_varint(*m))
             + self
                 .mode
                 .as_ref()
@@ -171,8 +161,7 @@ impl<'a> MessageRead<'a> for UnixTime {
 }
 impl MessageWrite for UnixTime {
     fn get_size(&self) -> usize {
-        1
-            + sizeof_varint(self.Seconds as u64)
+        1 + sizeof_varint(self.Seconds as u64)
             + self.FractionalNanoseconds.as_ref().map_or(0, |_| 1 + 4)
     }
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
@@ -204,8 +193,7 @@ impl<'a> MessageRead<'a> for Metadata<'a> {
 }
 impl<'a> MessageWrite for Metadata<'a> {
     fn get_size(&self) -> usize {
-        self
-            .MimeType
+        self.MimeType
             .as_ref()
             .map_or(0, |m| 1 + sizeof_len((m).len()))
     }

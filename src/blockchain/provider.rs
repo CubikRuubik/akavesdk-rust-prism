@@ -183,7 +183,7 @@ impl BlockchainProvider {
                 Err(e) => {
                     log_error!("Failed to get HTTP web3 transport: {}", e);
                     Err(Error::Transport(TransportError::Message(
-                        "failed to get http web3 transport".to_string()
+                        "failed to get http web3 transport".to_string(),
                     )))
                 }
             }
@@ -242,12 +242,10 @@ impl BlockchainProvider {
                         Some(status) => {
                             if status.low_u64() == 0 {
                                 log_error!("Transaction failed with status 0");
-                                return Err(ProviderError::TransactionError(
-                                    format!(
-                                        "Transaction {}-{} failed with status 0",
-                                        receipt.transaction_hash, function_name
-                                    ),
-                                ));
+                                return Err(ProviderError::TransactionError(format!(
+                                    "Transaction {}-{} failed with status 0",
+                                    receipt.transaction_hash, function_name
+                                )));
                             }
                         }
                         None => {
