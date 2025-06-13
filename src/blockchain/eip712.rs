@@ -95,8 +95,8 @@ pub fn recover_signer_address(
 
     // Prepare signature for recovery
     let mut sig_bytes = [0u8; 64]; // Only r and s components needed
-    sig_bytes[0..32].copy_from_slice(&r.as_bytes());
-    sig_bytes[32..64].copy_from_slice(&s.as_bytes());
+    sig_bytes[0..32].copy_from_slice(r.as_bytes());
+    sig_bytes[32..64].copy_from_slice(s.as_bytes());
 
     // Use web3 recover function with the hash, signature bytes, and recovery ID
     let address = web3::signing::recover(hash.as_bytes(), &sig_bytes, recovery_id)
@@ -256,7 +256,7 @@ fn encode_value(value: &serde_json::Value, type_name: &str) -> Result<Vec<u8>, E
             let bytes_str = value.as_str().ok_or_else(|| {
                 Error::EncodingError(format!("Expected string for bytes, got {:?}", value))
             })?;
-            let bytes = hex::decode(&bytes_str.trim_start_matches("0x"))
+            let bytes = hex::decode(bytes_str.trim_start_matches("0x"))
                 .map_err(|_| Error::EncodingError("Invalid bytes format".to_string()))?;
             log_debug!(
                 "bytes: {:?}, keccak256: {:?}",

@@ -32,8 +32,8 @@ pub fn create_block_eip712_data(
     let domain = Domain {
         name: "Storage".to_string(),
         version: "1".to_string(),
-        chain_id: chain_id,
-        verifying_contract: verifying_contract,
+        chain_id,
+        verifying_contract,
     };
 
     // Create data types for StorageData

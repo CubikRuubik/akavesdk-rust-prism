@@ -57,7 +57,7 @@ impl Encryption {
         let key = key.ok_or(EncryptionError::KeyDerivation(
             "Failed deriving key".to_string(),
         ))?;
-        Ok(Aes256Gcm::new(&Key::<Aes256Gcm>::from_slice(&key)))
+        Ok(Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key)))
     }
 
     /// Generate a secure nonce for encryption
@@ -146,7 +146,7 @@ mod tests {
         let data = "This is a phrase to test!! This is a phrase to test!! This is a phrase to test!! This is a phrase to test!!";
         let password = "TestPassword";
         let index: u64 = 1;
-        let info = vec![BUCKET_TO_TEST, "file_name"].join("/");
+        let info = [BUCKET_TO_TEST, "file_name"].join("/");
 
         let encryption = Encryption::new(password.as_bytes(), info.as_bytes()).unwrap();
 
