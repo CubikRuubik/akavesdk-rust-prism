@@ -79,6 +79,8 @@ impl BlockchainProvider {
         _rpc_url: &str,
         access_address: &str,
         confirmations: Option<usize>,
+        #[cfg(not(target_arch = "wasm32"))]
+        private_key: Option<&str>,
     ) -> Result<BlockchainProvider, Error> {
         log_debug!(
             "Initializing BlockchainProvider with access address: {}",
@@ -141,8 +143,11 @@ impl BlockchainProvider {
         #[cfg(not(target_arch = "wasm32"))]
         {
             log_debug!("Creating native HTTP transport");
-            let pvkey = std::env::var("AKAVE_PRIVATE_KEY")
-                .expect("AKAVE_PRIVATE_KEY environment variable not set");
+            let pvkey = match private_key {
+                Some(key) => key.to_string(),
+                None => std::env::var("AKAVE_PRIVATE_KEY")
+                    .expect("AKAVE_PRIVATE_KEY environment variable not set"),
+            };
             let transport = ProviderType::new(_rpc_url);
 
             match transport {

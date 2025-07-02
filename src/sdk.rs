@@ -115,6 +115,8 @@ pub struct AkaveSDKBuilder {
     max_blocks_in_chunk: usize,
     block_part_size: usize,
     min_file_size: usize,
+    #[cfg(not(target_arch = "wasm32"))]
+    private_key: Option<String>,
 }
 
 impl AkaveSDKBuilder {
@@ -130,6 +132,8 @@ impl AkaveSDKBuilder {
             max_blocks_in_chunk: MAX_BLOCKS_IN_CHUNK,
             block_part_size: BLOCK_PART_SIZE,
             min_file_size: MIN_FILE_SIZE,
+            #[cfg(not(target_arch = "wasm32"))]
+            private_key: None,
         }
     }
 
@@ -176,6 +180,13 @@ impl AkaveSDKBuilder {
         self
     }
 
+    /// Set private key for native (non-WASM) environments
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_private_key(mut self, private_key: &str) -> Self {
+        self.private_key = Some(private_key.to_string());
+        self
+    }
+
     /// Build the AkaveSDK instance
     pub async fn build(self) -> Result<AkaveSDK, AkaveError> {
         let erasure_code = match (self.data_blocks, self.parity_blocks) {
@@ -195,6 +206,8 @@ impl AkaveSDKBuilder {
             self.max_blocks_in_chunk,
             self.block_part_size,
             self.min_file_size,
+            #[cfg(not(target_arch = "wasm32"))]
+            self.private_key,
         )
         .await
     }
@@ -212,6 +225,8 @@ impl AkaveSDK {
             MAX_BLOCKS_IN_CHUNK,
             BLOCK_PART_SIZE,
             MIN_FILE_SIZE,
+            #[cfg(not(target_arch = "wasm32"))]
+            None,
         )
         .await
     }
@@ -226,6 +241,8 @@ impl AkaveSDK {
         max_blocks_in_chunk: usize,
         block_part_size: usize,
         min_file_size: usize,
+        #[cfg(not(target_arch = "wasm32"))]
+        private_key: Option<String>,
     ) -> Result<Self, AkaveError> {
         log_info!(
             "Initializing AkaveSDK with server address: {}",
@@ -288,6 +305,7 @@ impl AkaveSDK {
                 &connection_params.dial_uri,
                 &connection_params.storage_address,
                 None,
+                private_key.as_deref(),
             )?;
 
             log_info!("AkaveSDK initialized successfully");
