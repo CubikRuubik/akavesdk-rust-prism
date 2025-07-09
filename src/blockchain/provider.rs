@@ -209,8 +209,7 @@ impl BlockchainProvider {
         // Send transaction and get hash
         let hash = self
             .call_contract(function_name, params)
-            .await
-            .map_err(|e| ProviderError::ContractCallError(e.to_string()))?;
+            .await?;
         log_debug!("Transaction hash: {}", hash);
 
         // Initial backoff parameters
@@ -232,14 +231,14 @@ impl BlockchainProvider {
             let current_block = eth
                 .block_number()
                 .await
-                .map_err(|e| ProviderError::BlockNumberError(e.to_string()))?;
+                .map_err(ProviderError::BlockNumberError)?;
             log_debug!("Current block number: {}", current_block);
 
             // Get transaction receipt
             let receipt = eth
                 .transaction_receipt(hash)
                 .await
-                .map_err(|e| ProviderError::TransactionError(e.to_string()))?;
+                .map_err(ProviderError::TransactionError)?;
 
             match receipt {
                 Some(receipt) => {
@@ -247,17 +246,15 @@ impl BlockchainProvider {
                         Some(status) => {
                             if status.low_u64() == 0 {
                                 log_error!("Transaction failed with status 0");
-                                return Err(ProviderError::TransactionError(format!(
-                                    "Transaction {}-{} failed with status 0",
-                                    receipt.transaction_hash, function_name
-                                )));
+                                return Err(ProviderError::TransactionFailedStatus {
+                                    tx_hash: format!("{:?}", receipt.transaction_hash),
+                                    function: function_name.to_string(),
+                                });
                             }
                         }
                         None => {
                             log_error!("Transaction failed with unknown status");
-                            return Err(ProviderError::TransactionError(
-                                "Transaction failed with unknown status".into(),
-                            ));
+                            return Err(ProviderError::TransactionUnknownStatus);
                         }
                     }
                     if let Some(confirmation_block) = receipt.block_number {
@@ -321,15 +318,14 @@ impl BlockchainProvider {
             let key = self
                 .key
                 .as_ref()
-                .ok_or("Missing key for signed call")
-                .map_err(|e| ProviderError::KeyError(e.to_string()))?;
+                .ok_or_else(|| ProviderError::KeyError("Missing key for signed call".to_string()))?;
             let key_ref = SecretKeyRef::new(key);
 
             let hash = self
                 .akave_storage
                 .signed_call(function_name, params, txopts, key_ref)
                 .await
-                .map_err(|e| ProviderError::ContractCallError(e.to_string()))?;
+                .map_err(ProviderError::Web3CallError)?;
 
             Ok(hash)
         }
@@ -341,7 +337,7 @@ impl BlockchainProvider {
                 .eth()
                 .accounts()
                 .await
-                .map_err(|e| ProviderError::AddressError(e.to_string()))?[0];
+                .map_err(|e| ProviderError::AddressError(e))?[0];
             log_debug!(
                 "Calling contract function: {} with confirmations, with address: {}",
                 function_name,
@@ -351,7 +347,7 @@ impl BlockchainProvider {
                 .akave_storage
                 .call(function_name, params, address, txopts)
                 .await
-                .map_err(|e| ProviderError::ContractCallError(e.to_string()))?);
+                .map_err(|e| ProviderError::ContractCallError(e))?);
         }
     }
 
@@ -364,13 +360,11 @@ impl BlockchainProvider {
                 .eth()
                 .accounts()
                 .await
-                .map_err(|e| ProviderError::AccountError(e.to_string()))?;
+                .map_err(ProviderError::AccountError)?;
 
             if accounts.is_empty() {
                 log_error!("No accounts available. Please connect your wallet.");
-                return Err(ProviderError::AccountError(
-                    "No accounts available. Please connect your wallet.".into(),
-                ));
+                return Err(ProviderError::NoAccountsAvailable);
             }
 
             Ok(accounts[0])
@@ -386,10 +380,10 @@ impl BlockchainProvider {
                         .eth()
                         .accounts()
                         .await
-                        .map_err(|e| ProviderError::AddressError(e.to_string()))?;
+                        .map_err(ProviderError::AddressError)?;
 
                     if accounts.is_empty() {
-                        return Err(ProviderError::AccountError("No accounts available".into()));
+                        return Err(ProviderError::NoAccountsAvailable);
                     }
 
                     Ok(accounts[0])
@@ -455,7 +449,7 @@ impl BlockchainProvider {
                     bucket_id.to_bytes(),
                     file_name,
                     encode_size,
-                    // actual_size,
+                    actual_size,
                     root_cid,
                 ),
             )
@@ -565,7 +559,7 @@ impl BlockchainProvider {
                 None,
             )
             .await
-            .map_err(|e| ProviderError::ContractCallError(e.to_string()))?;
+            .map_err(ProviderError::ContractCallError)?;
         Ok(result)
     }
 
@@ -586,7 +580,7 @@ impl BlockchainProvider {
                 None,
             )
             .await
-            .map_err(|e| ProviderError::ContractCallError(e.to_string()))?;
+            .map_err(ProviderError::ContractCallError)?;
         Ok(result)
     }
 
@@ -634,7 +628,8 @@ impl BlockchainProvider {
         let file_name_clone = file_name.clone();
         log_debug!("Getting file index for name: {}", file_name_clone);
         let address = self.get_address().await?;
-        let parsed_id: [u8; 32] = file_id.try_into().expect("file_id error");
+        let parsed_id: [u8; 32] = file_id.try_into()
+            .map_err(|v: Vec<u8>| ProviderError::InvalidFileId(v.len()))?;
         let result: U256 = self
             .akave_storage
             .query(
@@ -645,7 +640,7 @@ impl BlockchainProvider {
                 None,
             )
             .await
-            .map_err(|e| ProviderError::ContractCallError(e.to_string()))?;
+            .map_err(ProviderError::ContractCallError)?;
         Ok(result)
     }
 
@@ -671,7 +666,7 @@ impl BlockchainProvider {
                 None,
             )
             .await
-            .map_err(|e| ProviderError::ContractCallError(e.to_string()))?;
+            .map_err(ProviderError::ContractCallError)?;
         Ok(result)
     }
 
@@ -692,7 +687,7 @@ impl BlockchainProvider {
                 log_debug!("Using native EIP-712 signing with private key");
                 let signature =
                     crate::blockchain::eip712::sign_typed_data(key, &domain, &message, &types)
-                        .map_err(|e| ProviderError::EncodeError(e.to_string()))?;
+                        .map_err(|e| ProviderError::EncodeError(Box::new(e)))?;
                 Ok(hex::encode(signature))
             } else {
                 Err(ProviderError::EncodeError(
@@ -720,16 +715,16 @@ impl BlockchainProvider {
                 .eth()
                 .accounts()
                 .await
-                .map_err(|e| ProviderError::AccountError(e.to_string()))?;
+                .map_err(ProviderError::AccountError)?;
             if accounts.is_empty() {
-                return Err(ProviderError::AccountError("No accounts available".into()));
+                return Err(ProviderError::NoAccountsAvailable);
             }
 
             // Call the provider's eth_signTypedData_v4 method
             // Prepare parameters for the JSON-RPC call
             let account = format!("{:?}", accounts[0]);
             let typed_data_json = serde_json::to_string(&eip712_request)
-                .map_err(|e| ProviderError::EncodeError(e.to_string()))?;
+                .map_err(|e| ProviderError::EncodeError(Box::new(e)))?;
 
             // Call the RPC method with proper parameters
             let params = vec![
@@ -744,7 +739,7 @@ impl BlockchainProvider {
                 .transport()
                 .execute("eth_signTypedData_v4", params)
                 .await
-                .map_err(|e| ProviderError::TransactionError(e.to_string()))?
+                .map_err(|e| ProviderError::Web3CallError(e))?
                 .to_string();
             log_debug!("Received signature hex: {}", signature_hex);
 
@@ -760,21 +755,36 @@ impl BlockchainProvider {
 
 #[derive(Error, Debug)]
 pub enum ProviderError {
-    #[error("transaction error: {0}")]
-    TransactionError(String),
+    #[error("transaction error")]
+    TransactionError(#[source] web3::Error),
     #[error("transaction confirmation timeout: {0}")]
     TransactionConfirmTimeout(String),
-    #[error("block number error: {0}")]
-    BlockNumberError(String),
-    #[error("contract call error: {0}")]
-    ContractCallError(String),
-    #[error("address error: {0}")]
-    AddressError(String),
-    #[error("encode error: {0}")]
-    EncodeError(String),
-    #[error("account error: {0}")]
-    AccountError(String),
+    #[error("block number error")]
+    BlockNumberError(#[source] web3::Error),
+    #[error("contract call error")]
+    ContractCallError(#[source] web3::contract::Error),
+    #[error("web3 call error")]
+    Web3CallError(#[source] web3::Error),
+    #[error("address error")]
+    AddressError(#[source] web3::Error),
+    #[error("encode error")]
+    EncodeError(#[source] Box<dyn std::error::Error + Send + Sync>),
+    #[error("failed to get accounts")]
+    AccountError(#[source] web3::Error),
     #[cfg(not(target_arch = "wasm32"))]
     #[error("key error: {0}")]
     KeyError(String),
+    #[error("no accounts available")]
+    NoAccountsAvailable,
+    #[error("serialization error")]
+    SerializationError(#[from] serde_json::Error),
+    #[error("invalid file id: expected 32 bytes, got {0} bytes")]
+    InvalidFileId(usize),
+    #[error("transaction failed with status 0: tx_hash={tx_hash}, function={function}")]
+    TransactionFailedStatus {
+        tx_hash: String,
+        function: String,
+    },
+    #[error("transaction receipt has unknown status")]
+    TransactionUnknownStatus,
 }

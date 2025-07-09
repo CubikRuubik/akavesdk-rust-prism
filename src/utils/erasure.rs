@@ -3,11 +3,17 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ErasureCodeError {
-    #[error("erasure coding error: {0}")]
-    ReedSolomonError(String),
+    #[error("erasure coding error")]
+    ReedSolomonError(#[source] reed_solomon_erasure::Error),
 
     #[error("data and parity blocks must be > 0")]
     InvalidBlockCount,
+
+    #[error("invalid shard count: expected {expected}, got {got}")]
+    InvalidShardCount { expected: usize, got: usize },
+
+    #[error("insufficient data for reconstruction: need at least {required} shards, got {available}")]
+    InsufficientData { required: usize, available: usize },
 }
 
 /// ErasureCode is a wrapper around the ReedSolomon encoder, providing a more user-friendly interface.
@@ -30,7 +36,7 @@ impl ErasureCode {
         }
 
         let enc = ReedSolomon::<galois_8::Field>::new(data_blocks, parity_blocks)
-            .map_err(|e| ErasureCodeError::ReedSolomonError(e.to_string()))?;
+            .map_err(ErasureCodeError::ReedSolomonError)?;
 
         Ok(Self {
             data_blocks,
@@ -60,7 +66,7 @@ impl ErasureCode {
         // Encode the shards
         self.enc
             .encode(&mut shards)
-            .map_err(|e| ErasureCodeError::ReedSolomonError(e.to_string()))?;
+            .map_err(ErasureCodeError::ReedSolomonError)?;
 
         // Concatenate all shards into a single byte vector
         let mut result = Vec::with_capacity(shard_size * total_blocks);
@@ -81,7 +87,7 @@ impl ErasureCode {
         if !self
             .enc
             .verify(&blocks)
-            .map_err(|e| ErasureCodeError::ReedSolomonError(e.to_string()))?
+            .map_err(ErasureCodeError::ReedSolomonError)?
         {
             // Convert empty vectors to None for reconstruction
             let mut decoder_shards = blocks
@@ -98,7 +104,7 @@ impl ErasureCode {
             // Reconstruct the shards
             self.enc
                 .reconstruct_data(&mut decoder_shards)
-                .map_err(|e| ErasureCodeError::ReedSolomonError(e.to_string()))?;
+                .map_err(ErasureCodeError::ReedSolomonError)?;
 
             // Join the data blocks
             let mut buffer = Vec::with_capacity(original_data_size);

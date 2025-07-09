@@ -6,7 +6,7 @@ use sha2::Sha256;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub(crate) enum EncryptionError {
+pub enum EncryptionError {
     #[error("key derivation failed: {0}")]
     KeyDerivation(String),
 

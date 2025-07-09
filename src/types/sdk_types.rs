@@ -8,8 +8,8 @@ use crate::{types::BucketId, utils::timestamp::timestamp_serde_direct};
 
 #[derive(Error, Debug)]
 pub enum AkaveError {
-    #[error("blockchain error: {0}")]
-    BlockchainError(String),
+    #[error("blockchain error")]
+    BlockchainError(#[source] web3::Error),
 
     #[error("block error: {0}")]
     BlockError(String),
@@ -17,17 +17,24 @@ pub enum AkaveError {
     #[error("chunk error: {0}")]
     ChunkError(String),
 
-    #[error("grpc error: {0}")]
-    GrpcError(String),
+    #[error("grpc error")]
+    GrpcError(#[source] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("file error: {0}")]
     FileError(String),
 
-    #[error("encryption error: {0}")]
-    EncryptionError(String),
+    #[error("file operation error during {operation} for file '{file_name}': {message}")]
+    FileOperationError {
+        operation: String,
+        file_name: String,
+        message: String,
+    },
 
-    #[error("erasure coding error: {0}")]
-    ErasureCodeError(String),
+    #[error("encryption error")]
+    EncryptionError(#[from] crate::utils::encryption::EncryptionError),
+
+    #[error("erasure coding error")]
+    ErasureCodeError(#[from] crate::utils::erasure::ErasureCodeError),
 
     #[error("invalid input: {0}")]
     InvalidInput(String),
@@ -44,8 +51,8 @@ pub enum AkaveError {
     #[error("internal error: {0}")]
     InternalError(String),
 
-    #[error("provider error: {0}")]
-    ProviderError(String),
+    #[error("provider error")]
+    ProviderError(#[from] crate::blockchain::provider::ProviderError),
 
     #[error("bucket error: {0}")]
     BucketError(String),
@@ -55,17 +62,17 @@ pub enum AkaveError {
 
     #[error("account error: {0}")]
     AccountError(String),
+
+    #[error("io error")]
+    IoError(#[from] std::io::Error),
+
+    #[error("serialization error")]
+    SerializationError(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl From<web3::Error> for AkaveError {
     fn from(err: web3::Error) -> Self {
-        AkaveError::ProviderError(err.to_string())
-    }
-}
-
-impl From<crate::utils::encryption::EncryptionError> for AkaveError {
-    fn from(err: crate::utils::encryption::EncryptionError) -> Self {
-        AkaveError::EncryptionError(err.to_string())
+        AkaveError::BlockchainError(err)
     }
 }
 

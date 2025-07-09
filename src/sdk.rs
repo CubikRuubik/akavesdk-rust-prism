@@ -192,7 +192,7 @@ impl AkaveSDKBuilder {
         let erasure_code = match (self.data_blocks, self.parity_blocks) {
             (Some(data), Some(parity)) => Some(
                 utils::erasure::ErasureCode::new(data, parity)
-                    .map_err(|e| AkaveError::ErasureCodeError(e.to_string()))?,
+                    ?,
             ),
             _ => None,
         };
@@ -257,7 +257,7 @@ impl AkaveSDK {
             let connection_params = client
                 .connection_params(ConnectionParamsRequest {})
                 .await
-                .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+                .map_err(|e| AkaveError::GrpcError(Box::new(e)))?
                 .into_inner();
             log_debug!("Creating blockchain provider...");
             let storage = BlockchainProvider::new(
@@ -297,7 +297,7 @@ impl AkaveSDK {
             let connection_params = client
                 .connection_params(ConnectionParamsRequest {})
                 .await
-                .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+                .map_err(|e| AkaveError::GrpcError(Box::new(e)))?
                 .into_inner();
 
             log_debug!("Creating blockchain provider...");
@@ -329,7 +329,7 @@ impl AkaveSDK {
             .storage
             .get_hex_address()
             .await
-            .map_err(|e| AkaveError::AccountError(e.to_string()))?;
+            ?;
         log_debug!("Listing buckets for address: {}", address);
         let request = IpcBucketListRequest {
             address: address.to_string(),
@@ -338,7 +338,7 @@ impl AkaveSDK {
         let response = client
             .bucket_list(request)
             .await
-            .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+            .map_err(|e| AkaveError::GrpcError(Box::new(e)))?
             .into_inner();
 
         let buckets: Vec<BucketListItem> = response
@@ -361,7 +361,7 @@ impl AkaveSDK {
             .storage
             .get_hex_address()
             .await
-            .map_err(|e| AkaveError::AccountError(e.to_string()))?;
+            ?;
         log_debug!("Viewing bucket: {} for address: {}", bucket_name, address);
         let request = IpcBucketViewRequest {
             name: bucket_name.to_string(),
@@ -372,7 +372,7 @@ impl AkaveSDK {
             .clone()
             .bucket_view(request)
             .await
-            .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+            .map_err(|e| AkaveError::GrpcError(Box::new(e)))?
             .into_inner();
 
         let bucket = BucketViewResponse {
@@ -392,7 +392,7 @@ impl AkaveSDK {
             .storage
             .get_hex_address()
             .await
-            .map_err(|e| AkaveError::AccountError(e.to_string()))?;
+            ?;
         log_debug!(
             "Listing files in bucket: {} for address: {}",
             bucket_name,
@@ -407,7 +407,7 @@ impl AkaveSDK {
             .clone()
             .file_list(request)
             .await
-            .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+            .map_err(|e| AkaveError::GrpcError(Box::new(e)))?
             .into_inner();
 
         let files: Vec<FileListItem> = response
@@ -435,7 +435,7 @@ impl AkaveSDK {
             .storage
             .get_hex_address()
             .await
-            .map_err(|e| AkaveError::AccountError(e.to_string()))?;
+            ?;
         log_debug!(
             "Viewing file info: {} in bucket: {} for address: {}",
             file_name,
@@ -452,7 +452,7 @@ impl AkaveSDK {
             .clone()
             .file_view(request)
             .await
-            .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+            .map_err(|e| AkaveError::GrpcError(Box::new(e)))?
             .into_inner();
 
         let file = FileViewResponse {
@@ -486,12 +486,12 @@ impl AkaveSDK {
         self.storage
             .create_bucket(bucket_name.into())
             .await
-            .map_err(|e| AkaveError::ProviderError(e.to_string()))?;
+            .map_err(AkaveError::ProviderError)?;
         log_info!("Bucket created successfully: {}", bucket_name);
         self.storage
             .get_bucket_by_name(bucket_name.into())
             .await
-            .map_err(|e| AkaveError::ProviderError(e.to_string()))
+            .map_err(AkaveError::ProviderError)
     }
 
     // Delete an existing bucket
@@ -500,7 +500,7 @@ impl AkaveSDK {
             .storage
             .get_hex_address()
             .await
-            .map_err(|e| AkaveError::AccountError(e.to_string()))?;
+            ?;
         log_debug!("Deleting bucket: {} for address: {}", bucket_name, address);
         let bucket = self.view_bucket(bucket_name).await?;
         let bucket_id_bytes = hex::decode(bucket.id.clone())
@@ -511,12 +511,12 @@ impl AkaveSDK {
             .storage
             .get_bucket_index_by_name(bucket_name.to_string())
             .await
-            .map_err(|e| AkaveError::ProviderError(e.to_string()))?;
+            .map_err(AkaveError::ProviderError)?;
 
         self.storage
             .delete_bucket(bucket_id, bucket_name.into(), bucket_idx)
             .await
-            .map_err(|e| AkaveError::ProviderError(e.to_string()))?;
+            .map_err(AkaveError::ProviderError)?;
         log_info!("Bucket deleted successfully: {}", bucket_name);
         Ok(())
     }
@@ -527,7 +527,7 @@ impl AkaveSDK {
             .storage
             .get_hex_address()
             .await
-            .map_err(|e| AkaveError::AccountError(e.to_string()))?;
+            ?;
         log_debug!(
             "Deleting file: {} from bucket: {} for address: {}",
             file_name,
@@ -542,7 +542,7 @@ impl AkaveSDK {
         self.storage
             .delete_file(file_name.to_string(), bucket_id)
             .await
-            .map_err(|e| AkaveError::ProviderError(e.to_string()))?;
+            .map_err(AkaveError::ProviderError)?;
         log_info!(
             "File deleted successfully: {} from bucket: {}",
             file_name,
@@ -559,7 +559,11 @@ impl AkaveSDK {
         storage
             .create_file(bucket_id, file_name.to_string())
             .await
-            .map_err(|e| AkaveError::BlockchainError(e.to_string()))
+            .map_err(|e| AkaveError::FileOperationError {
+                operation: "create_file".to_string(),
+                file_name: file_name.to_string(),
+                message: format!("Failed to create file entry on blockchain: {}", e),
+            })
     }
 
     pub async fn upload_file<R>(
@@ -591,11 +595,11 @@ impl AkaveSDK {
             .storage
             .get_bucket_by_name(bucket_name.to_string())
             .await
-            .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
+            ?;
 
         AkaveSDK::create_file_upload(bucket.id, file_name, &self.storage)
             .await
-            .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
+            ?;
 
         log_info!("File created successfully: {}", file_name);
 
@@ -612,7 +616,7 @@ impl AkaveSDK {
                 log_debug!("Setting up encryption");
                 Some(
                     Encryption::new(key.as_bytes(), info.as_bytes())
-                        .map_err(|e| AkaveError::EncryptionError(e.to_string()))?,
+                        .map_err(AkaveError::EncryptionError)?,
                 )
             }
             None => {
@@ -674,14 +678,14 @@ impl AkaveSDK {
             let encrypted_data = match encryption {
                 Some(ref encryption) => encryption
                     .encrypt(&buffer[..], format!("block_{}", idx).as_bytes())
-                    .map_err(|e| AkaveError::EncryptionError(e.to_string()))?,
+                    .map_err(AkaveError::EncryptionError)?,
                 None => buffer[..].to_vec().into(),
             };
 
             let processed_data = if let Some(ref erasure_code) = self.erasure_code {
                 erasure_code
                     .encode(&encrypted_data)
-                    .map_err(|e| AkaveError::ErasureCodeError(e.to_string()))?
+                    ?
             } else {
                 encrypted_data.to_vec()
             };
@@ -701,7 +705,7 @@ impl AkaveSDK {
                 &self.storage,
             )
             .await
-            .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
+            ?;
 
             // Sequentially upload each block in the chunk
             let blocks = chunk.blocks.clone();
@@ -717,7 +721,7 @@ impl AkaveSDK {
                     .eth()
                     .chain_id()
                     .await
-                    .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
+                    ?;
                 let (data_message, domain, data_types) = create_block_eip712_data(
                     &block_1mb.cid,
                     &chunk_cid,
@@ -740,7 +744,7 @@ impl AkaveSDK {
                     .eip712_sign(domain.clone(), data_message.clone(), data_types.clone())
                     .await
                     .map_err(|e| {
-                        AkaveError::BlockchainError(format!("Failed to sign data: {}", e))
+                        AkaveError::InternalError(format!("Failed to sign data: {}", e))
                     })?;
                 log_debug!("Signature: {:?}", signature);
 
@@ -762,7 +766,7 @@ impl AkaveSDK {
                 )
                 .await
                 .map_err(|e| {
-                    AkaveError::BlockchainError(format!("Failed to upload block segments: {}", e))
+                    AkaveError::InternalError(format!("Failed to upload block segments: {}", e))
                 })?;
             }
 
@@ -791,7 +795,14 @@ impl AkaveSDK {
                 root_cid.to_bytes(),
             )
             .await
-            .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
+            .map_err(|e| AkaveError::FileOperationError {
+                operation: "commit_file".to_string(),
+                file_name: file_name.to_string(),
+                message: format!(
+                    "Failed to commit file to blockchain. Encoded size: {}, Actual size: {}, Error: {}",
+                    encode_file_size, actual_file_size, e
+                ),
+            })?;
 
         log_info!(
             "File uploaded successfully: {} to bucket: {}",
@@ -842,7 +853,7 @@ impl AkaveSDK {
                 size: block.data.len() as i64,
             });
             cids.push(block_cid);
-            sizes.push(U256::from(size));
+            sizes.push(U256::from(block.data.len()));
         }
 
         let chunk_cid = chunk_dag.cid;
@@ -864,7 +875,7 @@ impl AkaveSDK {
         let chunk_create_response = client
             .file_upload_chunk_create(chunk_create_request)
             .await
-            .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+            .map_err(|e| AkaveError::GrpcError(Box::new(e)))?
             .into_inner();
 
         let mut blocks = chunk_dag.blocks;
@@ -890,7 +901,14 @@ impl AkaveSDK {
                 index.into(),
             )
             .await
-            .map_err(|e| AkaveError::BlockchainError(e.to_string()))?;
+            .map_err(|e| AkaveError::FileOperationError {
+                operation: "add_file_chunk".to_string(),
+                file_name: file_name.to_string(),
+                message: format!(
+                    "Failed to register chunk {} on blockchain: {}",
+                    index, e
+                ),
+            })?;
 
         log_debug!(
             "Chunk upload created successfully for file: {}, chunk index: {}",
@@ -963,13 +981,16 @@ impl AkaveSDK {
             log_debug!("Uploading block {}", block_index);
             let mut node_client = AkaveSDK::get_client_for_node_address(node_address)
                 .await
-                .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
+                .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
             node_client
                 .file_upload_block_unary(block_data)
                 .await
                 .map_err(|e| {
                     log_error!("Error uploading block: {}", e);
-                    AkaveError::GrpcError(format!("Failed to upload block: {}", e))
+                    AkaveError::GrpcError(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Failed to upload block: {}", e)
+                    )))
                 })?
                 .into_inner();
         }
@@ -1005,7 +1026,7 @@ impl AkaveSDK {
             );
             let mut node_client = AkaveSDK::get_client_for_node_address(node_address)
                 .await
-                .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
+                .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
             match node_client.file_upload_block(stream).await {
                 Ok(response) => {
                     log_debug!("Block upload completed successfully");
@@ -1013,7 +1034,7 @@ impl AkaveSDK {
                 }
                 Err(e) => {
                     log_error!("Error uploading block: {}", e);
-                    return Err(AkaveError::GrpcError(e.to_string()));
+                    return Err(AkaveError::GrpcError(Box::new(e)));
                 }
             }
         }
@@ -1044,7 +1065,7 @@ impl AkaveSDK {
             .clone()
             .file_download_create(request)
             .await
-            .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+            .map_err(|e| AkaveError::GrpcError(Box::new(e)))?
             .into_inner();
 
         let chunks = response
@@ -1073,7 +1094,7 @@ impl AkaveSDK {
             .storage
             .get_hex_address()
             .await
-            .map_err(|e| AkaveError::AccountError(e.to_string()))?;
+            ?;
         let info = [bucket_name, file_name].join("/");
 
         // Use default encryption if provided and no password was specified
@@ -1088,7 +1109,7 @@ impl AkaveSDK {
                 log_debug!("Setting up decryption key");
                 Some(
                     Encryption::new(key.as_bytes(), info.as_bytes())
-                        .map_err(|e| AkaveError::EncryptionError(e.to_string()))?,
+                        .map_err(AkaveError::EncryptionError)?,
                 )
             }
             None => {
@@ -1100,7 +1121,7 @@ impl AkaveSDK {
         let file_download = self
             .create_file_download(&address, bucket_name, file_name)
             .await
-            .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
+            .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
 
         let codec = Cid::try_from(file_download.chunks[0].cid.clone())
             .map_err(|e| AkaveError::InvalidInput(e.to_string()))?
@@ -1113,7 +1134,7 @@ impl AkaveSDK {
             let chunk_download = self
                 .create_chunk_download(bucket_name, file_name, &address, chunk, chunk_index as i64)
                 .await
-                .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
+                .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
 
             let mut blocks_data = vec![];
 
@@ -1136,17 +1157,17 @@ impl AkaveSDK {
                 let mut node_client =
                     AkaveSDK::get_client_for_node_address(&block.akave.node_address)
                         .await
-                        .map_err(|e| AkaveError::GrpcError(e.to_string()))?;
+                        .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
                 let mut stream = node_client
                     .file_download_block(req)
                     .await
-                    .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+                    .map_err(|e| AkaveError::GrpcError(Box::new(e)))?
                     .into_inner();
 
                 while let Some(mut message) = stream
                     .message()
                     .await
-                    .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+                    .map_err(|e| AkaveError::GrpcError(Box::new(e)))?
                 {
                     chunk_data.append(message.data.as_mut());
                 }
@@ -1193,7 +1214,7 @@ impl AkaveSDK {
                 // Extract data from blocks (including parity blocks)
                 let data = erasure_code
                     .extract_data(blocks_data.clone(), chunk_size as usize)
-                    .map_err(|e| AkaveError::ErasureCodeError(e.to_string()))?;
+                    ?;
                 // Clear blocks_data to remove all blocks including parity blocks
                 blocks_data.clear();
                 data
@@ -1208,7 +1229,7 @@ impl AkaveSDK {
                     log_info!("Decrypting chunk: {}", chunk_index);
                     encryption
                         .decrypt(&processed_data, format!("block_{}", chunk_index).as_bytes())
-                        .map_err(|e| AkaveError::EncryptionError(e.to_string()))?
+                        .map_err(AkaveError::EncryptionError)?
                 }
                 None => processed_data,
             };
@@ -1247,7 +1268,7 @@ impl AkaveSDK {
             .clone()
             .file_download_chunk_create(request)
             .await
-            .map_err(|e| AkaveError::GrpcError(e.to_string()))?
+            .map_err(|e| AkaveError::GrpcError(Box::new(e)))?
             .into_inner();
         let mut blocks = vec![];
         for block in resp.blocks {
@@ -1284,7 +1305,7 @@ impl AkaveSDK {
             // Parse node address and modify port
             let parts: Vec<&str> = node_address.split(':').collect();
             if parts.len() != 2 {
-                return Err(AkaveError::GrpcError(
+                return Err(AkaveError::InvalidInput(
                     "Invalid node address format, expected IP:PORT".to_string(),
                 ));
             }
@@ -1292,7 +1313,7 @@ impl AkaveSDK {
             let host = parts[0];
             let port = parts[1]
                 .parse::<u16>()
-                .map_err(|_| AkaveError::GrpcError("Invalid port number".to_string()))?;
+                .map_err(|_| AkaveError::InvalidInput("Invalid port number".to_string()))?;
 
             let address = format!("http://{}:{}/grpc", host, port + 2000);
 
@@ -1318,7 +1339,10 @@ impl AkaveSDK {
                 .connect()
                 .await
                 .map_err(|e| {
-                    AkaveError::GrpcError(format!("Failed to connect to node {}: {}", address, e))
+                    AkaveError::GrpcError(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionRefused,
+                        format!("Failed to connect to node {}: {}", address, e)
+                    )))
                 })?;
 
             let client = IpcNodeApiClient::new(channel)
