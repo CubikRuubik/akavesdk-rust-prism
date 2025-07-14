@@ -259,7 +259,7 @@ impl AkaveSDK {
                 .await
                 .map_err(|e| AkaveError::GrpcError(Box::new(e)))?
                 .into_inner();
-            log_debug!("Creating blockchain provider...");
+            log_debug!("Creating blockchain provider... {:?}", connection_params);
             let storage = BlockchainProvider::new(
                 &connection_params.dial_uri,
                 &connection_params.storage_address,
@@ -300,7 +300,7 @@ impl AkaveSDK {
                 .map_err(|e| AkaveError::GrpcError(Box::new(e)))?
                 .into_inner();
 
-            log_debug!("Creating blockchain provider...");
+            log_debug!("Creating blockchain provider... {:?}", connection_params);
             let storage = BlockchainProvider::new(
                 &connection_params.dial_uri,
                 &connection_params.storage_address,
