@@ -79,8 +79,7 @@ impl BlockchainProvider {
         _rpc_url: &str,
         access_address: &str,
         confirmations: Option<usize>,
-        #[cfg(not(target_arch = "wasm32"))]
-        private_key: Option<&str>,
+        #[cfg(not(target_arch = "wasm32"))] private_key: Option<&str>,
     ) -> Result<BlockchainProvider, Error> {
         log_debug!(
             "Initializing BlockchainProvider with access address: {}",
@@ -207,9 +206,7 @@ impl BlockchainProvider {
         let eth = self.web3_provider.eth();
 
         // Send transaction and get hash
-        let hash = self
-            .call_contract(function_name, params)
-            .await?;
+        let hash = self.call_contract(function_name, params).await?;
         log_debug!("Transaction hash: {}", hash);
 
         // Initial backoff parameters
@@ -315,10 +312,9 @@ impl BlockchainProvider {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let key = self
-                .key
-                .as_ref()
-                .ok_or_else(|| ProviderError::KeyError("Missing key for signed call".to_string()))?;
+            let key = self.key.as_ref().ok_or_else(|| {
+                ProviderError::KeyError("Missing key for signed call".to_string())
+            })?;
             let key_ref = SecretKeyRef::new(key);
 
             let hash = self
@@ -628,7 +624,8 @@ impl BlockchainProvider {
         let file_name_clone = file_name.clone();
         log_debug!("Getting file index for name: {}", file_name_clone);
         let address = self.get_address().await?;
-        let parsed_id: [u8; 32] = file_id.try_into()
+        let parsed_id: [u8; 32] = file_id
+            .try_into()
             .map_err(|v: Vec<u8>| ProviderError::InvalidFileId(v.len()))?;
         let result: U256 = self
             .akave_storage
@@ -781,10 +778,7 @@ pub enum ProviderError {
     #[error("invalid file id: expected 32 bytes, got {0} bytes")]
     InvalidFileId(usize),
     #[error("transaction failed with status 0: tx_hash={tx_hash}, function={function}")]
-    TransactionFailedStatus {
-        tx_hash: String,
-        function: String,
-    },
+    TransactionFailedStatus { tx_hash: String, function: String },
     #[error("transaction receipt has unknown status")]
     TransactionUnknownStatus,
 }

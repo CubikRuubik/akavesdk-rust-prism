@@ -12,7 +12,9 @@ pub enum ErasureCodeError {
     #[error("invalid shard count: expected {expected}, got {got}")]
     InvalidShardCount { expected: usize, got: usize },
 
-    #[error("insufficient data for reconstruction: need at least {required} shards, got {available}")]
+    #[error(
+        "insufficient data for reconstruction: need at least {required} shards, got {available}"
+    )]
     InsufficientData { required: usize, available: usize },
 }
 

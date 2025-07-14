@@ -190,10 +190,7 @@ impl AkaveSDKBuilder {
     /// Build the AkaveSDK instance
     pub async fn build(self) -> Result<AkaveSDK, AkaveError> {
         let erasure_code = match (self.data_blocks, self.parity_blocks) {
-            (Some(data), Some(parity)) => Some(
-                utils::erasure::ErasureCode::new(data, parity)
-                    ?,
-            ),
+            (Some(data), Some(parity)) => Some(utils::erasure::ErasureCode::new(data, parity)?),
             _ => None,
         };
 
@@ -241,8 +238,7 @@ impl AkaveSDK {
         max_blocks_in_chunk: usize,
         block_part_size: usize,
         min_file_size: usize,
-        #[cfg(not(target_arch = "wasm32"))]
-        private_key: Option<String>,
+        #[cfg(not(target_arch = "wasm32"))] private_key: Option<String>,
     ) -> Result<Self, AkaveError> {
         log_info!(
             "Initializing AkaveSDK with server address: {}",
@@ -325,11 +321,7 @@ impl AkaveSDK {
 
     /// List all buckets
     pub async fn list_buckets(&self) -> Result<BucketListResponse, AkaveError> {
-        let address = self
-            .storage
-            .get_hex_address()
-            .await
-            ?;
+        let address = self.storage.get_hex_address().await?;
         log_debug!("Listing buckets for address: {}", address);
         let request = IpcBucketListRequest {
             address: address.to_string(),
@@ -357,11 +349,7 @@ impl AkaveSDK {
 
     /// View a bucket
     pub async fn view_bucket(&self, bucket_name: &str) -> Result<BucketViewResponse, AkaveError> {
-        let address = self
-            .storage
-            .get_hex_address()
-            .await
-            ?;
+        let address = self.storage.get_hex_address().await?;
         log_debug!("Viewing bucket: {} for address: {}", bucket_name, address);
         let request = IpcBucketViewRequest {
             name: bucket_name.to_string(),
@@ -388,11 +376,7 @@ impl AkaveSDK {
 
     /// List files in a bucket
     pub async fn list_files(&self, bucket_name: &str) -> Result<FileListResponse, AkaveError> {
-        let address = self
-            .storage
-            .get_hex_address()
-            .await
-            ?;
+        let address = self.storage.get_hex_address().await?;
         log_debug!(
             "Listing files in bucket: {} for address: {}",
             bucket_name,
@@ -431,11 +415,7 @@ impl AkaveSDK {
         bucket_name: &str,
         file_name: &str,
     ) -> Result<FileViewResponse, AkaveError> {
-        let address = self
-            .storage
-            .get_hex_address()
-            .await
-            ?;
+        let address = self.storage.get_hex_address().await?;
         log_debug!(
             "Viewing file info: {} in bucket: {} for address: {}",
             file_name,
@@ -496,11 +476,7 @@ impl AkaveSDK {
 
     // Delete an existing bucket
     pub async fn delete_bucket(&self, bucket_name: &str) -> Result<(), AkaveError> {
-        let address = self
-            .storage
-            .get_hex_address()
-            .await
-            ?;
+        let address = self.storage.get_hex_address().await?;
         log_debug!("Deleting bucket: {} for address: {}", bucket_name, address);
         let bucket = self.view_bucket(bucket_name).await?;
         let bucket_id_bytes = hex::decode(bucket.id.clone())
@@ -523,11 +499,7 @@ impl AkaveSDK {
 
     // Delete an existing file
     pub async fn delete_file(&self, bucket_name: &str, file_name: &str) -> Result<(), AkaveError> {
-        let address = self
-            .storage
-            .get_hex_address()
-            .await
-            ?;
+        let address = self.storage.get_hex_address().await?;
         log_debug!(
             "Deleting file: {} from bucket: {} for address: {}",
             file_name,
@@ -594,12 +566,9 @@ impl AkaveSDK {
         let bucket = self
             .storage
             .get_bucket_by_name(bucket_name.to_string())
-            .await
-            ?;
+            .await?;
 
-        AkaveSDK::create_file_upload(bucket.id, file_name, &self.storage)
-            .await
-            ?;
+        AkaveSDK::create_file_upload(bucket.id, file_name, &self.storage).await?;
 
         log_info!("File created successfully: {}", file_name);
 
@@ -683,9 +652,7 @@ impl AkaveSDK {
             };
 
             let processed_data = if let Some(ref erasure_code) = self.erasure_code {
-                erasure_code
-                    .encode(&encrypted_data)
-                    ?
+                erasure_code.encode(&encrypted_data)?
             } else {
                 encrypted_data.to_vec()
             };
@@ -704,8 +671,7 @@ impl AkaveSDK {
                 &mut client,
                 &self.storage,
             )
-            .await
-            ?;
+            .await?;
 
             // Sequentially upload each block in the chunk
             let blocks = chunk.blocks.clone();
@@ -715,13 +681,7 @@ impl AkaveSDK {
                     .map_err(|e| AkaveError::InternalError(e.to_string()))?;
                 let node_id = PeerId::from_str(&block_1mb.node_id)
                     .map_err(|e| AkaveError::InternalError(e.to_string()))?;
-                let chain_id = self
-                    .storage
-                    .web3_provider
-                    .eth()
-                    .chain_id()
-                    .await
-                    ?;
+                let chain_id = self.storage.web3_provider.eth().chain_id().await?;
                 let (data_message, domain, data_types) = create_block_eip712_data(
                     &block_1mb.cid,
                     &chunk_cid,
@@ -904,10 +864,7 @@ impl AkaveSDK {
             .map_err(|e| AkaveError::FileOperationError {
                 operation: "add_file_chunk".to_string(),
                 file_name: file_name.to_string(),
-                message: format!(
-                    "Failed to register chunk {} on blockchain: {}",
-                    index, e
-                ),
+                message: format!("Failed to register chunk {} on blockchain: {}", index, e),
             })?;
 
         log_debug!(
@@ -989,7 +946,7 @@ impl AkaveSDK {
                     log_error!("Error uploading block: {}", e);
                     AkaveError::GrpcError(Box::new(std::io::Error::new(
                         std::io::ErrorKind::Other,
-                        format!("Failed to upload block: {}", e)
+                        format!("Failed to upload block: {}", e),
                     )))
                 })?
                 .into_inner();
@@ -1090,11 +1047,7 @@ impl AkaveSDK {
         passwd: Option<&str>,
         mut writer: W,
     ) -> Result<W, AkaveError> {
-        let address = self
-            .storage
-            .get_hex_address()
-            .await
-            ?;
+        let address = self.storage.get_hex_address().await?;
         let info = [bucket_name, file_name].join("/");
 
         // Use default encryption if provided and no password was specified
@@ -1212,9 +1165,7 @@ impl AkaveSDK {
             // Process the blocks with erasure coding if enabled
             let processed_data = if let Some(erasure_code) = &self.erasure_code {
                 // Extract data from blocks (including parity blocks)
-                let data = erasure_code
-                    .extract_data(blocks_data.clone(), chunk_size as usize)
-                    ?;
+                let data = erasure_code.extract_data(blocks_data.clone(), chunk_size as usize)?;
                 // Clear blocks_data to remove all blocks including parity blocks
                 blocks_data.clear();
                 data
@@ -1341,7 +1292,7 @@ impl AkaveSDK {
                 .map_err(|e| {
                     AkaveError::GrpcError(Box::new(std::io::Error::new(
                         std::io::ErrorKind::ConnectionRefused,
-                        format!("Failed to connect to node {}: {}", address, e)
+                        format!("Failed to connect to node {}: {}", address, e),
                     )))
                 })?;
 
