@@ -1076,6 +1076,14 @@ impl AkaveSDK {
             .await
             .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
 
+        if file_download.chunks.is_empty() {
+            return Err(AkaveError::FileOperationError {
+                operation: "download_file".to_string(),
+                file_name: file_name.to_string(),
+                message: "File has no chunks".to_string(),
+            });
+        }
+
         let codec = Cid::try_from(file_download.chunks[0].cid.clone())
             .map_err(|e| AkaveError::InvalidInput(e.to_string()))?
             .codec();
