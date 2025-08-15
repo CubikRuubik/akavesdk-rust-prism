@@ -228,7 +228,9 @@ The SDK provides comprehensive error handling for both platforms:
 
 ## Contributing
 
-Contributions are welcome! Please read our contributing guidelines before submitting pull requests.
+Contributions are welcome!
+
+Thanks to the Lightshift team for their contributions to the SDK: @CondeGil, @essamhassan, @krzysztof-ls. 👏
 
 ## License
 

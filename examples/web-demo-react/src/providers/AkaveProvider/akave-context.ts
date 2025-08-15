@@ -7,5 +7,5 @@ type AkaveContextType = {
 };
 
 export const AkaveContext = createContext<AkaveContextType | undefined>(
-  undefined
+  undefined,
 );

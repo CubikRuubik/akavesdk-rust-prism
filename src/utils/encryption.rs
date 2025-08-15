@@ -1,9 +1,14 @@
 #[cfg(not(target_arch = "wasm32"))]
 use aes_gcm::aead::{rand_core::RngCore, OsRng};
 use aes_gcm::{AeadInPlace, Aes256Gcm, Key, KeyInit, Nonce};
-use hkdf::Hkdf;
+use hkdf::{
+    hmac::{Hmac, Mac},
+    Hkdf,
+};
 use sha2::Sha256;
 use thiserror::Error;
+
+type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Error, Debug)]
 pub enum EncryptionError {
@@ -107,6 +112,45 @@ impl Encryption {
         }
     }
 
+    pub fn encrypt_deterministic(
+        &self,
+        data: &[u8],
+        info: &[u8],
+    ) -> Result<Box<[u8]>, EncryptionError> {
+        let gcm = self.make_gcm_cipher(info)?;
+
+        let key_bytes = self
+            .key
+            .as_ref()
+            .expect("encrypt_deterministic called without a key");
+        // Create HMAC-SHA256(key, data)
+        let mut mac = <HmacSha256 as KeyInit>::new_from_slice(key_bytes)
+            .map_err(|e| EncryptionError::EncryptionFailed(format!("HMAC init failed: {:?}", e)))?;
+        mac.update(data);
+        let hmac_result = mac.finalize().into_bytes();
+
+        // Derive nonce from first gcm.nonce_size() bytes of HMAC
+        let nonce_size = GCM_NONCE_SIZE; // usually 12 for AES-GCM
+        let nonce_bytes = &hmac_result[..nonce_size];
+        let nonce_array = Nonce::from_slice(nonce_bytes);
+
+        // Encrypt in place
+        let mut buffer = data.to_vec();
+        match gcm.encrypt_in_place(nonce_array, b"", &mut buffer) {
+            Ok(_) => {
+                // Prepend nonce to ciphertext (like Go's gcm.Seal(nonce, nonce, data, nil))
+                let mut result = Vec::with_capacity(nonce_size + buffer.len());
+                result.extend_from_slice(nonce_bytes);
+                result.extend_from_slice(&buffer);
+                Ok(result.into_boxed_slice())
+            }
+            Err(e) => Err(EncryptionError::EncryptionFailed(format!(
+                "GCM encryption failed: {:?}",
+                e
+            ))),
+        }
+    }
+
     pub fn decrypt(&self, data: &[u8], info: &[u8]) -> Result<Vec<u8>, EncryptionError> {
         let gcm = self.make_gcm_cipher(info)?;
 
@@ -132,14 +176,14 @@ impl Encryption {
     }
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
 
     use crate::utils::encryption::Encryption;
 
-    #[allow(unused)]
     const BUCKET_TO_TEST: &str = "TEST_BUCKET_v2";
 
-    #[allow(unused)]
+    #[tokio::test]
     async fn test_text_encryption() {
         println!("Test 1: Encrypt and decrypt text");
 
@@ -165,9 +209,51 @@ mod tests {
         );
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
-    async fn test_all() {
-        test_text_encryption().await;
+    async fn test_text_encryption_deterministic() {
+        println!("Test 2: Encrypt and Encrypt_deterministic text");
+
+        let data = "This is a phrase to test!! This is a phrase to test!! This is a phrase to test!! This is a phrase to test!!";
+        let password = "TestPassword";
+        let index: u64 = 1;
+        let info = [BUCKET_TO_TEST, "file_name"].join("/");
+
+        let encryption = Encryption::new(password.as_bytes(), info.as_bytes()).unwrap();
+
+        let encrypted_1 = hex::encode(
+            encryption
+                .encrypt(data.as_bytes(), &index.to_be_bytes())
+                .unwrap(),
+        );
+
+        let encrypted_2 = hex::encode(
+            encryption
+                .encrypt(data.as_bytes(), &index.to_be_bytes())
+                .unwrap(),
+        );
+
+        let encrypted_deterministic_1 = hex::encode(
+            encryption
+                .encrypt_deterministic(data.as_bytes(), &index.to_be_bytes())
+                .unwrap(),
+        );
+
+        let encrypted_deterministic_2 = hex::encode(
+            encryption
+                .encrypt_deterministic(data.as_bytes(), &index.to_be_bytes())
+                .unwrap(),
+        );
+
+        assert_ne!(
+            encrypted_1, encrypted_2,
+            "checking if encryption is not deterministic: not deterministic 1 ({}) and not deterministic 2 ({}) are different",
+            encrypted_1, encrypted_2,
+        );
+
+        assert_eq!(
+            encrypted_deterministic_1, encrypted_deterministic_2,
+            "checking if encryption_deterministic is deterministic: deterministic 1 ({}) and deterministic 2 ({}) are equal",
+            encrypted_deterministic_1, encrypted_deterministic_2,
+        );
     }
 }

@@ -37,7 +37,7 @@ pub(crate) struct IStorageChunk {
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub(crate) struct FileResponse {
+pub struct FileResponse {
     pub id: FileId,
     pub file_cid: Vec<u8>,
     pub bucket_id: BucketId,

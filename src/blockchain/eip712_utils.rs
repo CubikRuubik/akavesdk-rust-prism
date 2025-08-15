@@ -10,7 +10,17 @@ use crate::{
     utils::peer_id::PeerId,
 };
 
+type EIP712Result = Result<
+    (
+        HashMap<String, serde_json::Value>,
+        Domain,
+        HashMap<String, Vec<TypedData>>,
+    ),
+    Box<dyn std::error::Error>,
+>;
+
 //create_block_eip712_data(&block_1mb.cid, &ipc_chunk.cid, b_node_id, self.storage.akave_storage.address(), index as i64, ipc_chunk.cid, nonce)?;
+#[allow(clippy::too_many_arguments)]
 pub fn create_block_eip712_data(
     block_cid: &Cid,
     chunk_cid: &Cid,
@@ -20,14 +30,7 @@ pub fn create_block_eip712_data(
     block_index: i64,
     chain_id: U256,
     nonce: U256,
-) -> Result<
-    (
-        HashMap<String, serde_json::Value>,
-        Domain,
-        HashMap<String, Vec<TypedData>>,
-    ),
-    Box<dyn std::error::Error>,
-> {
+) -> EIP712Result {
     // Create domain based on the provided test data
     let domain = Domain {
         name: "Storage".to_string(),

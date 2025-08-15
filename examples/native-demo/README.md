@@ -19,11 +19,13 @@ This is a demonstration of the Akave SDK's native Rust implementation. The demo 
 ## Running the Demo
 
 1. Build the project:
+
 ```bash
 cargo build
 ```
 
 2. Run the demo:
+
 ```bash
 cargo run
 ```
@@ -45,6 +47,7 @@ The demo performs the following operations in sequence:
 ## Code Explanation
 
 The demo uses the `AkaveSDKBuilder` to configure the SDK with:
+
 - Server endpoint: `http://23.227.172.82:5001`
 - Default encryption with a test password
 - Erasure coding with 4 data blocks and 2 parity blocks

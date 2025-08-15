@@ -3,6 +3,7 @@ use std::str::FromStr;
 use cid::Cid;
 use prost_types::Timestamp;
 use thiserror::Error;
+use tokio::task::JoinError;
 
 use crate::{types::BucketId, utils::timestamp::timestamp_serde_direct};
 
@@ -39,6 +40,9 @@ pub enum AkaveError {
     #[error("invalid input: {0}")]
     InvalidInput(String),
 
+    #[error("configuration error: {0}")]
+    ConfigurationError(String),
+
     #[error("not found: {0}")]
     NotFound(String),
 
@@ -68,10 +72,20 @@ pub enum AkaveError {
 
     #[error("serialization error")]
     SerializationError(#[source] Box<dyn std::error::Error + Send + Sync>),
+
+    #[error("thread join error")]
+    ThreadJoinError(#[from] JoinError),
 }
 
 impl From<web3::Error> for AkaveError {
     fn from(err: web3::Error) -> Self {
+        // Check if this is a configuration error
+        match &err {
+            web3::Error::Decoder(msg) if msg.contains("AKAVE_PRIVATE_KEY") => {
+                return AkaveError::ConfigurationError(msg.clone());
+            }
+            _ => {}
+        }
         AkaveError::BlockchainError(err)
     }
 }
@@ -80,7 +94,7 @@ impl From<web3::Error> for AkaveError {
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub(crate) struct IpcFileListItem {
+pub struct IpcFileListItem {
     pub root_cid: String,
     pub name: String,
     pub encoded_size: i64,
@@ -93,7 +107,7 @@ pub(crate) struct IpcFileListItem {
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub(crate) struct IpcFileList {
+pub struct IpcFileList {
     pub files: Vec<IpcFileListItem>,
 }
 
@@ -118,7 +132,7 @@ where
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub(crate) struct FileBlockUpload {
+pub struct FileBlockUpload {
     #[serde(serialize_with = "serialize_cid", deserialize_with = "deserialize_cid")]
     pub cid: Cid,
     pub data: Vec<u8>,
@@ -131,7 +145,7 @@ pub(crate) struct FileBlockUpload {
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub(crate) struct IpcFileChunkUpload {
+pub struct IpcFileChunkUpload {
     pub index: usize,
     #[serde(serialize_with = "serialize_cid", deserialize_with = "deserialize_cid")]
     pub chunk_cid: Cid,
@@ -147,7 +161,7 @@ pub(crate) struct IpcFileChunkUpload {
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub(crate) struct AkaveBlockData {
+pub struct AkaveBlockData {
     pub permit: String,
     pub node_address: String,
     pub node_id: String,
@@ -157,7 +171,7 @@ pub(crate) struct AkaveBlockData {
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub(crate) struct FileBlockDownload {
+pub struct FileBlockDownload {
     pub cid: String,
     pub data: Vec<u8>,
     pub akave: AkaveBlockData,
@@ -167,7 +181,7 @@ pub(crate) struct FileBlockDownload {
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub(crate) struct FileChunkDownload {
+pub struct FileChunkDownload {
     pub cid: String,
     pub index: i64,
     pub encoded_size: i64,

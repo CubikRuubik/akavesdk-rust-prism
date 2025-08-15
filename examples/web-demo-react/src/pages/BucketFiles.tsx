@@ -35,7 +35,7 @@ export default function BucketFilesPage() {
             <li key={`${file.name}-${file.createdAt}`}>
               <Link
                 to={`/buckets/${encodeURIComponent(
-                  bucketName!
+                  bucketName!,
                 )}/${encodeURIComponent(file.name)}`}
                 className="block w-full text-left px-4 py-2 rounded transition-colors hover:bg-[rgb(var(--color-primary)/0.08)] truncate"
                 title={file.name}

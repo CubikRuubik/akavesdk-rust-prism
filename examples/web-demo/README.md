@@ -20,11 +20,13 @@ This is a simple web application that demonstrates the basic functionality of th
 ## Installation
 
 1. Install dependencies:
+
 ```bash
 npm install
 ```
 
 2. Build the project:
+
 ```bash
 npm run build
 ```
@@ -32,6 +34,7 @@ npm run build
 ## Running the Demo
 
 1. Start the development server:
+
 ```bash
 npm run dev
 ```
@@ -39,10 +42,10 @@ npm run dev
 The application will automatically initialize the SDK with erasure coding and encryption:
 
 ```typescript
-const sdk = await new AkaveWebSDKBuilder('http://23.227.172.82:7001/grpc')
-    .withDefaultEncryption("testkey123")
-    .withErasureCoding(4, 2)
-    .build();
+const sdk = await new AkaveWebSDKBuilder("http://23.227.172.82:7001/grpc")
+  .withDefaultEncryption("testkey123")
+  .withErasureCoding(4, 2)
+  .build();
 ```
 
 2. Open your browser and navigate to `http://localhost:8080`

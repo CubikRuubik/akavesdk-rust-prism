@@ -20,7 +20,7 @@ function getStoredTheme(): Theme {
 export function useDarkMode() {
   const [theme, setTheme] = useState<Theme>(() => getStoredTheme());
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(
-    getSystemTheme()
+    getSystemTheme(),
   );
 
   // Listen for system changes if theme is "system"
@@ -52,7 +52,7 @@ export function useDarkMode() {
   // Cycle through themes: light → dark → system → light ...
   const cycleTheme = () => {
     setTheme((prev) =>
-      prev === "light" ? "dark" : prev === "dark" ? "system" : "light"
+      prev === "light" ? "dark" : prev === "dark" ? "system" : "light",
     );
   };
 

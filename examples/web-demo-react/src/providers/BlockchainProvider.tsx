@@ -27,7 +27,7 @@ const connectors = connectorsForWallets(
   {
     appName: "Akave-rs WASM",
     projectId: PROJECT_ID,
-  }
+  },
 );
 
 const config = createConfig({

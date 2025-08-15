@@ -1,12 +1,18 @@
 mod allocator;
-mod blockchain;
+pub mod blockchain;
 pub mod logger;
 pub mod sdk;
-mod types;
-mod utils;
+pub mod types;
+pub mod utils;
+
+// Re-export main SDK types for convenience
+pub use sdk::{AkaveSDK, AkaveSDKBuilder};
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
+
+#[cfg(target_arch = "wasm32")]
+pub use wasm::{AkaveWebSDK, AkaveWebSDKBuilder};
 
 #[cfg(target_arch = "wasm32")]
 mod panic_handler;

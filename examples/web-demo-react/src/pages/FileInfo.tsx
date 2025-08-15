@@ -13,7 +13,7 @@ export default function FileInfoPage() {
   } = useViewFileInfo(
     bucketName || "",
     fileName || "",
-    !!bucketName && !!fileName
+    !!bucketName && !!fileName,
   );
   const {
     isLoading: downloadLoading,

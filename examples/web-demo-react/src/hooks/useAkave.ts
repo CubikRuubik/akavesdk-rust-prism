@@ -45,7 +45,7 @@ export function useDeleteFile() {
 export function useDownloadFile(
   bucket_name: string,
   file_name: string,
-  enabled = true
+  enabled = true,
 ) {
   const { sdk, address } = useAkave();
   return useQuery({
@@ -105,7 +105,7 @@ export function useViewBucket(bucket_name: string, enabled = true) {
 export function useViewFileInfo(
   bucket_name: string,
   file_name: string,
-  enabled = true
+  enabled = true,
 ) {
   const { sdk, address } = useAkave();
   return useQuery({

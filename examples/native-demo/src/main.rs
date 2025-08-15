@@ -3,6 +3,7 @@ use env_logger::Builder;
 use log::LevelFilter;
 use std::fs::File;
 use std::path::Path;
+use std::sync::Arc;
 
 const TEST_PASSWORD: &str = "testkey123";
 const FILE_NAME_TO_TEST: &str = "2MB.txt";
@@ -16,11 +17,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     // Initialize the SDK
-    let sdk = AkaveSDKBuilder::new("http://23.227.172.82:5001")
-        .with_default_encryption(TEST_PASSWORD)
-        .with_erasure_coding(4, 2)
-        .build()
-        .await?;
+    let sdk = Arc::new(
+        AkaveSDKBuilder::new("http://23.227.172.82:5001")
+            .with_default_encryption(TEST_PASSWORD, false)
+            .with_erasure_coding(4, 2)
+            .build()
+            .await?,
+    );
     println!("Starting Akave SDK demo...");
     let bucket_name = format!(
         "demo_bucket_{}",
@@ -73,7 +76,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // sleep(Duration::from_secs(5));
     // Download the file
     println!("Downloading file...");
-    sdk.download_file(&bucket_name, FILE_NAME_TO_TEST, None, download_file)
+    Arc::clone(&sdk)
+        .download_file(&bucket_name, FILE_NAME_TO_TEST, None, download_file)
         .await?;
     println!("File downloaded successfully!");
 

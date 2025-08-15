@@ -1,8 +1,10 @@
 [package]
-name = "akave-rs"                                      # TODO: rename
+name = "akave-rs" # TODO: rename
 version = "0.1.1"
-authors = ["Gilberto Conde <gilberto.conde@lightshift.xyz>",
-    "Sam Hassan <sam.hassan@lightshift.xyz>"]
+authors = [
+  "Gilberto Conde <gilberto.conde@lightshift.xyz>",
+  "Sam Hassan <sam.hassan@lightshift.xyz>",
+]
 edition = "2021"
 
 [package.metadata.wasm-pack.profile.release]
@@ -21,14 +23,14 @@ vendored-protox = ["protox"]
 debug = ["console_error_panic_hook"]
 
 [profile.release]
-opt-level = "z"        # Optimize for size
-lto = true             # Enable Link Time Optimization
-codegen-units = 1      # Reduce parallel code generation units to increase optimizations
-panic = "abort"        # Remove panic unwinding code
-strip = true           # Strip symbols from binary
-debug = false          # Remove debug symbols
+opt-level = "z"          # Optimize for size
+lto = true               # Enable Link Time Optimization
+codegen-units = 1        # Reduce parallel code generation units to increase optimizations
+panic = "abort"          # Remove panic unwinding code
+strip = true             # Strip symbols from binary
+debug = false            # Remove debug symbols
 debug-assertions = false # Remove debug assertions
-overflow-checks = false # Remove overflow checks
+overflow-checks = false  # Remove overflow checks
 
 # -----------------------------------------
 #         GENERAL DEPENDENCIES            |
@@ -36,50 +38,49 @@ overflow-checks = false # Remove overflow checks
 
 [dependencies]
 # Dependencies shared by all targets
-serde = { version = "1.0", features = ["derive"] }
+aes-gcm = "0.10.3"
+alloy = "0.11.0"
+async-stream = "0.3"
+async-trait = "0.1.88"
+bs58 = "0.5"
+bytesize = "2.0.1"
+chrono = { version = "0.4.27", default-features = false, features = ["serde"] }
+cid = "0.7.0"
+derivative = "2.2.0"
+futures = "0.3.31"
+hex = "0.4.3"
+hkdf = "0.12.4"
+ipfs-unixfs = "0.2.0"
 prost = "0.13"
 prost-types = "0.13.4"
-time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
 prost-wkt = "0.6"
-# prost-wkt-types = "0.6"
-serde_json = "1.0.134"
-hex = "0.4.3"
-sha2 = "0.10.8"
-derivative = "2.2.0"
-chrono = { version = "0.4.27", default-features = false, features = ["serde"] }
-alloy = "0.11.0"
-aes-gcm = "0.10.3"
-hkdf = "0.12.4"
-bytesize = "2.0.1"
-cid = "0.7.0"
-ipfs-unixfs = "0.2.0"
 quick-protobuf = "0.8.0"
-reed-solomon-erasure = "4.0.0" # higher versions do not support wasm32. If you want to use more recent versions, you need to import under the non wasm deps and keep wasm deps locked at 4.0.
+reed-solomon-erasure = "4.0.0"                                                  # higher versions do not support wasm32. If you want to use more recent versions, you need to import under the non wasm deps and keep wasm deps locked at 4.0.
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.134"
+sha2 = "0.10.8"
 thiserror = "1.0"
-bs58 = "0.5"
-async-stream = "0.3"
+time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
 tokio-stream = "0.1.17"
-async-trait = "0.1.88"
-
 
 [dev-dependencies]
-pretty_assertions = "1"
-multihash-derive = { version = "0.9.0", default-features = false }
 multihash-codetable = { version = "0.1.4", default-features = false, features = [
   "sha2",
 ] }
+multihash-derive = { version = "0.9.0", default-features = false }
+pretty_assertions = "1"
 
 [build-dependencies]
 prost = "0.13"
-prost-types = "0.13"
-tonic-types = { version = "0.10" }
 prost-build = "0.13"
+prost-types = "0.13"
 prost-wkt-build = "0.6"
 protobuf-src = { version = "1.1.0", optional = true }
 protox = { version = "0.6.0", optional = true }
 tonic-build = { version = "0.12", default-features = false, features = [
   "prost",
 ] }
+tonic-types = { version = "0.10" }
 
 
 # -----------------------------------------
@@ -90,18 +91,21 @@ tonic-build = { version = "0.12", default-features = false, features = [
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # WASM-specific dependencies
-url = "2.5.4"
-wasm-bindgen = "0.2.100"
-wee_alloc = "0.4.5"
-gloo-timers = {version = "0.3.0", features = ["futures"]}
-wasm-bindgen-futures = "0.4.49"
-serde-wasm-bindgen = "0.4"
-tonic-web-wasm-client = "0.6"
+futures = "0.3"
+gloo-timers = { version = "0.3.0", features = ["futures"] }
+js-sys = "0.3"
 serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.4"
+tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }
 tonic = { version = "0.12", default-features = false, features = [
   "prost",
   "codegen",
 ] }
+tonic-web-wasm-client = "0.6"
+tsify-next = { version = "0.5.4", default-features = false, features = ["js"] }
+url = "2.5.4"
+wasm-bindgen = "0.2.100"
+wasm-bindgen-futures = "0.4.49"
 web-sys = { version = "0.3", features = [
   "Window",
   "Request",
@@ -115,12 +119,11 @@ web-sys = { version = "0.3", features = [
   "HtmlElement",
   "Event",
 ] }
-js-sys = "0.3"
 web3 = { version = "0.19.0", default-features = false, features = [
   "wasm",
   "eip-1193",
 ] }
-tsify-next = { version = "0.5.4", default-features = false, features = ["js"] }
+wee_alloc = "0.4.5"
 
 # Optional debugging utility for WebAssembly
 console_error_panic_hook = { version = "0.1.7", optional = true }
@@ -130,7 +133,7 @@ wasm-bindgen-test = "0.3.49"
 
 [target.'cfg(target_arch = "wasm32")'.build-dependencies]
 tsify-next = { version = "0.5.4", default-features = false, features = ["js"] }
-uuid = { version = "1.15.1", features = [ "v4","js"] }
+uuid = { version = "1.15.1", features = ["v4", "js"] }
 
 # -----------------------------------------
 
@@ -140,6 +143,10 @@ uuid = { version = "1.15.1", features = [ "v4","js"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Dependencies for native (non-WASM) builds
+getrandom = { version = "0.2.15", features = ["std"] }
+hex-literal = "0.3.4"
+log = "0.4.22"
+tokio = { version = "1.42.0", features = ["full"] }
 tonic = { version = "0.12", default-features = false, features = [
   "prost",
   "codegen",
@@ -147,15 +154,11 @@ tonic = { version = "0.12", default-features = false, features = [
   "tls",
   "tls-roots",
 ] }
-tokio = { version = "1.42.0", features = ["full"] }
-getrandom = { version = "0.2.15", features = ["std"] }
+uuid = { version = "1.15.1", features = ["v4"] }
 web3 = { version = "0.19.0", features = ["http", "signing"] }
-hex-literal = "0.3.4"
-uuid = { version = "1.15.1", features = [ "v4",] }
-log = "0.4.22"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+ctor = "0.4.1"
 env_logger = "0.11.7"
 test-log = "0.2.17"
-ctor = "0.4.1"
 # -----------------------------------------

@@ -1,4 +1,4 @@
-use std::io::Cursor;
+use std::{io::Cursor, sync::Arc};
 
 use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
@@ -15,7 +15,7 @@ use crate::{
 
 #[wasm_bindgen]
 pub struct AkaveWebSDK {
-    sdk: AkaveSDK,
+    sdk: Arc<AkaveSDK>,
 }
 
 #[wasm_bindgen]
@@ -43,7 +43,9 @@ impl AkaveWebSDKBuilder {
 
     #[wasm_bindgen(js_name = "withDefaultEncryption")]
     pub fn with_default_encryption(mut self, encryption_key: &str) -> Self {
-        self.inner_builder = self.inner_builder.with_default_encryption(encryption_key);
+        self.inner_builder = self
+            .inner_builder
+            .with_default_encryption(encryption_key, false);
         self
     }
 
@@ -88,7 +90,7 @@ impl AkaveWebSDKBuilder {
         match self.inner_builder.build().await {
             Ok(sdk) => {
                 log_info!("AkaveWebSDK initialized successfully");
-                Ok(AkaveWebSDK { sdk })
+                Ok(AkaveWebSDK { sdk: Arc::new(sdk) })
             }
             Err(e) => {
                 log_error!("Failed to initialize SDK: {}", e);
@@ -285,16 +287,15 @@ impl AkaveWebSDK {
             bucket_name,
         );
 
-        let mut data = Vec::new();
+        let cursor = Cursor::new(Vec::new());
 
-        data = self
-            .sdk
-            .download_file(bucket_name, file_name, None, data)
+        let cursor = Arc::clone(&self.sdk)
+            .download_file(bucket_name, file_name, None, cursor)
             .await
-            .map_err(|e| JsError::new(&format!("Download failed: {:?}", e)))?
-            .to_vec();
+            .map_err(|e| JsError::new(&format!("Download failed: {:?}", e)))?;
 
-        // Return as Uint8Array to JS
-        Ok(js_sys::Uint8Array::from(&data[..]))
+        let data = cursor.into_inner();
+
+        Ok(Uint8Array::from(&data[..]))
     }
 }

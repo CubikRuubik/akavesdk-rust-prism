@@ -32,24 +32,24 @@ class App {
   constructor() {
     // Initialize DOM elements
     this.connectWalletBtn = document.getElementById(
-      "connectWallet"
+      "connectWallet",
     ) as HTMLButtonElement;
     this.walletAddressSpan = document.getElementById(
-      "walletAddress"
+      "walletAddress",
     ) as HTMLSpanElement;
     this.bucketNameInput = document.getElementById(
-      "bucketName"
+      "bucketName",
     ) as HTMLInputElement;
     this.createBucketBtn = document.getElementById(
-      "createBucket"
+      "createBucket",
     ) as HTMLButtonElement;
     this.bucketsList = document.getElementById("bucketsList") as HTMLDivElement;
     this.bucketSelect = document.getElementById(
-      "bucketSelect"
+      "bucketSelect",
     ) as HTMLSelectElement;
     this.fileInput = document.getElementById("fileInput") as HTMLInputElement;
     this.uploadFileBtn = document.getElementById(
-      "uploadFile"
+      "uploadFile",
     ) as HTMLButtonElement;
     this.filesList = document.getElementById("filesList") as HTMLDivElement;
 
@@ -57,7 +57,7 @@ class App {
     this.connectWalletBtn.addEventListener("click", () => this.connectWallet());
     this.createBucketBtn.addEventListener("click", () => this.createBucket());
     this.bucketSelect.addEventListener("change", (e) =>
-      this.handleBucketSelect(e)
+      this.handleBucketSelect(e),
     );
     this.uploadFileBtn.addEventListener("click", () => this.uploadFile());
 
@@ -123,14 +123,14 @@ class App {
 
       this.walletAddressSpan.textContent = `${address.slice(
         0,
-        6
+        6,
       )}...${address.slice(-4)}`;
       this.connectWalletBtn.textContent = "Connected";
       this.connectWalletBtn.disabled = true;
 
       this.showNotification({
         message: `Wallet connected: ${address.slice(0, 6)}...${address.slice(
-          -4
+          -4,
         )}`,
         type: "success",
       });
@@ -260,7 +260,7 @@ class App {
       console.log(`Fetching files for bucket: ${bucketName}`);
       const response = await this.state.sdk.listFiles(bucketName);
       console.log(
-        `Found ${response.files.length} files in bucket ${bucketName}`
+        `Found ${response.files.length} files in bucket ${bucketName}`,
       );
 
       this.filesList.innerHTML = "";
@@ -280,12 +280,12 @@ class App {
         fileElement
           .querySelector(".download-btn")
           ?.addEventListener("click", () =>
-            this.downloadFile(bucketName, file.name)
+            this.downloadFile(bucketName, file.name),
           );
         fileElement
           .querySelector(".delete-btn")
           ?.addEventListener("click", () =>
-            this.deleteFile(bucketName, file.name)
+            this.deleteFile(bucketName, file.name),
           );
         this.filesList.appendChild(fileElement);
       });
@@ -300,7 +300,7 @@ class App {
 
   private async downloadFile(
     bucketName: string,
-    fileName: string
+    fileName: string,
   ): Promise<void> {
     try {
       if (!this.state.currentAddress || !this.state.sdk) return;
@@ -354,7 +354,7 @@ class App {
 
   private async deleteFile(
     bucketName: string,
-    fileName: string
+    fileName: string,
   ): Promise<void> {
     try {
       if (!this.state.currentAddress || !this.state.sdk) return;
@@ -397,7 +397,7 @@ class App {
       await this.state.sdk.uploadFile(
         bucketName,
         file.name,
-        new Uint8Array(arrayBuffer)
+        new Uint8Array(arrayBuffer),
       );
       console.log(`File "${file.name}" uploaded successfully`);
 
