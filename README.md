@@ -234,4 +234,4 @@ Thanks to the Lightshift team for their contributions to the SDK: @CondeGil, @es
 
 ## License
 
-TODO
+[GPL 3.0](https://github.com/akave-ai/akavesdk-rs?tab=GPL-3.0-1-ov-file)
