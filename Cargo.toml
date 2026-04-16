@@ -56,7 +56,7 @@ prost-types = "0.13.4"
 prost-wkt = "0.6"
 quick-protobuf = "0.8.0"
 reed-solomon-erasure = "4.0.0"                                                  # higher versions do not support wasm32. If you want to use more recent versions, you need to import under the non wasm deps and keep wasm deps locked at 4.0.
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "=1.0.215", features = ["derive"] }
 serde_json = "1.0.134"
 sha2 = "0.10.8"
 thiserror = "1.0"
@@ -64,10 +64,6 @@ time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
 tokio-stream = "0.1.17"
 
 [dev-dependencies]
-multihash-codetable = { version = "0.1.4", default-features = false, features = [
-  "sha2",
-] }
-multihash-derive = { version = "0.9.0", default-features = false }
 pretty_assertions = "1"
 
 [build-dependencies]
