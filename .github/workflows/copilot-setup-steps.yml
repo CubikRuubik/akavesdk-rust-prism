@@ -1,18 +1,32 @@
-steps:
-  - name: Install Rust toolchain
-    uses: dtolnay/rust-toolchain@stable
+name: "Copilot Setup Steps"
 
-  - name: Install protobuf compiler
-    run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
 
-  - name: Cache cargo registry and build
-    uses: actions/cache@v4
-    with:
-      path: |
-        ~/.cargo/registry
-        ~/.cargo/git
-        target
-      key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
 
-  - name: Pre-build dependencies
-    run: cargo check 2>/dev/null || true
+    permissions:
+      contents: read
+      steps:
+        - name: Install Rust toolchain
+          uses: dtolnay/rust-toolchain@stable
+
+        - name: Install protobuf compiler
+          run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+        - name: Cache cargo registry and build
+          uses: actions/cache@v4
+          with:
+            path: |
+              ~/.cargo/registry
+              ~/.cargo/git
+              target
+            key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+        - name: Pre-build dependencies
+          run: cargo check 2>/dev/null || true
