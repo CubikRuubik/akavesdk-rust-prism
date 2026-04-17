@@ -28,16 +28,18 @@ The triggering pull request contains the required change description, produced b
 ## Objectives
 
 1. Read and understand the triggering pull request description, title, and relevant discussion context.
-2. Apply only the requested Rust-side changes in this repository.
-3. Verify the updated code compiles.
-4. If successful, push the changes directly to the triggering PR branch.
+2. Read `.github/rust-instructions.md` and follow those Rust-specific conventions for any Rust code you touch.
+3. Apply only the requested Rust-side changes in this repository.
+4. Verify the updated code compiles.
+5. If successful, push the changes directly to the triggering PR branch.
 
 ## Implementation Rules
 
 1. Treat the triggering PR body as the source of truth for required changes.
-2. Make focused edits in Rust-related files, such as `src/**/*.rs`, `Cargo.toml`, and `README.md` only when required by the change.
-3. Keep changes minimal and avoid unrelated refactors.
-4. If requirements are ambiguous, infer the most conservative implementation and document assumptions in the PR body.
+2. Read `.github/rust-instructions.md` before editing and treat it as the coding standard for Rust changes in this repository.
+3. Make focused edits in Rust-related files, such as `src/**/*.rs`, `Cargo.toml`, and `README.md` only when required by the change.
+4. Keep changes minimal and avoid unrelated refactors.
+5. If requirements are ambiguous, infer the most conservative implementation and document assumptions in the PR body.
 
 ## Validation
 

@@ -91,5 +91,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sdk.delete_bucket(&bucket_name).await?;
     println!("Demo completed successfully!");
 
+    let block = sdk.latest_block_number().await?;
+    println!("Latest block number: {}", block);
+
     Ok(())
 }
