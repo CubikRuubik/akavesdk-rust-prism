@@ -306,8 +306,8 @@ impl BlockchainProvider {
         }
     }
 
-    /// Returns the latest block number from the connected blockchain node.
-    pub async fn latest_block_number(&self) -> Result<u64, ProviderError> {
+    /// Returns rich block information (number, timestamp, hash) for the latest block.
+    pub async fn latest_block_number(&self) -> Result<ProviderBlockInfo, ProviderError> {
         log_debug!("Querying latest block number");
         let block_number = self
             .web3_provider
@@ -315,8 +315,29 @@ impl BlockchainProvider {
             .block_number()
             .await
             .map_err(ProviderError::BlockNumberError)?;
-        log_info!("Latest block number: {}", block_number);
-        Ok(block_number.low_u64())
+        let num = block_number.low_u64();
+        let block = self
+            .web3_provider
+            .eth()
+            .block(web3::types::BlockId::Number(
+                web3::types::BlockNumber::Number(block_number),
+            ))
+            .await
+            .map_err(ProviderError::BlockNumberError)?
+            .ok_or(ProviderError::BlockNotFound(num))?;
+        let hash = block.hash.ok_or(ProviderError::BlockHashMissing(num))?;
+        let time = block.timestamp.low_u64() as i64;
+        log_info!(
+            "Latest block: number={}, time={}, hash={:?}",
+            num,
+            time,
+            hash
+        );
+        Ok(ProviderBlockInfo {
+            number: num,
+            time,
+            hash,
+        })
     }
 
     pub async fn get_address(&self) -> Result<H160, ProviderError> {
@@ -449,6 +470,15 @@ impl BlockchainProvider {
     }
 }
 
+/// Block metadata returned by the internal blockchain layer.
+pub struct ProviderBlockInfo {
+    pub number: u64,
+    /// Unix timestamp in seconds.
+    pub time: i64,
+    /// Native H256 block hash.
+    pub hash: H256,
+}
+
 #[derive(Error, Debug)]
 pub enum ProviderError {
     #[error("transaction error")]
@@ -482,4 +512,8 @@ pub enum ProviderError {
     TransactionFailedStatus { tx_hash: String, function: String },
     #[error("transaction receipt has unknown status")]
     TransactionUnknownStatus,
+    #[error("block not found for number: {0}")]
+    BlockNotFound(u64),
+    #[error("block hash missing for block number: {0}")]
+    BlockHashMissing(u64),
 }
