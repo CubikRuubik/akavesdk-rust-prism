@@ -1889,6 +1889,14 @@ impl AkaveSDK {
         Ok(())
     }
 
+    /// Returns the latest block number from the connected blockchain node.
+    pub async fn latest_block_number(&self) -> Result<u64, AkaveError> {
+        log_debug!("Fetching latest block number");
+        let block_number = self.storage.client.latest_block_number().await?;
+        log_info!("Latest block number: {}", block_number);
+        Ok(block_number)
+    }
+
     // Encrypts the given metadata if metadata encryption is enabled and encryption key is set or password is given.
     fn maybe_encrypt_metadata(
         &self,
@@ -2054,6 +2062,20 @@ mod tests {
     // Helper to ensure download directory exists
     fn ensure_download_dir() {
         let _ = fs::create_dir_all(DOWNLOAD_DESTINATION);
+    }
+
+    #[tokio::test]
+    async fn test_latest_block_number() {
+        println!("Testing latest_block_number");
+
+        let sdk = get_sdk().await.unwrap();
+        let block_number = sdk.latest_block_number().await.unwrap();
+        println!("Latest block number: {}", block_number);
+        assert!(
+            block_number > 0,
+            "Expected a non-zero block number, got {}",
+            block_number
+        );
     }
 
     #[tokio::test]

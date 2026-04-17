@@ -306,6 +306,19 @@ impl BlockchainProvider {
         }
     }
 
+    /// Returns the latest block number from the connected blockchain node.
+    pub async fn latest_block_number(&self) -> Result<u64, ProviderError> {
+        log_debug!("Querying latest block number");
+        let block_number = self
+            .web3_provider
+            .eth()
+            .block_number()
+            .await
+            .map_err(ProviderError::BlockNumberError)?;
+        log_info!("Latest block number: {}", block_number);
+        Ok(block_number.low_u64())
+    }
+
     pub async fn get_address(&self) -> Result<H160, ProviderError> {
         log_debug!("Getting provider address");
         #[cfg(target_arch = "wasm32")]
