@@ -6,8 +6,8 @@ pub use bucket_id::BucketId;
 pub use file_id::FileId;
 // Export all public types from sdk_types
 pub use sdk_types::{
-    AkaveBlockData, AkaveError, BucketListItem, BucketListResponse, BucketViewResponse, FileBlock,
-    FileBlockDownload, FileBlockUpload, FileChunk, FileChunkDownload, FileDownloadResponse,
-    FileListItem, FileListResponse, FileViewResponse, IpcFileChunkUpload, IpcFileList,
-    IpcFileListItem,
+    AkaveBlockData, AkaveError, BlockInfo, BucketListItem, BucketListResponse, BucketViewResponse,
+    FileBlock, FileBlockDownload, FileBlockUpload, FileChunk, FileChunkDownload,
+    FileDownloadResponse, FileListItem, FileListResponse, FileViewResponse, IpcFileChunkUpload,
+    IpcFileList, IpcFileListItem,
 };

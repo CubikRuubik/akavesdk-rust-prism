@@ -53,9 +53,10 @@ use crate::{
     log_debug, log_error, log_info,
     types::{
         sdk_types::{
-            AkaveBlockData, AkaveError, BucketListItem, BucketListResponse, BucketViewResponse,
-            FileBlockDownload, FileChunk, FileChunkDownload, FileDownloadResponse, FileListItem,
-            FileListResponse, FileViewResponse, IpcFileChunkUpload,
+            AkaveBlockData, AkaveError, BlockInfo, BucketListItem, BucketListResponse,
+            BucketViewResponse, FileBlockDownload, FileChunk, FileChunkDownload,
+            FileDownloadResponse, FileListItem, FileListResponse, FileViewResponse,
+            IpcFileChunkUpload,
         },
         BucketId,
     },
@@ -1889,12 +1890,22 @@ impl AkaveSDK {
         Ok(())
     }
 
-    /// Returns the latest block number from the connected blockchain node.
-    pub async fn latest_block_number(&self) -> Result<u64, AkaveError> {
-        log_debug!("Fetching latest block number");
-        let block_number = self.storage.client.latest_block_number().await?;
-        log_info!("Latest block number: {}", block_number);
-        Ok(block_number)
+    /// Returns rich block information (number, timestamp, hash) for the latest block.
+    pub async fn latest_block_number(&self) -> Result<BlockInfo, AkaveError> {
+        log_debug!("Fetching latest block info");
+        let info = self.storage.client.latest_block_number().await?;
+        let block_info = BlockInfo {
+            number: info.number,
+            time: info.time,
+            hash: format!("{:#x}", info.hash),
+        };
+        log_info!(
+            "Latest block: number={}, time={}, hash={}",
+            block_info.number,
+            block_info.time,
+            block_info.hash
+        );
+        Ok(block_info)
     }
 
     // Encrypts the given metadata if metadata encryption is enabled and encryption key is set or password is given.
@@ -2069,12 +2080,24 @@ mod tests {
         println!("Testing latest_block_number");
 
         let sdk = get_sdk().await.unwrap();
-        let block_number = sdk.latest_block_number().await.unwrap();
-        println!("Latest block number: {}", block_number);
+        let block_info = sdk.latest_block_number().await.unwrap();
+        println!(
+            "Latest block: number={}, time={}, hash={}",
+            block_info.number, block_info.time, block_info.hash
+        );
         assert!(
-            block_number > 0,
+            block_info.number > 0,
             "Expected a non-zero block number, got {}",
-            block_number
+            block_info.number
+        );
+        assert!(
+            block_info.time > 0,
+            "Expected a non-zero block timestamp, got {}",
+            block_info.time
+        );
+        assert!(
+            !block_info.hash.is_empty(),
+            "Expected a non-empty block hash"
         );
     }
 

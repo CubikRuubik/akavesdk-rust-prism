@@ -102,6 +102,19 @@ pub struct IpcFileListItem {
     pub created_at: Timestamp,
 }
 
+/// Rich block information returned by [`crate::AkaveSdk::latest_block_number`].
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct BlockInfo {
+    pub number: u64,
+    /// Unix timestamp in seconds.
+    pub time: i64,
+    /// Hex-encoded block hash (with 0x prefix).
+    pub hash: String,
+}
+
 // Create a wrapper type for the Vec
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
