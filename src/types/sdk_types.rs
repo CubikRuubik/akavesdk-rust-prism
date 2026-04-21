@@ -75,6 +75,87 @@ pub enum AkaveError {
 
     #[error("thread join error")]
     ThreadJoinError(#[from] JoinError),
+
+    /// Returned when a byte offset or chunk index falls outside the file bounds.
+    #[error("offset out of bounds: {0}")]
+    OffsetOutOfBounds(String),
+
+    /// Returned for well-known node-side error codes that do not map to a more
+    /// specific variant.
+    #[error("node error [{code}]: {message}")]
+    NodeError { code: String, message: String },
+}
+
+/// Maps a gRPC status message to a well-typed [`AkaveError`].
+///
+/// The Akave node encodes machine-readable error codes in the gRPC status
+/// message field.  This function recognises the codes introduced in v0.3.0
+/// and returns the most specific variant available.  Unknown codes fall back
+/// to a [`AkaveError::NodeError`] that preserves the original message.
+pub fn map_grpc_error_message(raw_message: &str) -> AkaveError {
+    let code = raw_message.trim();
+    match code {
+        "OffsetOutOfBounds" => AkaveError::OffsetOutOfBounds("offset is out of bounds".to_string()),
+        "NonceAlreadyUsed" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "nonce has already been used".to_string(),
+        },
+        "NotSignedByBucketOwner" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "not signed by bucket owner".to_string(),
+        },
+        "InvalidBlocksAmount" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "invalid number of blocks".to_string(),
+        },
+        "InvalidBlockIndex" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "invalid block index".to_string(),
+        },
+        "LastChunkDuplicate" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "last chunk is a duplicate".to_string(),
+        },
+        "FileNotExists" => AkaveError::NotFound("file does not exist".to_string()),
+        "ECDSAInvalidSignature" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "ECDSA signature is invalid".to_string(),
+        },
+        "ECDSAInvalidSignatureS" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "ECDSA signature has invalid S component".to_string(),
+        },
+        "ECDSAInvalidSignatureR" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "ECDSA signature has invalid R component".to_string(),
+        },
+        "ECDSAInvalidSignatureV" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "ECDSA signature has invalid V component".to_string(),
+        },
+        _ => AkaveError::NodeError {
+            code: code.to_string(),
+            message: code.to_string(),
+        },
+    }
+}
+
+/// Suppresses [`AkaveError::OffsetOutOfBounds`] errors, converting them to
+/// `Ok(None)`.  All other outcomes are forwarded unchanged.
+///
+/// This simplifies pagination code that reads until the file is exhausted:
+///
+/// ```rust,ignore
+/// while let Some(chunk) = ignore_offset_error(sdk.next_chunk(...))? {
+///     process(chunk);
+/// }
+/// ```
+pub fn ignore_offset_error<T>(result: Result<T, AkaveError>) -> Result<Option<T>, AkaveError> {
+    match result {
+        Ok(v) => Ok(Some(v)),
+        Err(AkaveError::OffsetOutOfBounds(_)) => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 impl From<web3::Error> for AkaveError {

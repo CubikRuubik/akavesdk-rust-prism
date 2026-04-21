@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 // External crate imports (general)
+use futures::future::join_all;
 use thiserror::Error;
 use web3::{
     contract::{tokens::Tokenize, Contract, Options},
@@ -385,6 +386,31 @@ impl BlockchainProvider {
         log_debug!("Getting provider hex address");
         let address = self.get_address().await?;
         Ok(format!("0x{:x}", address))
+    }
+
+    /// Fetches receipts for multiple transaction hashes concurrently.
+    ///
+    /// Returns a `Vec` of `Option<TransactionReceipt>` in the same order as
+    /// the input hashes.  A `None` entry means the receipt is not yet
+    /// available (transaction pending or hash unknown).
+    pub async fn get_transaction_receipts(
+        &self,
+        hashes: Vec<H256>,
+    ) -> Result<Vec<Option<TransactionReceipt>>, ProviderError> {
+        log_debug!("Fetching {} transaction receipts", hashes.len());
+        let eth = self.web3_provider.eth();
+
+        let futures: Vec<_> = hashes
+            .iter()
+            .map(|&hash| eth.transaction_receipt(hash))
+            .collect();
+
+        let results = join_all(futures).await;
+
+        results
+            .into_iter()
+            .map(|r| r.map_err(ProviderError::TransactionError))
+            .collect()
     }
 
     /// Signs a message using EIP-712 typed data signing
