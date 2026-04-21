@@ -7,6 +7,7 @@ pub mod utils;
 
 // Re-export main SDK types for convenience
 pub use sdk::{AkaveSDK, AkaveSDKBuilder};
+pub use types::sdk_types::{ignore_offset_error, map_grpc_error_message};
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;

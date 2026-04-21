@@ -36,7 +36,7 @@ use ipcnodeapi::{
 };
 use quick_protobuf::BytesReader;
 use tokio::sync::Semaphore;
-use web3::types::{TransactionReceipt, U256};
+use web3::types::{TransactionReceipt, H256, U256};
 
 use crate::{
     blockchain::{access_manager::AccessManagerContract, storage::FileStorageContract},
@@ -53,10 +53,10 @@ use crate::{
     log_debug, log_error, log_info,
     types::{
         sdk_types::{
-            AkaveBlockData, AkaveError, BlockInfo, BucketListItem, BucketListResponse,
-            BucketViewResponse, FileBlockDownload, FileChunk, FileChunkDownload,
-            FileDownloadResponse, FileListItem, FileListResponse, FileViewResponse,
-            IpcFileChunkUpload,
+            map_grpc_error_message, AkaveBlockData, AkaveError, BlockInfo, BucketListItem,
+            BucketListResponse, BucketViewResponse, FileBlockDownload, FileChunk,
+            FileChunkDownload, FileDownloadResponse, FileListItem, FileListResponse,
+            FileViewResponse, IpcFileChunkUpload,
         },
         BucketId,
     },
@@ -1906,6 +1906,40 @@ impl AkaveSDK {
             block_info.hash
         );
         Ok(block_info)
+    }
+
+    /// Fetches receipts for multiple transaction hashes in a single batched
+    /// request, reducing round-trips when confirming multiple on-chain
+    /// operations.
+    ///
+    /// Returns receipts in the same order as `hashes`.  A `None` entry means
+    /// the receipt is not yet available.
+    pub async fn get_transaction_receipts(
+        &self,
+        hashes: Vec<H256>,
+    ) -> Result<Vec<Option<TransactionReceipt>>, AkaveError> {
+        log_debug!("Fetching {} transaction receipts", hashes.len());
+        self.storage
+            .client
+            .get_transaction_receipts(hashes)
+            .await
+            .map_err(AkaveError::ProviderError)
+    }
+
+    /// Maps a gRPC [`tonic::Status`] to the most specific [`AkaveError`]
+    /// variant by inspecting the status message for known Akave error codes.
+    fn map_grpc_status(status: tonic::Status) -> AkaveError {
+        let msg = status.message();
+        // Only attempt mapping for non-empty messages that look like error codes
+        // (single token, no spaces).  Fall back to the original status for
+        // everything else.
+        if !msg.is_empty() && !msg.contains(' ') {
+            let mapped = map_grpc_error_message(msg);
+            // If we got a NodeError back, the message was already the raw code –
+            // check whether it was actually a "known" code or truly unknown.
+            return mapped;
+        }
+        AkaveError::GrpcError(Box::new(status))
     }
 
     // Encrypts the given metadata if metadata encryption is enabled and encryption key is set or password is given.
