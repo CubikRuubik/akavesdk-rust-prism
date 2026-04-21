@@ -84,6 +84,66 @@ pub enum AkaveError {
     /// specific variant.
     #[error("node error [{code}]: {message}")]
     NodeError { code: String, message: String },
+
+    /// Returned when a bucket with the same name already exists.
+    #[error("bucket already exists: {0}")]
+    BucketAlreadyExists(String),
+
+    /// Returned when the bucket data is invalid.
+    #[error("bucket invalid: {0}")]
+    BucketInvalid(String),
+
+    /// Returned when the bucket owner is invalid.
+    #[error("bucket invalid owner: {0}")]
+    BucketInvalidOwner(String),
+
+    /// Returned when the bucket does not exist.
+    #[error("bucket does not exist: {0}")]
+    BucketNonexists(String),
+
+    /// Returned when the bucket is not empty.
+    #[error("bucket not empty: {0}")]
+    BucketNonempty(String),
+
+    /// Returned when a file with the same name already exists.
+    #[error("file already exists: {0}")]
+    FileAlreadyExists(String),
+
+    /// Returned when the file data is invalid.
+    #[error("file invalid: {0}")]
+    FileInvalid(String),
+
+    /// Returned when the file does not exist.
+    #[error("file nonexistent: {0}")]
+    FileNonexists(String),
+
+    /// Returned when the file is not empty.
+    #[error("file not empty: {0}")]
+    FileNonempty(String),
+
+    /// Returned when a file name is duplicated.
+    #[error("file name duplicate: {0}")]
+    FileNameDuplicate(String),
+
+    /// Returned when the file is already fully uploaded.
+    #[error("file fully uploaded: {0}")]
+    FileFullyUploaded(String),
+
+    /// Returned when a file chunk is duplicated.
+    #[error("file chunk duplicate: {0}")]
+    FileChunkDuplicate(String),
+
+    /// Returned when the file is not fully filled.
+    #[error("file not filled: {0}")]
+    FileNotFilled(String),
+
+    /// Returned when a chunk CID mismatch is detected.
+    #[error("chunk cid mismatch: {0}")]
+    ChunkCIDMismatch(String),
+
+    /// Returned when no storage policy is set.
+    #[error("no policy: {0}")]
+    NoPolicy(String),
 }
 
 /// Maps a gRPC status message to a well-typed [`AkaveError`].
@@ -96,11 +156,37 @@ pub fn map_grpc_error_message(raw_message: &str) -> AkaveError {
     let code = raw_message.trim();
     match code {
         "OffsetOutOfBounds" => AkaveError::OffsetOutOfBounds("offset is out of bounds".to_string()),
+        "BucketAlreadyExists" => {
+            AkaveError::BucketAlreadyExists("bucket already exists".to_string())
+        }
+        "BucketInvalid" => AkaveError::BucketInvalid("bucket data is invalid".to_string()),
+        "BucketInvalidOwner" => {
+            AkaveError::BucketInvalidOwner("bucket owner is invalid".to_string())
+        }
+        "BucketNonexists" => AkaveError::BucketNonexists("bucket does not exist".to_string()),
+        "BucketNonempty" => AkaveError::BucketNonempty("bucket is not empty".to_string()),
+        "BucketNotFound" => AkaveError::NotFound("bucket not found".to_string()),
+        "FileAlreadyExists" => AkaveError::FileAlreadyExists("file already exists".to_string()),
+        "FileInvalid" => AkaveError::FileInvalid("file data is invalid".to_string()),
+        "FileNonexists" | "FileNotExists" | "FileDoesNotExist" => {
+            AkaveError::NotFound("file does not exist".to_string())
+        }
+        "FileNonempty" => AkaveError::FileNonempty("file is not empty".to_string()),
+        "FileNameDuplicate" => AkaveError::FileNameDuplicate("file name is duplicated".to_string()),
+        "FileFullyUploaded" => {
+            AkaveError::FileFullyUploaded("file is already fully uploaded".to_string())
+        }
+        "FileChunkDuplicate" => {
+            AkaveError::FileChunkDuplicate("file chunk is duplicated".to_string())
+        }
+        "FileNotFilled" => AkaveError::FileNotFilled("file is not fully filled".to_string()),
+        "ChunkCIDMismatch" => AkaveError::ChunkCIDMismatch("chunk CID mismatch".to_string()),
+        "NoPolicy" => AkaveError::NoPolicy("no storage policy is set".to_string()),
         "NonceAlreadyUsed" => AkaveError::NodeError {
             code: code.to_string(),
             message: "nonce has already been used".to_string(),
         },
-        "NotSignedByBucketOwner" => AkaveError::NodeError {
+        "NotSignedByBucketOwner" | "NotBucketOwner" => AkaveError::NodeError {
             code: code.to_string(),
             message: "not signed by bucket owner".to_string(),
         },
@@ -116,7 +202,46 @@ pub fn map_grpc_error_message(raw_message: &str) -> AkaveError {
             code: code.to_string(),
             message: "last chunk is a duplicate".to_string(),
         },
-        "FileNotExists" => AkaveError::NotFound("file does not exist".to_string()),
+        "BlockAlreadyExists" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "block already exists".to_string(),
+        },
+        "BlockInvalid" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "block data is invalid".to_string(),
+        },
+        "BlockNonexists" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "block does not exist".to_string(),
+        },
+        "BlockAlreadyFilled" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "block is already filled".to_string(),
+        },
+        "InvalidArrayLength" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "array length is invalid".to_string(),
+        },
+        "InvalidFileBlocksCount" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "file blocks count is invalid".to_string(),
+        },
+        "InvalidLastBlockSize" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "last block size is invalid".to_string(),
+        },
+        "InvalidEncodedSize" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "encoded size is invalid".to_string(),
+        },
+        "InvalidFileCID" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "file CID is invalid".to_string(),
+        },
+        "IndexMismatch" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "index mismatch".to_string(),
+        },
         "ECDSAInvalidSignature" => AkaveError::NodeError {
             code: code.to_string(),
             message: "ECDSA signature is invalid".to_string(),
@@ -125,13 +250,41 @@ pub fn map_grpc_error_message(raw_message: &str) -> AkaveError {
             code: code.to_string(),
             message: "ECDSA signature has invalid S component".to_string(),
         },
-        "ECDSAInvalidSignatureR" => AkaveError::NodeError {
+        "ECDSAInvalidSignatureLength" | "ECDSAInvalidSignatureR" => AkaveError::NodeError {
             code: code.to_string(),
-            message: "ECDSA signature has invalid R component".to_string(),
+            message: "ECDSA signature has invalid length".to_string(),
         },
         "ECDSAInvalidSignatureV" => AkaveError::NodeError {
             code: code.to_string(),
             message: "ECDSA signature has invalid V component".to_string(),
+        },
+        "AlreadyWhitelisted" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "address is already whitelisted".to_string(),
+        },
+        "InvalidAddress" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "invalid address".to_string(),
+        },
+        "NotWhitelisted" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "address is not whitelisted".to_string(),
+        },
+        "MathOverflowedMulDiv" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "math overflow in multiplication or division".to_string(),
+        },
+        "NotThePolicyOwner" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "caller is not the policy owner".to_string(),
+        },
+        "CloneArgumentsTooLong" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "clone arguments are too long".to_string(),
+        },
+        "Create2EmptyBytecode" => AkaveError::NodeError {
+            code: code.to_string(),
+            message: "empty bytecode in create2 operation".to_string(),
         },
         _ => AkaveError::NodeError {
             code: code.to_string(),

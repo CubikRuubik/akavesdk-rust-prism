@@ -393,6 +393,8 @@ impl AkaveSDK {
         log_debug!("Listing buckets for address: {}", address);
         let request = IpcBucketListRequest {
             address: address.to_string(),
+            offset: 0,
+            limit: 0,
         };
         let mut client = self.client.clone();
         let response = client
@@ -458,6 +460,8 @@ impl AkaveSDK {
         let request = IpcFileListRequest {
             bucket_name: bucket_name.clone(),
             address: address.to_string(),
+            offset: 0,
+            limit: 0,
         };
         let response = self
             .client
@@ -1097,6 +1101,7 @@ impl AkaveSDK {
                 signature: signature.clone(),
                 node_id: node_id.clone(),
                 nonce: nonce.clone(),
+                deadline: 0,
             };
 
             log_debug!("Uploading block {}", block_index);
@@ -1135,6 +1140,7 @@ impl AkaveSDK {
                         signature: signature.clone(),
                         node_id: node_id.clone(),
                         nonce: nonce.clone(),
+                        deadline: 0,
                     }
                 },
             );
@@ -1776,6 +1782,7 @@ impl AkaveSDK {
             bucket_name: bucket_name.to_string(),
             file_name: file_name.to_string(),
             chunk_cid: chunk.cid.clone(),
+            chunk_index: index,
             address: address.to_string(),
         };
 
