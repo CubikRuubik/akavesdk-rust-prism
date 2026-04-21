@@ -8,6 +8,7 @@ permissions: read-all
 tools:
   github:
     toolsets: [default]
+timeout-minutes: 40
 network:
   allowed:
     - defaults
