@@ -387,11 +387,17 @@ impl AkaveSDK {
     }
 
     /// List all buckets
-    pub async fn list_buckets(&self) -> Result<BucketListResponse, AkaveError> {
+    pub async fn list_buckets(
+        &self,
+        offset: i64,
+        limit: i64,
+    ) -> Result<BucketListResponse, AkaveError> {
         let address = self.storage.client.get_hex_address().await?;
         log_debug!("Listing buckets for address: {}", address);
         let request = IpcBucketListRequest {
             address: address.to_string(),
+            offset,
+            limit,
         };
         let mut client = self.client.clone();
         let response = client
@@ -444,7 +450,12 @@ impl AkaveSDK {
     }
 
     /// List files in a bucket
-    pub async fn list_files(&self, bucket_name: &str) -> Result<FileListResponse, AkaveError> {
+    pub async fn list_files(
+        &self,
+        bucket_name: &str,
+        offset: i64,
+        limit: i64,
+    ) -> Result<FileListResponse, AkaveError> {
         let address = self.storage.client.get_hex_address().await?;
         log_debug!(
             "Listing files in bucket: {} for address: {}",
@@ -457,6 +468,8 @@ impl AkaveSDK {
         let request = IpcFileListRequest {
             bucket_name: bucket_name.clone(),
             address: address.to_string(),
+            offset,
+            limit,
         };
         let response = self
             .client
@@ -574,9 +587,15 @@ impl AkaveSDK {
             .get_bucket_index_by_name(bucket_name.clone())
             .await
             .map_err(AkaveError::ProviderError)?;
+        if !bucket_idx.exists {
+            return Err(AkaveError::BucketError(format!(
+                "bucket index not found: {}",
+                bucket_name
+            )));
+        }
 
         self.storage
-            .delete_bucket(bucket_id, bucket_name.clone(), bucket_idx)
+            .delete_bucket(bucket_id, bucket_name.clone(), bucket_idx.index)
             .await
             .map_err(AkaveError::ProviderError)?;
         log_info!("Bucket deleted successfully: {}", &bucket_name);
@@ -603,7 +622,7 @@ impl AkaveSDK {
         let bucket_id = BucketId::from_slice(&bucket_id_bytes)
             .ok_or_else(|| AkaveError::InvalidInput("Invalid bucket ID length".to_string()))?;
         self.storage
-            .delete_file(file_name.to_string(), bucket_id)
+            .delete_file(file_name.to_string(), bucket_name.clone(), bucket_id)
             .await
             .map_err(AkaveError::ProviderError)?;
         log_info!(
@@ -870,12 +889,12 @@ impl AkaveSDK {
 
             // Update file size and root hash
             log_debug!(
-                "Chunk {} - proto_node_size: {}, actual_size: {}",
+                "Chunk {} - encoded_size: {}, actual_size: {}",
                 idx,
-                chunk.proto_node_size,
+                chunk.encoded_size,
                 chunk.actual_size
             );
-            encode_file_size += chunk.proto_node_size;
+            encode_file_size += chunk.encoded_size;
             root_hash = Some(root_hasher.digest(&chunk.chunk_cid.to_bytes()));
             chunks_created.push(chunk);
 
@@ -978,7 +997,7 @@ impl AkaveSDK {
         }
 
         let chunk_cid = chunk_dag.cid;
-        let proto_node_size = chunk_dag.proto_node_size;
+        let encoded_size = chunk_dag.encoded_size;
         let mut upload_blocks = chunk_dag.blocks;
 
         let ipc_chunk = IpcChunk {
@@ -1040,7 +1059,7 @@ impl AkaveSDK {
                 chunk_cid,
                 actual_size: original_size,
                 raw_data_size: original_size,
-                proto_node_size,
+                encoded_size,
                 blocks: upload_blocks,
                 bucket_id,
                 file_name: file_name.to_string(),
@@ -1986,7 +2005,7 @@ mod tests {
     const DOWNLOAD_DESTINATION: &str = "/tmp/akave-tests/";
     const TEST_PASSWORD: &str = "testkey123";
     const TEST_KEY: &str = include_str!("blockchain/user.akvf.key");
-    const TEST_AKAVE_ADDRESS: &str = "http://connect.akave.ai:5500";
+    const TEST_AKAVE_ADDRESS: &str = "http://127.0.0.1:5000";
 
     // This runs before any tests are executed
     #[ctor]
@@ -2080,7 +2099,7 @@ mod tests {
         let _ = sdk.create_bucket(&bucket_name).await.unwrap();
 
         // Test
-        let buckets = sdk.list_buckets().await.unwrap();
+        let buckets = sdk.list_buckets(0, 20).await.unwrap();
         let len = buckets.buckets.len();
         println!("Found {} buckets", len);
         assert_ne!(len, 0, "there should be buckets in this account");
@@ -2153,7 +2172,7 @@ mod tests {
         );
 
         // Test list files
-        let file_list = sdk.list_files(&bucket_name).await.unwrap();
+        let file_list = sdk.list_files(&bucket_name, 0, 20).await.unwrap();
         assert_ne!(
             file_list.files.len(),
             0,
@@ -2336,7 +2355,7 @@ mod tests {
 
         // List files
         println!("listing files in bucket {}", bucket_name);
-        let file_list = sdk.list_files(&bucket_name).await.unwrap();
+        let file_list = sdk.list_files(&bucket_name, 0, 20).await.unwrap();
         let has_test_file = file_list
             .files
             .iter()
@@ -2377,7 +2396,7 @@ mod tests {
 
         // 1. List all buckets
         println!("Listing all buckets to find test buckets...");
-        let buckets = match sdk.list_buckets().await {
+        let buckets = match sdk.list_buckets(0, 100).await {
             Ok(bucket_list) => bucket_list.buckets,
             Err(e) => {
                 println!("Error listing buckets: {:?}", e);
@@ -2470,6 +2489,90 @@ mod tests {
             1000,
             "Downloaded range should be 1000 bytes"
         );
+
+        // Cleanup
+        let _ = sdk.delete_bucket(&bucket_name).await;
+    }
+
+    #[tokio::test]
+    async fn test_list_buckets_pagination() {
+        let sdk = get_sdk().await.unwrap();
+
+        // Create 10 test buckets with a unique run prefix
+        let run_id: String = Uuid::new_v4()
+            .to_string()
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .take(8)
+            .collect();
+        let names: Vec<String> = (0..10)
+            .map(|i| format!("TEST_BUCKET_{}_{:02}", run_id, i))
+            .collect();
+        for name in &names {
+            sdk.create_bucket(name).await.unwrap();
+        }
+
+        // Page 1 (offset=0, limit=4): expect 4 results
+        let page1 = sdk.list_buckets(0, 4).await.unwrap();
+        assert_eq!(page1.buckets.len(), 4, "page 1 should return 4 buckets");
+
+        // Page 2 (offset=4, limit=4): expect 4 results
+        let page2 = sdk.list_buckets(4, 4).await.unwrap();
+        assert_eq!(page2.buckets.len(), 4, "page 2 should return 4 buckets");
+
+        // Pages must not contain duplicate bucket names
+        let names1: std::collections::HashSet<_> =
+            page1.buckets.iter().map(|b| b.name.as_str()).collect();
+        let names2: std::collections::HashSet<_> =
+            page2.buckets.iter().map(|b| b.name.as_str()).collect();
+        assert!(names1.is_disjoint(&names2), "pages 1 and 2 must not overlap");
+
+        // Page 3 (offset=8, limit=4): expect at least our remaining 2 buckets
+        let page3 = sdk.list_buckets(8, 4).await.unwrap();
+        assert!(!page3.buckets.is_empty(), "page 3 should have results");
+
+        // Cleanup
+        for name in &names {
+            let _ = sdk.delete_bucket(name).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_files_pagination() {
+        let bucket_name = generate_test_bucket_name();
+        let sdk = get_sdk().await.unwrap();
+        sdk.create_bucket(&bucket_name).await.unwrap();
+
+        // Upload 10 small in-memory files
+        for i in 0..10usize {
+            let file_name = format!("file_{:02}.txt", i);
+            let mut reader = std::io::Cursor::new(vec![42u8; 1024]);
+            sdk.upload_file(&bucket_name, &file_name, &mut reader, None)
+                .await
+                .unwrap();
+        }
+
+        // Page 1 (offset=0, limit=4): 4 files
+        let page1 = sdk.list_files(&bucket_name, 0, 4).await.unwrap();
+        assert_eq!(page1.files.len(), 4, "page 1 should return 4 files");
+
+        // Page 2 (offset=4, limit=4): 4 files
+        let page2 = sdk.list_files(&bucket_name, 4, 4).await.unwrap();
+        assert_eq!(page2.files.len(), 4, "page 2 should return 4 files");
+
+        // Page 3 (offset=8, limit=4): remaining 2 files
+        let page3 = sdk.list_files(&bucket_name, 8, 4).await.unwrap();
+        assert_eq!(page3.files.len(), 2, "page 3 should return 2 files");
+
+        // All file names are unique across pages (no duplicates from offset bug)
+        let all_files: std::collections::HashSet<_> = page1
+            .files
+            .iter()
+            .chain(page2.files.iter())
+            .chain(page3.files.iter())
+            .map(|f| f.name.as_str())
+            .collect();
+        assert_eq!(all_files.len(), 10, "all 10 files should appear across 3 pages");
 
         // Cleanup
         let _ = sdk.delete_bucket(&bucket_name).await;

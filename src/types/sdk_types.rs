@@ -151,7 +151,7 @@ pub struct IpcFileChunkUpload {
     pub chunk_cid: Cid,
     pub actual_size: usize,
     pub raw_data_size: usize,
-    pub proto_node_size: usize,
+    pub encoded_size: usize,
     pub blocks: Vec<FileBlockUpload>,
     pub bucket_id: BucketId,
     pub file_name: String,

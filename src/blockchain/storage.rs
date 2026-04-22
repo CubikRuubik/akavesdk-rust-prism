@@ -10,7 +10,7 @@ use web3::{
 };
 
 // Internal imports
-use super::ipc_types::{BucketResponse, FileResponse};
+use super::ipc_types::{BucketIndexResult, BucketResponse, FileIndexResult, FileResponse};
 use crate::{
     blockchain::provider::{BlockchainProvider, ProviderError},
     log_debug, log_error, log_info,
@@ -271,7 +271,7 @@ impl FileStorageContract {
             .contract
             .query(
                 GET_BUCKET_BY_NAME,
-                (bucket_name,),
+                (bucket_name, address, U256::zero(), U256::zero()),
                 address,
                 Options::default(),
                 None,
@@ -284,11 +284,11 @@ impl FileStorageContract {
     pub async fn get_bucket_index_by_name(
         &self,
         bucket_name: String,
-    ) -> Result<U256, ProviderError> {
+    ) -> Result<BucketIndexResult, ProviderError> {
         let bucket_name_clone = bucket_name.clone();
         log_debug!("Getting bucket index for name: {}", bucket_name_clone);
         let address = self.client.get_address().await?;
-        let result: U256 = self
+        let result: BucketIndexResult = self
             .contract
             .query(
                 GET_BUCKET_INDEX_BY_NAME,
@@ -305,6 +305,7 @@ impl FileStorageContract {
     pub async fn delete_file(
         &self,
         file_name: String,
+        bucket_name: String,
         bucket_id: BucketId,
     ) -> Result<TransactionReceipt, ProviderError> {
         let file_name_clone = file_name.clone();
@@ -314,12 +315,16 @@ impl FileStorageContract {
             bucket_id
         );
 
+        let owner = self.client.get_address().await?;
         let file = self
             .get_file_by_name(bucket_id, file_name.to_string())
             .await?;
         let file_idx = self
-            .get_file_index_by_name(file.name, file.id.to_vec().clone())
+            .get_file_index_by_id(bucket_name, file.id.to_vec(), owner)
             .await?;
+        if !file_idx.exists {
+            return Err(ProviderError::InvalidFileId(0));
+        }
         let result = self
             .client
             .call_contract_with_confirmations(
@@ -329,7 +334,7 @@ impl FileStorageContract {
                     file.id.to_bytes(),
                     bucket_id.to_bytes(),
                     file_name,
-                    file_idx,
+                    file_idx.index,
                 ),
                 None,
             )
@@ -341,23 +346,23 @@ impl FileStorageContract {
         result
     }
 
-    pub async fn get_file_index_by_name(
+    pub async fn get_file_index_by_id(
         &self,
-        file_name: String,
+        bucket_name: String,
         file_id: Vec<u8>,
-    ) -> Result<U256, ProviderError> {
-        let file_name_clone = file_name.clone();
-        log_debug!("Getting file index for name: {}", file_name_clone);
-        let address = self.client.get_address().await?;
+        owner: H160,
+    ) -> Result<FileIndexResult, ProviderError> {
+        let bucket_name_clone = bucket_name.clone();
+        log_debug!("Getting file index for bucket: {}", bucket_name_clone);
         let parsed_id: [u8; 32] = file_id
             .try_into()
             .map_err(|v: Vec<u8>| ProviderError::InvalidFileId(v.len()))?;
-        let result: U256 = self
+        let result: FileIndexResult = self
             .contract
             .query(
                 GET_FILE_INDEX_BY_NAME,
-                (file_name, parsed_id),
-                address,
+                (bucket_name, parsed_id, owner),
+                owner,
                 Options::default(),
                 None,
             )

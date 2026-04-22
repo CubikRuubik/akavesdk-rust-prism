@@ -4,6 +4,38 @@ use web3::{
     types::{Address, U256},
 };
 
+#[derive(Debug)]
+pub struct BucketIndexResult {
+    pub index: U256,
+    pub exists: bool,
+}
+
+impl Detokenize for BucketIndexResult {
+    fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
+        if let [Token::Uint(index), Token::Bool(exists)] = tokens.as_slice() {
+            Ok(Self { index: *index, exists: *exists })
+        } else {
+            Err(web3::contract::Error::InterfaceUnsupported)
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct FileIndexResult {
+    pub index: U256,
+    pub exists: bool,
+}
+
+impl Detokenize for FileIndexResult {
+    fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
+        if let [Token::Uint(index), Token::Bool(exists)] = tokens.as_slice() {
+            Ok(Self { index: *index, exists: *exists })
+        } else {
+            Err(web3::contract::Error::InterfaceUnsupported)
+        }
+    }
+}
+
 use crate::types::{BucketId, FileId};
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

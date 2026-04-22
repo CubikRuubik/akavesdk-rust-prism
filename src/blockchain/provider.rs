@@ -469,4 +469,31 @@ pub enum ProviderError {
     TransactionFailedStatus { tx_hash: String, function: String },
     #[error("transaction receipt has unknown status")]
     TransactionUnknownStatus,
+    #[error("offset out of bounds")]
+    OffsetOutOfBounds,
+}
+
+/// Returns None if the error is an offset-out-of-bounds contract revert (treat as empty page),
+/// or Some(err) for any other error.
+pub fn ignore_offset_error(err: ProviderError) -> Option<ProviderError> {
+    if matches!(err, ProviderError::OffsetOutOfBounds) {
+        None
+    } else {
+        Some(err)
+    }
+}
+
+/// Checks a web3 contract call error string for the OffsetOutOfBounds selector (0x9605a010).
+pub fn is_offset_out_of_bounds_error(err: &web3::contract::Error) -> bool {
+    let msg = err.to_string();
+    msg.contains("0x9605a010") || msg.contains("OffsetOutOfBounds")
+}
+
+/// Maps a ContractCallError to OffsetOutOfBounds if it matches selector 0x9605a010.
+pub fn map_contract_error(err: web3::contract::Error) -> ProviderError {
+    if is_offset_out_of_bounds_error(&err) {
+        ProviderError::OffsetOutOfBounds
+    } else {
+        ProviderError::ContractCallError(err)
+    }
 }

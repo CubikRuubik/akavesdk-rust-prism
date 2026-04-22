@@ -926,8 +926,23 @@
     "inputs": [
       {
         "internalType": "string",
-        "name": "name",
+        "name": "bucketName",
         "type": "string"
+      },
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "fileOffset",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "fileLimit",
+        "type": "uint256"
       }
     ],
     "name": "getBucketByName",
@@ -987,6 +1002,11 @@
         "internalType": "uint256",
         "name": "index",
         "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "exists",
+        "type": "bool"
       }
     ],
     "stateMutability": "view",
@@ -1235,13 +1255,18 @@
     "inputs": [
       {
         "internalType": "string",
-        "name": "name",
+        "name": "bucketName",
         "type": "string"
       },
       {
         "internalType": "bytes32",
         "name": "fileId",
         "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
       }
     ],
     "name": "getFileIndexById",
@@ -1250,6 +1275,11 @@
         "internalType": "uint256",
         "name": "index",
         "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "exists",
+        "type": "bool"
       }
     ],
     "stateMutability": "view",
