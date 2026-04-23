@@ -13,6 +13,7 @@ use std::{
     io::{Read, Write},
     str::FromStr,
     sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 // ==========================
@@ -833,20 +834,39 @@ impl AkaveSDK {
             let blocks = chunk.blocks.clone();
             for (index, block_1mb) in blocks.iter().enumerate() {
                 let nonce = crate::get_nonce();
+                let deadline_secs = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(|e| AkaveError::InternalError(format!("SystemTime error: {}", e)))?
+                    .as_secs()
+                    .saturating_add(24 * 60 * 60);
+                let deadline = U256::from(deadline_secs);
                 let chunk_cid = cid::Cid::from_str(&ipc_chunk.cid)
                     .map_err(|e| AkaveError::InternalError(e.to_string()))?;
                 let node_id = PeerId::from_str(&block_1mb.node_id)
                     .map_err(|e| AkaveError::InternalError(e.to_string()))?;
+                let node_id_bytes = node_id.to_bytes();
+                if node_id_bytes.len() < 38 {
+                    return Err(AkaveError::InternalError(format!(
+                        "Invalid peer id bytes length: {}",
+                        node_id_bytes.len()
+                    )));
+                }
+                // Match Go SDK/Node conversion: bytes32 node id is extracted from bytes[6..38].
+                let mut node_id_32 = [0u8; 32];
+                node_id_32.copy_from_slice(&node_id_bytes[6..38]);
+                let bucket_id_32 = bucket_id.to_bytes();
                 let chain_id = self.chain_id;
                 let (data_message, domain, data_types) = create_block_eip712_data(
                     &block_1mb.cid,
                     &chunk_cid,
-                    &node_id,
+                    &node_id_32,
+                    &bucket_id_32,
                     self.storage.contract.address(),
                     ipc_chunk.index,
                     index as i64,
                     chain_id,
                     nonce,
+                    deadline,
                 )
                 .map_err(|e| AkaveError::InternalError(e.to_string()))?;
 
@@ -875,9 +895,10 @@ impl AkaveSDK {
                     block_1mb.cid.to_string(),
                     index as i64,
                     signature,
-                    node_id.to_bytes(),
+                    node_id_bytes,
                     block_1mb.node_address.as_str(),
                     bytes.to_vec(),
+                    deadline_secs as i64,
                     Some(ipc_chunk.clone()),
                     block_part_size,
                 )
@@ -1003,7 +1024,7 @@ impl AkaveSDK {
         let ipc_chunk = IpcChunk {
             cid: chunk_cid.to_string(),
             index: index as i64,
-            size: size as i64,
+            size: original_size as i64,
             blocks: chunk_blocks,
         };
 
@@ -1020,11 +1041,15 @@ impl AkaveSDK {
             .map_err(|e| AkaveError::GrpcError(Box::new(e)))?
             .into_inner();
 
+        eprintln!("[CHUNK_CREATE_RESP] chunk_cid={} requested_blocks={} returned_blocks={}",
+            ipc_chunk.cid, ipc_chunk.blocks.len(), chunk_create_response.blocks.len());
+
         chunk_create_response
             .blocks
             .iter()
             .enumerate()
             .for_each(|(idx, block)| {
+                eprintln!("[BLOCK_ASSIGN] idx={} node={} cid={}", idx, &block.node_address, &block.cid);
                 upload_blocks[idx].node_address = block.node_address.clone();
                 upload_blocks[idx].node_id = block.node_id.clone();
                 upload_blocks[idx].permit = block.permit.clone();
@@ -1036,7 +1061,7 @@ impl AkaveSDK {
                 chunk_cid.to_bytes(),
                 bucket_id,
                 file_name.to_string(),
-                size.into(),
+                encoded_size.into(),
                 cids,
                 sizes,
                 index.into(),
@@ -1087,6 +1112,7 @@ impl AkaveSDK {
         node_id: Vec<u8>,
         node_address: &str,
         nonce: Vec<u8>,
+        deadline: i64,
         chunk: Option<IpcChunk>,
         block_part_size: usize,
     ) -> Result<(), AkaveError> {
@@ -1115,12 +1141,17 @@ impl AkaveSDK {
                 signature: signature.clone(),
                 node_id: node_id.clone(),
                 nonce: nonce.clone(),
+                deadline,
             };
 
             log_debug!("Uploading block {}", block_index);
             let mut node_client = AkaveSDK::get_client_for_node_address(node_address)
                 .await
                 .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
+            eprintln!(
+                "[UPLOAD] block_cid={} chunk_cid={} chunk_index={} block_index={}",
+                block.cid, ipc_chunk.cid, chunk_index, block_index
+            );
             node_client
                 .file_upload_block_unary(block_data)
                 .await
@@ -1132,6 +1163,7 @@ impl AkaveSDK {
                     )))
                 })?
                 .into_inner();
+            eprintln!("got client for node address: {}", node_address);
         }
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -1153,6 +1185,7 @@ impl AkaveSDK {
                         signature: signature.clone(),
                         node_id: node_id.clone(),
                         nonce: nonce.clone(),
+                        deadline,
                     }
                 },
             );
@@ -1168,10 +1201,11 @@ impl AkaveSDK {
                 .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
             match node_client.file_upload_block(stream).await {
                 Ok(response) => {
-                    log_debug!("Block upload completed successfully");
+                    eprintln!("[BLOCK_STREAM_OK] block_index={} node={}", block_index, node_address);
                     response.into_inner();
                 }
                 Err(e) => {
+                    eprintln!("[BLOCK_STREAM_ERR] block_index={} node={} err={}", block_index, node_address, e);
                     log_error!("Error uploading block: {}", e);
                     return Err(AkaveError::GrpcError(Box::new(e)));
                 }
@@ -1359,8 +1393,6 @@ impl AkaveSDK {
             });
         }
 
-        let chunk_size = self.get_effective_chunk_size(option_encryption.is_some());
-
         let codec = Cid::try_from(file_download.chunks[0].cid.clone())
             .map_err(|e| AkaveError::InvalidInput(e.to_string()))?
             .codec();
@@ -1452,6 +1484,11 @@ impl AkaveSDK {
             #[cfg(target_arch = "wasm32")]
             let chunk_download = current_future.await?;
 
+            // Capture original chunk size before consuming chunk_download.
+            // chunk_download.size is the pre-erasure/pre-encryption size stored by
+            // the node from the IPCChunk.size field we set during upload.
+            let original_chunk_size = chunk_download.size as usize;
+
             // --- Concurrent block downloads inside the chunk ---
             let mut block_futures = Vec::new();
             for (block_index, block) in chunk_download.blocks.into_iter().enumerate() {
@@ -1476,6 +1513,9 @@ impl AkaveSDK {
                         block_index,
                         chunk_index
                     );
+                    eprintln!("[DOWNLOAD] block_cid={} chunk_cid={} chunk_index={} block_index={} node={}",
+                        req.block_cid, req.chunk_cid, req.chunk_index, req.block_index, block.akave.node_address);
+
                     let mut node_client =
                         AkaveSDK::get_client_for_node_address(&block.akave.node_address)
                             .await
@@ -1531,7 +1571,7 @@ impl AkaveSDK {
 
             // Combine blocks into a chunk
             let processed_data = if let Some(erasure_code) = &self.erasure_code {
-                erasure_code.extract_data(block_data_vecs, chunk_size)?
+                erasure_code.extract_data(block_data_vecs, original_chunk_size)?
             } else {
                 block_data_vecs.concat()
             };
@@ -1796,6 +1836,7 @@ impl AkaveSDK {
             chunk_cid: chunk.cid.clone(),
             address: address.to_string(),
         };
+        eprintln!("[CHUNK_CREATE] chunk_cid={}", request.chunk_cid);
 
         let resp = self
             .client
@@ -2525,7 +2566,10 @@ mod tests {
             page1.buckets.iter().map(|b| b.name.as_str()).collect();
         let names2: std::collections::HashSet<_> =
             page2.buckets.iter().map(|b| b.name.as_str()).collect();
-        assert!(names1.is_disjoint(&names2), "pages 1 and 2 must not overlap");
+        assert!(
+            names1.is_disjoint(&names2),
+            "pages 1 and 2 must not overlap"
+        );
 
         // Page 3 (offset=8, limit=4): expect at least our remaining 2 buckets
         let page3 = sdk.list_buckets(8, 4).await.unwrap();
@@ -2572,7 +2616,11 @@ mod tests {
             .chain(page3.files.iter())
             .map(|f| f.name.as_str())
             .collect();
-        assert_eq!(all_files.len(), 10, "all 10 files should appear across 3 pages");
+        assert_eq!(
+            all_files.len(),
+            10,
+            "all 10 files should appear across 3 pages"
+        );
 
         // Cleanup
         let _ = sdk.delete_bucket(&bucket_name).await;
