@@ -112,7 +112,7 @@ message IPCFileBlockData {
   bytes nonce = 7;
   bytes node_id = 8;
   string signature = 9;
-  int64 deadline = 100;
+  int64 deadline = 10;
 }
 
 message IPCFileUploadBlockResponse {}

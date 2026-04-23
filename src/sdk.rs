@@ -1041,15 +1041,22 @@ impl AkaveSDK {
             .map_err(|e| AkaveError::GrpcError(Box::new(e)))?
             .into_inner();
 
-        eprintln!("[CHUNK_CREATE_RESP] chunk_cid={} requested_blocks={} returned_blocks={}",
-            ipc_chunk.cid, ipc_chunk.blocks.len(), chunk_create_response.blocks.len());
+        eprintln!(
+            "[CHUNK_CREATE_RESP] chunk_cid={} requested_blocks={} returned_blocks={}",
+            ipc_chunk.cid,
+            ipc_chunk.blocks.len(),
+            chunk_create_response.blocks.len()
+        );
 
         chunk_create_response
             .blocks
             .iter()
             .enumerate()
             .for_each(|(idx, block)| {
-                eprintln!("[BLOCK_ASSIGN] idx={} node={} cid={}", idx, &block.node_address, &block.cid);
+                eprintln!(
+                    "[BLOCK_ASSIGN] idx={} node={} cid={}",
+                    idx, &block.node_address, &block.cid
+                );
                 upload_blocks[idx].node_address = block.node_address.clone();
                 upload_blocks[idx].node_id = block.node_id.clone();
                 upload_blocks[idx].permit = block.permit.clone();
@@ -1201,11 +1208,17 @@ impl AkaveSDK {
                 .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
             match node_client.file_upload_block(stream).await {
                 Ok(response) => {
-                    eprintln!("[BLOCK_STREAM_OK] block_index={} node={}", block_index, node_address);
+                    eprintln!(
+                        "[BLOCK_STREAM_OK] block_index={} node={}",
+                        block_index, node_address
+                    );
                     response.into_inner();
                 }
                 Err(e) => {
-                    eprintln!("[BLOCK_STREAM_ERR] block_index={} node={} err={}", block_index, node_address, e);
+                    eprintln!(
+                        "[BLOCK_STREAM_ERR] block_index={} node={} err={}",
+                        block_index, node_address, e
+                    );
                     log_error!("Error uploading block: {}", e);
                     return Err(AkaveError::GrpcError(Box::new(e)));
                 }
@@ -1834,6 +1847,7 @@ impl AkaveSDK {
             bucket_name: bucket_name.to_string(),
             file_name: file_name.to_string(),
             chunk_cid: chunk.cid.clone(),
+            chunk_index: index,
             address: address.to_string(),
         };
         eprintln!("[CHUNK_CREATE] chunk_cid={}", request.chunk_cid);
