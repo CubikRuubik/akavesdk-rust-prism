@@ -57,7 +57,7 @@ pub fn create_block_eip712_data(
             },
             TypedData {
                 name: "blockIndex".to_string(),
-                r#type: "uint8".to_string(),
+                r#type: "uint256".to_string(),
             },
             TypedData {
                 name: "nodeId".to_string(),
