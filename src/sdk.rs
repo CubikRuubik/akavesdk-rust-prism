@@ -2467,6 +2467,59 @@ mod tests {
         let _ = fs::create_dir_all(DOWNLOAD_DESTINATION);
     }
 
+    #[test]
+    fn test_calculate_file_id() {
+        use crate::types::BucketId;
+        let cases = [
+            (
+                "c10fad62c0224052065576135ed2ae4d85d34432b4fb40796eadd9a991f064b9",
+                "file1",
+                "eea1eddf9f4be315e978c6d0d25d1b870ec0162ebf0acf173f47b738ff0cb421",
+            ),
+            (
+                "f855c5499b442e6b57ea3ec0c260d1e23a74415451ec5a4796560cc9b7d89be0",
+                "file2",
+                "f8d6d1f6e7ba4f69f00df4e4b53b3e51eb8610f0774f16ea1f02162e0034487b",
+            ),
+            (
+                "f06eac67910341b595f1ef319ca12713a79f180b96a685430d806701dc42e9aa",
+                "file3",
+                "3eb92385cd986662e9885c47364fa5b2f154cd6fca8d99f4aed68160064991cb",
+            ),
+        ];
+        for (bucket_hex, name, expected) in &cases {
+            let bytes: [u8; 32] = hex::decode(bucket_hex).unwrap().try_into().unwrap();
+            let bucket_id = BucketId::from(bytes);
+            let result = AkaveSDK::calculate_file_id(&bucket_id, name);
+            assert_eq!(hex::encode(result), *expected, "file_name={name}");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_sdk_client() {
+        use crate::types::sdk_types::AkaveError;
+
+        // invalid erasure coding: zero data blocks
+        let Err(AkaveError::ErasureCodeError(e)) = AkaveSDKBuilder::new("")
+            .with_erasure_coding(0, 1)
+            .build()
+            .await
+        else {
+            panic!("expected ErasureCodeError for zero data blocks");
+        };
+        assert_eq!(e.to_string(), "data and parity blocks must be > 0");
+
+        // invalid erasure coding: zero parity blocks
+        let Err(AkaveError::ErasureCodeError(e)) = AkaveSDKBuilder::new("")
+            .with_erasure_coding(1, 0)
+            .build()
+            .await
+        else {
+            panic!("expected ErasureCodeError for zero parity blocks");
+        };
+        assert_eq!(e.to_string(), "data and parity blocks must be > 0");
+    }
+
     #[tokio::test]
     async fn test_create_bucket() {
         let bucket_name = generate_test_bucket_name();
@@ -3066,7 +3119,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("create enc2 bucket {n}: {e}"));
         }
 
-        let list = sdk_enc1.list_buckets(0, 200).await.unwrap();
+        let list = sdk_enc1.list_buckets(0, 100).await.unwrap();
         assert!(list.buckets.len() >= 15);
         assert!(
             exists_in_buckets(&names_no_enc, &list.buckets),
@@ -3292,6 +3345,123 @@ mod tests {
                 .unwrap();
             assert_eq!(&buf, original, "downloaded content matches for {}", name);
         }
+
+        let _ = sdk.delete_bucket(&bucket_name).await;
+    }
+
+    // ── TestIPCFileDelete ─────────────────────────────────────────────────────
+    #[tokio::test]
+    async fn test_delete_file() {
+        let sdk = get_sdk().await.unwrap();
+        let bucket_name = generate_test_bucket_name();
+        sdk.create_bucket(&bucket_name).await.unwrap();
+
+        let mut file = File::open(format!("test_files/{}", FILE_NAME_TO_TEST)).unwrap();
+        sdk.upload_file(&bucket_name, FILE_NAME_TO_TEST, &mut file, None)
+            .await
+            .unwrap();
+
+        // Verify file exists
+        let list = sdk.list_files(&bucket_name, 0, 20).await.unwrap();
+        assert!(
+            list.files.iter().any(|f| f.name == FILE_NAME_TO_TEST),
+            "uploaded file must appear in listing"
+        );
+
+        // Delete the file
+        sdk.delete_file(&bucket_name, FILE_NAME_TO_TEST)
+            .await
+            .unwrap();
+
+        // Verify it is gone
+        let list_after = sdk.list_files(&bucket_name, 0, 20).await.unwrap();
+        assert!(
+            !list_after.files.iter().any(|f| f.name == FILE_NAME_TO_TEST),
+            "file must not appear in listing after deletion"
+        );
+
+        let _ = sdk.delete_bucket(&bucket_name).await;
+    }
+
+    // ── TestIPCFileInfo ───────────────────────────────────────────────────────
+    #[tokio::test]
+    async fn test_file_info() {
+        let sdk = get_sdk().await.unwrap();
+        let bucket_name = generate_test_bucket_name();
+        sdk.create_bucket(&bucket_name).await.unwrap();
+
+        let mut file = File::open(format!("test_files/{}", FILE_NAME_TO_TEST)).unwrap();
+        sdk.upload_file(&bucket_name, FILE_NAME_TO_TEST, &mut file, None)
+            .await
+            .unwrap();
+
+        let info = sdk
+            .view_file_info(&bucket_name, FILE_NAME_TO_TEST)
+            .await
+            .unwrap();
+
+        assert_eq!(info.name, FILE_NAME_TO_TEST);
+        assert_eq!(info.bucket_name, bucket_name);
+        assert!(!info.root_cid.is_empty(), "root_cid must not be empty");
+        assert!(info.encoded_size > 0, "encoded_size must be positive");
+
+        let _ = sdk.delete_bucket(&bucket_name).await;
+    }
+
+    // ── TestIPCFileSetPublicAccess ────────────────────────────────────────────
+    #[tokio::test]
+    async fn test_file_set_public_access() {
+        let sdk = get_sdk().await.unwrap();
+        let bucket_name = generate_test_bucket_name();
+        sdk.create_bucket(&bucket_name).await.unwrap();
+
+        let mut file = File::open(format!("test_files/{}", FILE_NAME_TO_TEST)).unwrap();
+        sdk.upload_file(&bucket_name, FILE_NAME_TO_TEST, &mut file, None)
+            .await
+            .unwrap();
+
+        sdk.set_file_public_access(&bucket_name, FILE_NAME_TO_TEST, true)
+            .await
+            .expect("setting public access to true should succeed");
+
+        sdk.set_file_public_access(&bucket_name, FILE_NAME_TO_TEST, false)
+            .await
+            .expect("setting public access to false should succeed");
+
+        let _ = sdk.delete_bucket(&bucket_name).await;
+    }
+
+    // ── TestIPCFileUploadStateConcurrency ─────────────────────────────────────
+    #[tokio::test]
+    async fn test_file_upload_state_concurrency() {
+        let sdk = Arc::new(get_sdk().await.unwrap());
+        let bucket_name = generate_test_bucket_name();
+        sdk.create_bucket(&bucket_name).await.unwrap();
+
+        // Spawn 3 concurrent uploads of different files to the same bucket
+        let mut handles = Vec::new();
+        for i in 0..3usize {
+            let sdk_clone = Arc::clone(&sdk);
+            let bucket = bucket_name.clone();
+            let name = format!("concurrent_{}.bin", i);
+            handles.push(tokio::spawn(async move {
+                let data = vec![(i as u8 + 1) * 17; 256 * 1024]; // 256 KiB each
+                sdk_clone
+                    .upload_file(&bucket, &name, &mut std::io::Cursor::new(data), None)
+                    .await
+            }));
+        }
+
+        let results: Vec<_> = futures::future::join_all(handles).await;
+        let succeeded = results.iter().filter(|r| matches!(r, Ok(Ok(_)))).count();
+        assert!(
+            succeeded > 0,
+            "at least one concurrent upload must succeed; results: {:?}",
+            results
+                .iter()
+                .map(|r| r.as_ref().map(|inner| inner.is_ok()))
+                .collect::<Vec<_>>()
+        );
 
         let _ = sdk.delete_bucket(&bucket_name).await;
     }

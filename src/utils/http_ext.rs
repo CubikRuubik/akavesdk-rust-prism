@@ -39,3 +39,35 @@ pub async fn range_download(
         .map(|b| b.to_vec())
         .map_err(|e| AkaveError::InternalError(e.to_string()))
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_range_download_rejects_negative_offset() {
+        let client = reqwest::Client::new();
+        let result = range_download(&client, "http://localhost:1", -1, 10).await;
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("offset"), "expected offset error, got: {msg}");
+    }
+
+    #[tokio::test]
+    async fn test_range_download_rejects_zero_length() {
+        let client = reqwest::Client::new();
+        let result = range_download(&client, "http://localhost:1", 0, 0).await;
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("length"), "expected length error, got: {msg}");
+    }
+
+    #[tokio::test]
+    async fn test_range_download_rejects_negative_length() {
+        let client = reqwest::Client::new();
+        let result = range_download(&client, "http://localhost:1", 0, -5).await;
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("length"), "expected length error, got: {msg}");
+    }
+}

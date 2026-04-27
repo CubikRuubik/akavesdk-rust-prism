@@ -67,7 +67,10 @@ impl ChunkDag {
         // - single block: the block's full serialised length (== total_dag_size)
         // - multi-block: sum of all leaf block sizes (root node excluded)
         let encoded_size = if blocks.len() > 1 {
-            blocks[..blocks.len() - 1].iter().map(|b| b.data.len()).sum()
+            blocks[..blocks.len() - 1]
+                .iter()
+                .map(|b| b.data.len())
+                .sum()
         } else {
             total_dag_size
         };
@@ -106,8 +109,7 @@ mod tests {
         // Invariant: encoded_size must equal sum of all leaf block data lengths
         let blocks_total: usize = dag.blocks.iter().map(|b| b.data.len()).sum();
         assert_eq!(
-            dag.encoded_size,
-            blocks_total,
+            dag.encoded_size, blocks_total,
             "encoded_size must equal sum of leaf block sizes"
         );
 
@@ -127,12 +129,28 @@ mod tests {
         // Invariant: encoded_size must equal sum of all leaf block data lengths
         let blocks_total: usize = dag.blocks.iter().map(|b| b.data.len()).sum();
         assert_eq!(
-            dag.encoded_size,
-            blocks_total,
+            dag.encoded_size, blocks_total,
             "encoded_size must equal sum of leaf block sizes"
         );
 
         // Pin the concrete value: 32 blocks × (655360 bytes + 14 bytes protobuf overhead)
         assert_eq!(dag.encoded_size, 20_971_968);
+    }
+
+    #[test]
+    fn test_root_cid_builder() {
+        let data = vec![0u8; 2 * 1024 * 1024];
+        let chunk_size = 1024 * 1024;
+
+        let dag = ChunkDag::new(chunk_size, data);
+
+        assert_eq!(dag.blocks.len(), 2, "expected 2 leaf blocks");
+
+        println!("root CID: {}", dag.cid);
+
+        assert_eq!(
+            dag.cid.to_string(),
+            "bafybeig5m3nullnds6gh6yriwk6yyn6h476kb4idns5nl5k7pstyhbcuii"
+        );
     }
 }

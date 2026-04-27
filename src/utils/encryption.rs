@@ -280,4 +280,24 @@ mod tests {
             encrypted_deterministic_1, encrypted_deterministic_2,
         );
     }
+
+    #[test]
+    fn test_data_overhead() {
+        let key = b"test_key_for_data_overhead_check";
+        let enc = Encryption::new(key, b"some_info").unwrap();
+
+        for (i, &size) in [1 * 1024 * 1024usize, 4 * 1024 * 1024].iter().enumerate() {
+            let data: Vec<u8> = (0..size).map(|j| (j % 251) as u8).collect();
+            let encrypted = enc.encrypt(&data, format!("{i}").as_bytes()).unwrap();
+
+            assert_ne!(&data[..10], &encrypted[..10], "encrypted data should differ from plaintext");
+            let overhead = encrypted.len() - data.len();
+            println!(
+                "Data size: {}, Encrypted size: {}, overhead: {}",
+                data.len(),
+                encrypted.len(),
+                overhead
+            );
+        }
+    }
 }
