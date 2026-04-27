@@ -48,6 +48,7 @@ const DELETE_BUCKET: &str = "deleteBucket";
 const GET_BUCKET_BY_NAME: &str = "getBucketByName";
 const GET_BUCKET_INDEX_BY_NAME: &str = "getBucketIndexByName";
 const ADD_FILE_CHUNK: &str = "addFileChunk";
+const ADD_FILE_CHUNKS: &str = "addFileChunks";
 const COMMIT_FILE: &str = "commitFile";
 const CREATE_FILE: &str = "createFile";
 const DELETE_FILE: &str = "deleteFile";
@@ -211,6 +212,51 @@ impl FileStorageContract {
                 file_name_clone
             ),
             Err(e) => log_error!("Failed to add file chunk: {}", e),
+        }
+        result
+    }
+
+    /// Adds multiple file chunks in a single batched transaction.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn add_file_chunks(
+        &self,
+        cids: Vec<Vec<u8>>,
+        bucket_id: BucketId,
+        file_name: String,
+        encoded_chunk_sizes: Vec<U256>,
+        chunk_blocks_cids: Vec<Vec<[u8; 32]>>,
+        chunk_block_sizes: Vec<Vec<U256>>,
+        starting_chunk_index: U256,
+    ) -> Result<TransactionReceipt, ProviderError> {
+        let file_name_clone = file_name.clone();
+        log_debug!(
+            "Adding {} file chunks (batch) for file: {}",
+            cids.len(),
+            file_name_clone
+        );
+        let result = self
+            .client
+            .call_contract_with_confirmations(
+                &self.contract,
+                ADD_FILE_CHUNKS,
+                (
+                    cids,
+                    bucket_id.to_bytes(),
+                    file_name,
+                    encoded_chunk_sizes,
+                    chunk_blocks_cids,
+                    chunk_block_sizes,
+                    starting_chunk_index,
+                ),
+                None,
+            )
+            .await;
+        match &result {
+            Ok(_) => log_info!(
+                "File chunks batch added successfully for file: {}",
+                file_name_clone
+            ),
+            Err(e) => log_error!("Failed to add file chunks batch: {}", e),
         }
         result
     }

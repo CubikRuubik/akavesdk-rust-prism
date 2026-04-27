@@ -151,6 +151,30 @@ impl Encryption {
         }
     }
 
+    /// Decrypts data encrypted with encrypt_deterministic (nonce at start of ciphertext).
+    pub fn decrypt_deterministic(&self, data: &[u8], info: &[u8]) -> Result<Vec<u8>, EncryptionError> {
+        let gcm = self.make_gcm_cipher(info)?;
+
+        if data.len() < GCM_NONCE_SIZE {
+            return Err(EncryptionError::DecryptionFailed(
+                "Invalid encrypted data: too short".to_string(),
+            ));
+        }
+
+        let (nonce, ciphertext) = data.split_at(GCM_NONCE_SIZE);
+        let nonce_array = Nonce::from_slice(nonce);
+
+        let mut buffer = ciphertext.to_vec();
+
+        match gcm.decrypt_in_place(nonce_array, b"", &mut buffer) {
+            Ok(_) => Ok(buffer),
+            Err(e) => Err(EncryptionError::DecryptionFailed(format!(
+                "GCM decryption failed: {:?}",
+                e
+            ))),
+        }
+    }
+
     pub fn decrypt(&self, data: &[u8], info: &[u8]) -> Result<Vec<u8>, EncryptionError> {
         let gcm = self.make_gcm_cipher(info)?;
 

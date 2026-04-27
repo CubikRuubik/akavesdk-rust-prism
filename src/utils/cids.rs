@@ -94,6 +94,43 @@ mod tests {
     }
 
     #[test]
+    fn test_verify_raw_valid_cid_v0_matches() {
+        let data = b"v0 data";
+        let digest = Code::Sha2_256.digest(data);
+        let c = Cid::new_v0(digest).expect("v0 CID");
+        verify_raw(&c.to_string(), data).expect("should verify valid CIDv0");
+    }
+
+    #[test]
+    fn test_verify_valid_cid_v1() {
+        let data = b"verify v1";
+        let digest = Code::Sha2_256.digest(data);
+        let c = Cid::new_v1(0x70, digest);
+        verify(c, data).expect("should verify CIDv1");
+    }
+
+    #[test]
+    fn test_verify_valid_cid_v0() {
+        let data = b"verify v0";
+        let digest = Code::Sha2_256.digest(data);
+        let c = Cid::new_v0(digest).expect("v0 CID");
+        verify(c, data).expect("should verify CIDv0");
+    }
+
+    #[test]
+    fn test_verify_cid_mismatch() {
+        let data = b"some data";
+        let digest = Code::Sha2_256.digest(data);
+        let c = Cid::new_v1(0x70, digest);
+        let err = verify(c, b"other data").unwrap_err();
+        assert!(
+            err.to_string().contains("CID mismatch"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    #[test]
     fn test_from_byte_array_cid_roundtrip() {
         let data = b"test block data";
         let digest = Code::Sha2_256.digest(data);

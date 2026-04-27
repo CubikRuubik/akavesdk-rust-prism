@@ -266,7 +266,7 @@ impl BlockchainProvider {
         let txopts = match options {
             Some(opts) => opts,
             None => Options {
-                gas: Some(U256::from(250_000u64)),
+                gas: Some(U256::from(1_000_000u64)),
                 ..Default::default()
             },
         };

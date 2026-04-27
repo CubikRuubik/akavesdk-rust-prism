@@ -337,7 +337,6 @@ mod tests {
     use crate::utils::peer_id::PeerId;
 
     #[test]
-    #[ignore]
     fn test_sign_and_recover() {
         // Private key from the test vector
         let private_key =
