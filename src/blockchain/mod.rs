@@ -8,3 +8,6 @@ pub mod storage;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod eip712;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod contract_errors;

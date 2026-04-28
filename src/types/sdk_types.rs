@@ -9,7 +9,7 @@ use crate::{types::BucketId, utils::timestamp::timestamp_serde_direct};
 
 #[derive(Error, Debug)]
 pub enum AkaveError {
-    #[error("blockchain error")]
+    #[error("blockchain error: {0}")]
     BlockchainError(#[source] web3::Error),
 
     #[error("block error: {0}")]
@@ -18,7 +18,7 @@ pub enum AkaveError {
     #[error("chunk error: {0}")]
     ChunkError(String),
 
-    #[error("grpc error")]
+    #[error("grpc error: {0}")]
     GrpcError(#[source] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("file error: {0}")]
@@ -55,7 +55,7 @@ pub enum AkaveError {
     #[error("internal error: {0}")]
     InternalError(String),
 
-    #[error("provider error")]
+    #[error("provider error: {0}")]
     ProviderError(#[from] crate::blockchain::provider::ProviderError),
 
     #[error("bucket error: {0}")]
@@ -225,6 +225,7 @@ pub struct FileListResponse {
 pub struct FileListItem {
     pub root_cid: String,
     pub created_at: i64,
+    pub actual_size: i64,
     pub encoded_size: i64,
     pub name: String,
 }
@@ -236,6 +237,7 @@ pub struct FileListItem {
 pub struct FileViewResponse {
     pub root_cid: String,
     pub created_at: i64,
+    pub actual_size: i64,
     pub encoded_size: i64,
     pub name: String,
     pub bucket_name: String,

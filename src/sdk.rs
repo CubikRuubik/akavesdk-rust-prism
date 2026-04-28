@@ -523,6 +523,7 @@ impl AkaveSDK {
                 FileListItem {
                     root_cid: file.root_cid,
                     created_at: file.created_at.map(|ts| ts.seconds).unwrap_or(0),
+                    actual_size: file.actual_size,
                     encoded_size: file.encoded_size,
                     name,
                 }
@@ -577,6 +578,7 @@ impl AkaveSDK {
         let file = FileViewResponse {
             root_cid: response.root_cid,
             created_at: response.created_at.map(|ts| ts.seconds).unwrap_or(0),
+            actual_size: response.actual_size,
             encoded_size: response.encoded_size,
             name: decrypted_file,
             bucket_name: decrypted_bucket,
@@ -1447,8 +1449,7 @@ impl AkaveSDK {
 
         let file_download = self
             .create_file_download(&address, &bucket_name, &file_name)
-            .await
-            .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
+            .await?;
 
         if file_download.chunks.is_empty() {
             return Err(AkaveError::FileOperationError {
@@ -2252,8 +2253,7 @@ impl AkaveSDK {
 
         let file_download = self
             .create_file_download(&address, &bucket_name_enc, &file_name_enc)
-            .await
-            .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
+            .await?;
 
         let mut archival_chunks = Vec::new();
         for (i, chunk) in file_download.chunks.into_iter().enumerate() {
@@ -2311,6 +2311,16 @@ impl AkaveSDK {
             name: file_name_enc,
             chunks: archival_chunks,
         })
+    }
+
+    /// Returns the ETH balance (in wei) for the address associated with the SDK's private key.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn get_balance(&self) -> Result<U256, AkaveError> {
+        let address = self.storage.client.get_address().await?;
+        self.storage.client.web3_provider.eth()
+            .balance(address, None)
+            .await
+            .map_err(AkaveError::BlockchainError)
     }
 
     fn use_download_codec(codec: u64, chunk_data: Vec<u8>) -> Result<Vec<u8>, AkaveError> {
@@ -3467,7 +3477,7 @@ mod tests {
     }
 
     #[tokio::test]
-
+    #[ignore]
     async fn test_cleanup_manual() {
         // This test is ignored by default and must be run manually with:
         // cargo test --package akave-rs --lib -- tests::test_cleanup_manual --ignored --nocapture

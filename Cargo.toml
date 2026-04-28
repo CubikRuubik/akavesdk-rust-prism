@@ -155,8 +155,13 @@ tonic = { version = "0.12", default-features = false, features = [
   "tls",
   "tls-roots",
 ] }
+clap = { version = "4", features = ["derive"] }
 uuid = { version = "1.15.1", features = ["v4"] }
 web3 = { version = "0.19.0", features = ["http", "signing"] }
+
+[[bin]]
+name = "akave"
+path = "src/bin/akave.rs"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor = "0.4.1"
