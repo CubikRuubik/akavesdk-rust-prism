@@ -2317,7 +2317,10 @@ impl AkaveSDK {
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn get_balance(&self) -> Result<U256, AkaveError> {
         let address = self.storage.client.get_address().await?;
-        self.storage.client.web3_provider.eth()
+        self.storage
+            .client
+            .web3_provider
+            .eth()
             .balance(address, None)
             .await
             .map_err(AkaveError::BlockchainError)
@@ -3129,7 +3132,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("create enc2 bucket {n}: {e}"));
         }
 
-        let list = sdk_enc1.list_buckets(0, 100).await.unwrap();
+        let list = sdk_enc1.list_buckets(0, 200).await.unwrap();
         assert!(list.buckets.len() >= 15);
         assert!(
             exists_in_buckets(&names_no_enc, &list.buckets),
@@ -3137,7 +3140,7 @@ mod tests {
         );
         assert!(
             exists_in_buckets(&names_enc1, &list.buckets),
-            "enc1 buckets decrypted correctly"
+            "enc1 buckets decrypted correctly" // In case of revert, need to clear buckets with test_cleanup_manual or restart the node
         );
         assert!(
             !exists_in_buckets(&names_enc2, &list.buckets),
