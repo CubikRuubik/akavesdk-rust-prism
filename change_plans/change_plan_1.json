@@ -1,0 +1,197 @@
+{
+  "meta": {
+    "source_repo": "akavesdk (Go)",
+    "target_repo": "CubikRuubik/akavesdk-rust-prism",
+    "base_tag": "v0.4.0",
+    "target_tag": "v0.4.4",
+    "created_at": "2026-04-30T10:17:29Z",
+    "description": "Sync akave SDK Go reference implementation from tag v0.4.4: new storage batch methods, new contract error types, and proto file rename cleanup."
+  },
+  "execution_order": [
+    "CHANGE-1: Add new contract error types (NotSignedByBucketOwner, NonceAlreadyUsed) to contract_errors.rs — apply first so error decoding is complete before storage methods use them",
+    "CHANGE-2: Add new storage contract view/call functions (is_file_filled_v2, file_fill_counter, file_reward_claimed, get_buckets_by_ids, get_buckets_by_ids_with_files) to src/blockchain/storage.rs",
+    "CHANGE-3: Add new storage contract mutator function fill_chunk_blocks to src/blockchain/storage.rs",
+    "CHANGE-4: Update storage.json ABI to include ABI entries for the new contract functions",
+    "TEST-1: Add unit tests for new storage functions after CHANGE-2 and CHANGE-3"
+  ],
+  "changes": [
+    {
+      "id": "CHANGE-1",
+      "title": "Add new contract error types to contract_errors.rs",
+      "priority": "high",
+      "go_files": ["private/ipc/errors.go"],
+      "target_files": ["src/blockchain/contract_errors.rs"],
+      "description": "Two new custom contract errors were added to the Go error mapper in v0.4.4: NotSignedByBucketOwner and NonceAlreadyUsed. The Rust equivalent uses the alloy sol! macro to declare error types and a decode_revert_reason() function to match 4-byte selectors. These two errors are currently absent from the Rust declaration.",
+      "current_state": "src/blockchain/contract_errors.rs declares a sol! block with ~40 error types. It does NOT currently include NotSignedByBucketOwner or NonceAlreadyUsed. The match_selectors! macro invocation also does not list these two errors.",
+      "required_change": "1. In the sol! block, add the following two error declarations (no fields, unit errors):\n   error NotSignedByBucketOwner();\n   error NonceAlreadyUsed();\n2. In the match_selectors! macro call inside decode_revert_reason(), add both new type names to the list:\n   NotSignedByBucketOwner,\n   NonceAlreadyUsed,\nPlace them alphabetically within the existing list (between NotInitializing and OffsetOutOfBounds).",
+      "code_snippet_before": "error NotInitializing();\n    error OffsetOutOfBounds();",
+      "code_snippet_after": "error NotInitializing();\n    error NonceAlreadyUsed();\n    error NotSignedByBucketOwner();\n    error OffsetOutOfBounds();"
+    },
+    {
+      "id": "CHANGE-2",
+      "title": "Add new storage contract view/read functions",
+      "priority": "high",
+      "go_files": ["private/ipc/contracts/storage.go"],
+      "target_files": ["src/blockchain/storage.rs"],
+      "description": "Five new read-only (view) functions were added to the Storage smart contract in v0.4.4. These allow callers to: check if a file is filled via an alternate V2 path, read per-file fill and reward-claimed counters, and fetch multiple buckets by ID in one call (with or without files). The Rust storage.rs wraps the ABI-encoded contract calls and is currently missing all five.",
+      "current_state": "src/blockchain/storage.rs has is_file_filled (checks isFileFilled) but NOT is_file_filled_v2 (isFileFilledV2). It does NOT have get_buckets_by_ids, get_buckets_by_ids_with_files, file_fill_counter, or file_reward_claimed.",
+      "required_change": "Add the following five async methods to the StorageContract impl block. Each must:\n1. Encode and ABI-call the contract using the contract provider (pattern: self.contract.call(\"<functionName>\", args).await).\n2. Decode the returned value.\n3. Return the appropriate Rust type.\n\nMethod signatures and contract details:\n\na) is_file_filled_v2(file_id: [u8; 32]) -> Result<bool, ProviderError>\n   Contract function: isFileFilledV2(bytes32 fileId) view returns (bool)\n   Selector: 0xfd21c284\n   Input: bytes32 (the file ID as a 32-byte array)\n   Output: bool\n\nb) file_fill_counter(file_id: [u8; 32]) -> Result<u16, ProviderError>\n   Contract function: fileFillCounter(bytes32) view returns (uint16)\n   Selector: 0xf8a3e41a\n   Input: bytes32 (file ID)\n   Output: uint16 decoded as u16\n\nc) file_reward_claimed(file_id: [u8; 32]) -> Result<bool, ProviderError>\n   Contract function: fileRewardClaimed(bytes32) view returns (bool)\n   Selector: 0x018c1e9c\n   Input: bytes32 (file ID)\n   Output: bool\n\nd) get_buckets_by_ids(ids: Vec<[u8; 32]>) -> Result<Vec<BucketInfo>, ProviderError>\n   Contract function: getBucketsByIds(bytes32[] ids) view returns ((bytes32,string,uint256,address,bytes32[])[])\n   Selector: 0x35bdb711\n   Input: array of bytes32 bucket IDs\n   Output: array of bucket structs. Each struct has fields:\n     id: bytes32\n     name: string\n     created_at: uint256 (unix timestamp)\n     owner: address\n     file_ids: bytes32[]\n   Use the existing BucketInfo type if available, or define one matching this shape.\n\ne) get_buckets_by_ids_with_files(ids: Vec<[u8; 32]>, bucket_offset: u64, bucket_limit: u64, file_offset: u64, file_limit: u64) -> Result<Vec<BucketInfo>, ProviderError>\n   Contract function: getBucketsByIdsWithFiles(bytes32[] ids, uint256 bucketOffset, uint256 bucketLimit, uint256 fileOffset, uint256 fileLimit) view returns ((bytes32,string,uint256,address,bytes32[])[] buckets)\n   Selector: 0x62838c23\n   Input: array of bytes32 IDs + 4 pagination uint256 values\n   Output: same bucket struct array as getBucketsByIds",
+      "sub_changes": [
+        {
+          "id": "CHANGE-2a",
+          "title": "Add is_file_filled_v2",
+          "priority": "high",
+          "go_files": ["private/ipc/contracts/storage.go"],
+          "target_files": ["src/blockchain/storage.rs"],
+          "description": "Add is_file_filled_v2 method — alternate file filled check returning bool for a given file ID.",
+          "current_state": "is_file_filled exists (selector different). is_file_filled_v2 (0xfd21c284) is absent.",
+          "required_change": "Add async fn is_file_filled_v2(&self, file_id: [u8; 32]) -> Result<bool, ProviderError> calling isFileFilledV2(bytes32) on the storage contract. Pattern mirrors the existing is_file_filled method."
+        },
+        {
+          "id": "CHANGE-2b",
+          "title": "Add file_fill_counter and file_reward_claimed",
+          "priority": "medium",
+          "go_files": ["private/ipc/contracts/storage.go"],
+          "target_files": ["src/blockchain/storage.rs"],
+          "description": "Add file_fill_counter (returns u16) and file_reward_claimed (returns bool) — state variable accessors added in v0.4.4 to support fill tracking and reward claim status.",
+          "current_state": "Neither method exists in storage.rs.",
+          "required_change": "Add:\n  async fn file_fill_counter(&self, file_id: [u8; 32]) -> Result<u16, ProviderError> calling fileFillCounter(bytes32) returns(uint16)\n  async fn file_reward_claimed(&self, file_id: [u8; 32]) -> Result<bool, ProviderError> calling fileRewardClaimed(bytes32) returns(bool)"
+        },
+        {
+          "id": "CHANGE-2c",
+          "title": "Add get_buckets_by_ids and get_buckets_by_ids_with_files",
+          "priority": "medium",
+          "go_files": ["private/ipc/contracts/storage.go"],
+          "target_files": ["src/blockchain/storage.rs"],
+          "description": "Add batch bucket retrieval methods — fetch multiple buckets by their IDs in a single contract call, with or without file ID lists.",
+          "current_state": "get_bucket_by_name exists (single bucket by name). Batch retrieval by ID array is absent.",
+          "required_change": "Add:\n  async fn get_buckets_by_ids(&self, ids: Vec<[u8; 32]>) -> Result<Vec<BucketInfo>, ProviderError>\n  async fn get_buckets_by_ids_with_files(&self, ids: Vec<[u8; 32]>, bucket_offset: U256, bucket_limit: U256, file_offset: U256, file_limit: U256) -> Result<Vec<BucketInfo>, ProviderError>"
+        }
+      ]
+    },
+    {
+      "id": "CHANGE-3",
+      "title": "Add fill_chunk_blocks batch mutator to storage.rs",
+      "priority": "high",
+      "go_files": ["private/ipc/contracts/storage.go"],
+      "target_files": ["src/blockchain/storage.rs"],
+      "description": "A new batch transaction method fillChunkBlocks was added to the Storage contract in v0.4.4. It accepts an array of fill arguments and submits all as a single transaction, replacing multiple sequential fillChunkBlock calls.",
+      "current_state": "src/blockchain/storage.rs has add_file_chunk (single) and add_file_chunks (batch). It does NOT have fill_chunk_blocks. The single fill_chunk_block equivalent may or may not exist — current code shows no fill_chunk_block or fill_chunk_blocks method.",
+      "required_change": "Define a FillChunkBlockArgs struct (if not already present) and add fill_chunk_blocks method:\n\nStruct FillChunkBlockArgs fields (matching IStorageFillChunkBlockArgs in Go):\n  block_cid: [u8; 32]    // bytes32 BlockCID\n  node_id: [u8; 32]      // bytes32 NodeId\n  bucket_id: [u8; 32]    // bytes32 BucketId\n  chunk_index: U256      // uint256 ChunkIndex\n  nonce: U256            // uint256 Nonce\n  block_index: u8        // uint8 BlockIndex\n  file_name: String      // string FileName\n  signature: Vec<u8>     // bytes Signature\n  deadline: U256         // uint256 Deadline\n\nSolidity ABI: fillChunkBlocks((bytes32,bytes32,bytes32,uint256,uint256,uint8,string,bytes,uint256)[] args) returns()\nSelector: 0x308c3cf2\n\nMethod signature:\n  pub async fn fill_chunk_blocks(&self, signer: &LocalWallet, args: Vec<FillChunkBlockArgs>) -> Result<TransactionReceipt, ProviderError>\n\nEncode each arg as a tuple in the ABI array and submit as a single transaction. The caller must wait for the receipt.",
+      "code_snippet_before": "// fill_chunk_blocks does not exist",
+      "code_snippet_after": "pub async fn fill_chunk_blocks(\n    &self,\n    signer: &LocalWallet,\n    args: Vec<FillChunkBlockArgs>,\n) -> Result<TransactionReceipt, ProviderError> {\n    // encode and send fillChunkBlocks transaction\n}"
+    },
+    {
+      "id": "CHANGE-4",
+      "title": "Update storage.json ABI with new function entries",
+      "priority": "critical",
+      "go_files": ["private/ipc/contracts/storage.go"],
+      "target_files": ["src/blockchain/storage.json"],
+      "description": "The storage.json ABI file must include entries for all new functions so that the Rust alloy bindings can encode/decode calls correctly. Without updated ABI entries the contract calls will fail at runtime.",
+      "current_state": "Unknown — storage.json exists but likely does not contain ABI entries for isFileFilledV2, fileFillCounter, fileRewardClaimed, getBucketsByIds, getBucketsByIdsWithFiles, addFileChunks (may exist), fillChunkBlocks.",
+      "required_change": "Add the following ABI entries to src/blockchain/storage.json. Each is a JSON object in the top-level array:\n\n1. fileFillCounter:\n{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"}],\"name\":\"fileFillCounter\",\"outputs\":[{\"internalType\":\"uint16\",\"name\":\"\",\"type\":\"uint16\"}],\"stateMutability\":\"view\",\"type\":\"function\"}\n\n2. fileRewardClaimed:\n{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"}],\"name\":\"fileRewardClaimed\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"}\n\n3. isFileFilledV2:\n{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"fileId\",\"type\":\"bytes32\"}],\"name\":\"isFileFilledV2\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"}\n\n4. getBucketsByIds:\n{\"inputs\":[{\"internalType\":\"bytes32[]\",\"name\":\"ids\",\"type\":\"bytes32[]\"}],\"name\":\"getBucketsByIds\",\"outputs\":[{\"components\":[{\"internalType\":\"bytes32\",\"name\":\"id\",\"type\":\"bytes32\"},{\"internalType\":\"string\",\"name\":\"name\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"createdAt\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"},{\"internalType\":\"bytes32[]\",\"name\":\"fileIds\",\"type\":\"bytes32[]\"}],\"internalType\":\"struct IStorage.Bucket[]\",\"name\":\"\",\"type\":\"tuple[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"}\n\n5. getBucketsByIdsWithFiles:\n{\"inputs\":[{\"internalType\":\"bytes32[]\",\"name\":\"ids\",\"type\":\"bytes32[]\"},{\"internalType\":\"uint256\",\"name\":\"bucketOffset\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"bucketLimit\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"fileOffset\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"fileLimit\",\"type\":\"uint256\"}],\"name\":\"getBucketsByIdsWithFiles\",\"outputs\":[{\"components\":[{\"internalType\":\"bytes32\",\"name\":\"id\",\"type\":\"bytes32\"},{\"internalType\":\"string\",\"name\":\"name\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"createdAt\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"},{\"internalType\":\"bytes32[]\",\"name\":\"fileIds\",\"type\":\"bytes32[]\"}],\"internalType\":\"struct IStorage.Bucket[]\",\"name\":\"buckets\",\"type\":\"tuple[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"}\n\n6. fillChunkBlocks:\n{\"inputs\":[{\"components\":[{\"internalType\":\"bytes32\",\"name\":\"blockCID\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32\",\"name\":\"nodeId\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32\",\"name\":\"bucketId\",\"type\":\"bytes32\"},{\"internalType\":\"uint256\",\"name\":\"chunkIndex\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"nonce\",\"type\":\"uint256\"},{\"internalType\":\"uint8\",\"name\":\"blockIndex\",\"type\":\"uint8\"},{\"internalType\":\"string\",\"name\":\"fileName\",\"type\":\"string\"},{\"internalType\":\"bytes\",\"name\":\"signature\",\"type\":\"bytes\"},{\"internalType\":\"uint256\",\"name\":\"deadline\",\"type\":\"uint256\"}],\"internalType\":\"struct IStorage.FillChunkBlockArgs[]\",\"name\":\"args\",\"type\":\"tuple[]\"}],\"name\":\"fillChunkBlocks\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}"
+    }
+  ],
+  "contract_updates": [
+    {
+      "contract": "Storage",
+      "abi_file": "src/blockchain/storage.json",
+      "added_functions": [
+        {
+          "name": "fileFillCounter",
+          "inputs": [{"name": "", "type": "bytes32"}],
+          "outputs": [{"name": "", "type": "uint16"}],
+          "selector": "0xf8a3e41a"
+        },
+        {
+          "name": "fileRewardClaimed",
+          "inputs": [{"name": "", "type": "bytes32"}],
+          "outputs": [{"name": "", "type": "bool"}],
+          "selector": "0x018c1e9c"
+        },
+        {
+          "name": "isFileFilledV2",
+          "inputs": [{"name": "fileId", "type": "bytes32"}],
+          "outputs": [{"name": "", "type": "bool"}],
+          "selector": "0xfd21c284"
+        },
+        {
+          "name": "getBucketsByIds",
+          "inputs": [{"name": "ids", "type": "bytes32[]"}],
+          "outputs": [{"name": "", "type": "tuple[]"}],
+          "selector": "0x35bdb711"
+        },
+        {
+          "name": "getBucketsByIdsWithFiles",
+          "inputs": [
+            {"name": "ids", "type": "bytes32[]"},
+            {"name": "bucketOffset", "type": "uint256"},
+            {"name": "bucketLimit", "type": "uint256"},
+            {"name": "fileOffset", "type": "uint256"},
+            {"name": "fileLimit", "type": "uint256"}
+          ],
+          "outputs": [{"name": "buckets", "type": "tuple[]"}],
+          "selector": "0x62838c23"
+        },
+        {
+          "name": "fillChunkBlocks",
+          "inputs": [{"name": "args", "type": "tuple[]"}],
+          "outputs": [],
+          "selector": "0x308c3cf2"
+        },
+        {
+          "name": "addFileChunks",
+          "inputs": [
+            {"name": "cids", "type": "bytes[]"},
+            {"name": "bucketId", "type": "bytes32"},
+            {"name": "fileName", "type": "string"},
+            {"name": "encodedChunkSizes", "type": "uint256[]"},
+            {"name": "chunkBlocksCIDs", "type": "bytes32[][]"},
+            {"name": "chunkBlockSizes", "type": "uint256[][]"},
+            {"name": "startingChunkIndex", "type": "uint256"}
+          ],
+          "outputs": [],
+          "selector": "0x51dc0c23"
+        }
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "encoding_notes": "fillChunkBlocks accepts a tuple array where each tuple element has fields: (bytes32 blockCID, bytes32 nodeId, bytes32 bucketId, uint256 chunkIndex, uint256 nonce, uint8 blockIndex, string fileName, bytes signature, uint256 deadline). Note blockIndex is uint8 (not uint256) — this matters for ABI encoding."
+    },
+    {
+      "contract": "PolicyFactory",
+      "abi_file": "N/A",
+      "added_functions": [],
+      "removed_functions": [
+        {
+          "name": "PolicyFactory (entire contract)",
+          "inputs": [],
+          "outputs": [],
+          "selector": "N/A"
+        }
+      ],
+      "modified_functions": [],
+      "encoding_notes": "The PolicyFactory contract (which deployed ListPolicy contracts on demand) was removed from the Go SDK. The ListPolicy contract itself still exists and can still be deployed directly. The Rust repo does not appear to have a PolicyFactory equivalent, so no removal is needed."
+    }
+  ],
+  "test_updates": [
+    {
+      "id": "TEST-1",
+      "go_test_function": "TestStorage_IsFileFilledV2",
+      "go_file": "private/ipc/client_test.go",
+      "type": "integration",
+      "description": "Verifies that isFileFilledV2 returns the correct boolean for a known file ID after creation and before commit.",
+      "port_instructions": "1. Create a test that deploys (or connects to a test) storage contract.\n2. Create a file and obtain its file_id as a [u8; 32].\n3. Call storage_contract.is_file_filled_v2(file_id).await and assert it returns Ok(false) before the file is committed.\n4. After all chunks are filled and commit_file is called, assert is_file_filled_v2 returns Ok(true).\n5. Pattern mirrors existing is_file_filled tests in tests/.",
+      "dependencies": ["CHANGE-2a"]
+    },
+    {
+      "id": "TEST-2",
+      "go_test_function": "TestStorage_FillChunkBlocks",
+      "go_file": "cmd/akavecli/storage_test.go",
+      "type": "integration",
+      "description": "Verifies that fillChunkBlocks successfully fills multiple blocks in a single transaction.",
+      "port_instructions": "1. Set up a test storage contract and a file with at least 2 blocks pending fill.\n2. Construct a Vec<FillChunkBlockArgs> with valid block CIDs, node IDs, bucket IDs, chunk indexes, nonces, block indexes, file name, signatures, and deadlines.\n3. Call storage_contract.fill_chunk_blocks(&signer, args).await.\n4. Assert the transaction receipt has a success status.\n5. Verify each block is now marked as filled via is_block_filled().",
+      "dependencies": ["CHANGE-3"]
+    }
+  ]
+}
