@@ -1,0 +1,203 @@
+{
+  "meta": {
+    "source_repo": "CubikRuubik/akavesdk-prism (Go)",
+    "target_repo": "CubikRuubik/akavesdk-rust-prism",
+    "base_tag": "v0.4.0",
+    "target_tag": "v0.4.4",
+    "created_at": "2025-07-14T00:00:00Z",
+    "description": "Sync from akave Go SDK v0.4.4: storage ABI new functions/errors, access manager bytecode update, gRPC NodeAPI removal, connection pool refactoring, and error constant additions."
+  },
+  "execution_order": [
+    "CHANGE-1: Update Storage contract ABI JSON with new functions and errors — apply first, all other changes depend on the updated ABI",
+    "CHANGE-2: Update storage.rs bindings to expose new Storage contract functions — apply after CHANGE-1",
+    "CHANGE-3: Update access_manager.json bytecode — apply in parallel with CHANGE-1/2",
+    "CHANGE-4: Add new error selectors to contract_errors.rs — apply after CHANGE-1",
+    "CHANGE-5: Remove gRPC NodeAPI/StreamAPI transport layer (nodeapi.proto deleted upstream) — apply after CHANGE-1/2",
+    "CHANGE-6: Verify connection pool usage is unchanged externally — audit only, no code change expected",
+    "CHANGE-7: Add Block() test-helper to testrand equivalent — low priority, apply last"
+  ],
+  "changes": [
+    {
+      "id": "CHANGE-1",
+      "title": "Update Storage contract ABI JSON with new functions and errors",
+      "priority": "critical",
+      "go_files": ["private/ipc/contracts/storage.go"],
+      "target_files": ["src/blockchain/storage.json"],
+      "description": "The Storage smart contract ABI was updated with five new view/transaction functions and five new custom error types. The Rust SDK embeds the ABI as a JSON file (storage.json) that must be replaced with the updated version.",
+      "current_state": "src/blockchain/storage.json exists (38 860 bytes). It does NOT contain the functions addFileChunks, fillChunkBlocks (batch overload), getBlockPeersOfChunk, getBucketsByIdsWithFiles, or getFileIndexById. The errors NoPeersForCID, NotEligibleToUpgrade, TooManyBlockCIDs, WrongAuthority, InvalidPeerIndex already appear in contract_errors.rs but their ABI definitions may already be present in storage.json; confirm and add only what is missing.",
+      "required_change": "Replace (or patch) src/blockchain/storage.json by adding the following entries to its top-level 'abi' array. Do NOT remove any existing entries.\n\n1. NEW FUNCTION — addFileChunks (batch variant):\n{\n  \"type\": \"function\",\n  \"name\": \"addFileChunks\",\n  \"inputs\": [\n    {\"name\": \"bucketName\", \"type\": \"string\", \"internalType\": \"string\"},\n    {\"name\": \"fileName\", \"type\": \"string\", \"internalType\": \"string\"},\n    {\"name\": \"chunks\", \"type\": \"tuple[]\", \"internalType\": \"struct IStorage.AddChunkArgs[]\",\n      \"components\": [\n        {\"name\": \"index\", \"type\": \"uint64\", \"internalType\": \"uint64\"},\n        {\"name\": \"cid\", \"type\": \"bytes\", \"internalType\": \"bytes\"},\n        {\"name\": \"size\", \"type\": \"uint256\", \"internalType\": \"uint256\"}\n      ]\n    }\n  ],\n  \"outputs\": [],\n  \"stateMutability\": \"nonpayable\"\n}\n\n2. NEW FUNCTION — fillChunkBlocks (batch variant with FillChunkBlockArgs):\n{\n  \"type\": \"function\",\n  \"name\": \"fillChunkBlocks\",\n  \"inputs\": [\n    {\"name\": \"bucketName\", \"type\": \"string\", \"internalType\": \"string\"},\n    {\"name\": \"fileName\", \"type\": \"string\", \"internalType\": \"string\"},\n    {\"name\": \"chunkCID\", \"type\": \"bytes\", \"internalType\": \"bytes\"},\n    {\"name\": \"args\", \"type\": \"tuple[]\", \"internalType\": \"struct IStorage.FillChunkBlockArgs[]\",\n      \"components\": [\n        {\"name\": \"blockIndex\", \"type\": \"uint8\", \"internalType\": \"uint8\"},\n        {\"name\": \"cid\", \"type\": \"bytes\", \"internalType\": \"bytes\"},\n        {\"name\": \"nodeId\", \"type\": \"bytes32\", \"internalType\": \"bytes32\"}\n      ]\n    }\n  ],\n  \"outputs\": [],\n  \"stateMutability\": \"nonpayable\"\n}\nCRITICAL: blockIndex inside FillChunkBlockArgs is uint8, NOT uint256.\n\n3. NEW FUNCTION — getBlockPeersOfChunk:\n{\n  \"type\": \"function\",\n  \"name\": \"getBlockPeersOfChunk\",\n  \"inputs\": [\n    {\"name\": \"bucketName\", \"type\": \"string\", \"internalType\": \"string\"},\n    {\"name\": \"fileName\", \"type\": \"string\", \"internalType\": \"string\"},\n    {\"name\": \"chunkCID\", \"type\": \"bytes\", \"internalType\": \"bytes\"}\n  ],\n  \"outputs\": [\n    {\"name\": \"\", \"type\": \"tuple[]\", \"internalType\": \"struct IStorage.BlockPeer[]\",\n      \"components\": [\n        {\"name\": \"cid\", \"type\": \"bytes\", \"internalType\": \"bytes\"},\n        {\"name\": \"nodeId\", \"type\": \"bytes32\", \"internalType\": \"bytes32\"}\n      ]\n    }\n  ],\n  \"stateMutability\": \"view\"\n}\n\n4. NEW FUNCTION — getBucketsByIdsWithFiles:\n{\n  \"type\": \"function\",\n  \"name\": \"getBucketsByIdsWithFiles\",\n  \"inputs\": [\n    {\"name\": \"ids\", \"type\": \"uint256[]\", \"internalType\": \"uint256[]\"}\n  ],\n  \"outputs\": [\n    {\"name\": \"\", \"type\": \"tuple[]\", \"internalType\": \"struct IStorage.BucketWithFiles[]\",\n      \"components\": [\n        {\"name\": \"bucket\", \"type\": \"tuple\", \"internalType\": \"struct IStorage.Bucket\",\n          \"components\": [\n            {\"name\": \"name\", \"type\": \"string\", \"internalType\": \"string\"},\n            {\"name\": \"id\", \"type\": \"uint256\", \"internalType\": \"uint256\"},\n            {\"name\": \"createdAt\", \"type\": \"uint256\", \"internalType\": \"uint256\"}\n          ]\n        },\n        {\"name\": \"files\", \"type\": \"tuple[]\", \"internalType\": \"struct IStorage.File[]\",\n          \"components\": [\n            {\"name\": \"name\", \"type\": \"string\", \"internalType\": \"string\"},\n            {\"name\": \"cid\", \"type\": \"bytes\", \"internalType\": \"bytes\"},\n            {\"name\": \"size\", \"type\": \"uint256\", \"internalType\": \"uint256\"},\n            {\"name\": \"createdAt\", \"type\": \"uint256\", \"internalType\": \"uint256\"}\n          ]\n        }\n      ]\n    }\n  ],\n  \"stateMutability\": \"view\"\n}\n\n5. NEW FUNCTION — getFileIndexById:\n{\n  \"type\": \"function\",\n  \"name\": \"getFileIndexById\",\n  \"inputs\": [\n    {\"name\": \"bucketName\", \"type\": \"string\", \"internalType\": \"string\"},\n    {\"name\": \"fileId\", \"type\": \"uint256\", \"internalType\": \"uint256\"}\n  ],\n  \"outputs\": [\n    {\"name\": \"\", \"type\": \"uint256\", \"internalType\": \"uint256\"}\n  ],\n  \"stateMutability\": \"view\"\n}\n\nAlso confirm (add if missing) these error entries:\n  {\"type\": \"error\", \"name\": \"NoPeersForCID\", \"inputs\": []}\n  {\"type\": \"error\", \"name\": \"NotEligibleToUpgrade\", \"inputs\": []}\n  {\"type\": \"error\", \"name\": \"TooManyBlockCIDs\", \"inputs\": []}\n  {\"type\": \"error\", \"name\": \"WrongAuthority\", \"inputs\": []}\n  {\"type\": \"error\", \"name\": \"InvalidPeerIndex\", \"inputs\": []}",
+      "code_snippet_before": "// storage.json abi array (excerpt) — does NOT include the new functions above",
+      "code_snippet_after": "// storage.json abi array now includes addFileChunks, fillChunkBlocks (blockIndex uint8),\n// getBlockPeersOfChunk, getBucketsByIdsWithFiles, getFileIndexById, and the five new errors."
+    },
+    {
+      "id": "CHANGE-2",
+      "title": "Update storage.rs Rust bindings for new Storage contract functions",
+      "priority": "critical",
+      "go_files": ["private/ipc/contracts/storage.go"],
+      "target_files": ["src/blockchain/storage.rs"],
+      "description": "The Go SDK generated new Rust-compatible function call objects and return types for the five new Storage ABI functions. The Rust SDK must add corresponding binding methods so callers can invoke the new on-chain functions.",
+      "current_state": "src/blockchain/storage.rs (13 477 bytes). Contains existing Storage bindings using alloy's sol! macro or alloy-sol-types. Does NOT currently contain bindings for addFileChunks, fillChunkBlocks (batch), getBlockPeersOfChunk, getBucketsByIdsWithFiles, or getFileIndexById.",
+      "required_change": "In src/blockchain/storage.rs, add the five new call variants. If the file uses alloy's sol! macro with an embedded ABI path (sol!(\"src/blockchain/storage.json\")), simply updating storage.json (CHANGE-1) will regenerate the types automatically at compile time. If bindings are handwritten, add:\n\n1. addFileChunks(bucket_name: String, file_name: String, chunks: Vec<AddChunkArgs>) — nonpayable, no return\n   AddChunkArgs { index: u64, cid: Bytes, size: U256 }\n\n2. fillChunkBlocks(bucket_name: String, file_name: String, chunk_cid: Bytes, args: Vec<FillChunkBlockArgs>) — nonpayable, no return\n   FillChunkBlockArgs { block_index: u8, cid: Bytes, node_id: FixedBytes<32> }\n   CRITICAL: block_index is u8 (uint8), NOT u256.\n\n3. getBlockPeersOfChunk(bucket_name: String, file_name: String, chunk_cid: Bytes) -> Vec<BlockPeer>\n   BlockPeer { cid: Bytes, node_id: FixedBytes<32> }\n\n4. getBucketsByIdsWithFiles(ids: Vec<U256>) -> Vec<BucketWithFiles>\n   BucketWithFiles { bucket: Bucket, files: Vec<File> }\n\n5. getFileIndexById(bucket_name: String, file_id: U256) -> U256",
+      "code_snippet_before": "// sdk_ipc.go before (Go)\nfunc (c *Client) FillChunkBlock(ctx context.Context, bucketName, fileName string, chunkCID []byte, blockIndex uint8, cid []byte, nodeID [32]byte) error",
+      "code_snippet_after": "// sdk_ipc.go after (Go) — batch variant added\nfunc (c *Client) FillChunkBlocks(ctx context.Context, bucketName, fileName string, chunkCID []byte, args []FillChunkBlockArgs) error\n// FillChunkBlockArgs.blockIndex is uint8"
+    },
+    {
+      "id": "CHANGE-3",
+      "title": "Update access_manager.json compiled bytecode",
+      "priority": "medium",
+      "go_files": ["private/ipc/contracts/access_manager.go"],
+      "target_files": ["src/blockchain/access_manager.json"],
+      "description": "The AccessManager contract was recompiled. The ABI is unchanged; only the compiled bytecode (the 'bytecode' and/or 'deployedBytecode' fields) changed. This matters for contract deployment tests.",
+      "current_state": "src/blockchain/access_manager.json (6 158 bytes). Contains current ABI and bytecode for the AccessManager contract. The ABI structure is unchanged; only the bytecode hex string will differ.",
+      "required_change": "Re-export / re-generate the access_manager.json from the updated AccessManager Solidity source at tag v0.4.4. If the file is maintained manually, obtain the new bytecode from the akave contracts repository at tag v0.4.4 and replace the 'bytecode' field. The ABI functions and events are unchanged — only the compiled bytecode changed.",
+      "code_snippet_before": "// access_manager.go before: var AccessManagerMetaData = &bind.MetaData{ ABI: \"...\", Bin: \"0x<old_bytecode>\" }",
+      "code_snippet_after": "// access_manager.go after: var AccessManagerMetaData = &bind.MetaData{ ABI: \"...\", Bin: \"0x<new_bytecode>\" }"
+    },
+    {
+      "id": "CHANGE-4",
+      "title": "Add new access-manager / policy error selectors to contract_errors.rs",
+      "priority": "high",
+      "go_files": ["private/ipc/errors.go"],
+      "target_files": ["src/blockchain/contract_errors.rs"],
+      "description": "Go's private/ipc/errors.go gained many new named error constants with EVM selectors. Most correspond to AccessManager and policy contract errors that are not yet in the Rust contract_errors.rs (which currently only covers Storage contract errors). Adding these allows proper error reporting when AccessManager calls revert.",
+      "current_state": "src/blockchain/contract_errors.rs contains: AddressEmptyCode, BlockAlreadyExists, BlockAlreadyFilled, BlockInvalid, BlockNonexists, BucketAlreadyExists, BucketInvalid, BucketInvalidOwner, BucketNonempty, BucketNonexists, ChunkCIDMismatch, ECDSAInvalidSignature, ECDSAInvalidSignatureLength, ECDSAInvalidSignatureS, ERC1967InvalidImplementation, ERC1967NonPayable, FailedCall, FileAlreadyExists, FileChunkDuplicate, FileFullyUploaded, FileInvalid, FileNameDuplicate, FileNonempty, FileNotExists, FileNotFilled, IndexMismatch, InvalidArrayLength, InvalidBlockIndex, InvalidBlocksAmount, InvalidEncodedSize, InvalidFileBlocksCount, InvalidFileCID, InvalidImplementation, InvalidInitialization, InvalidLastBlockSize, InvalidPeerIndex, LastChunkDuplicate, NoPeersForCID, NotEligibleToUpgrade, NotInitializing, OffsetOutOfBounds, TooManyBlockCIDs, UUPSUnauthorizedCallContext, UUPSUnsupportedProxiableUUID, WrongAuthority.\n\nMISSING (not in current Rust file, added in Go v0.4.4 errors.go):\n  BucketNotFound (selector 0xc4c1a0c5)\n  FileDoesNotExist (selector 0x3bcbb0de)\n  NotBucketOwner (selector 0x0d6b18f0)\n  NotThePolicyOwner (selector 0xa2c09fea)\n  CloneArgumentsTooLong (selector 0x94289054)\n  Create2EmptyBytecode (selector 0x4ca249dc)\n  AlreadyWhitelisted (selector 0xb73e95e1)\n  InvalidAddress (selector 0xe6c4247b)\n  NotWhitelisted (selector 0x584a7938)\n  MathOverflowedMulDiv (selector 0x227bc153)\n  NotSignedByBucketOwner (selector 0x48e0ed68)\n  NonceAlreadyUsed (selector 0x923b8cbb)",
+      "required_change": "In src/blockchain/contract_errors.rs, inside the sol! { ... } block, add the following error declarations:\n\n  error BucketNotFound();\n  error FileDoesNotExist();\n  error NotBucketOwner();\n  error NotThePolicyOwner();\n  error CloneArgumentsTooLong();\n  error Create2EmptyBytecode();\n  error AlreadyWhitelisted();\n  error InvalidAddress();\n  error NotWhitelisted();\n  error MathOverflowedMulDiv();\n  error NotSignedByBucketOwner();\n  error NonceAlreadyUsed();\n\nAlso add these 12 types to the match_selectors!(...) macro invocation in the decode_revert_reason function.",
+      "code_snippet_before": "// private/ipc/errors.go before — these were absent:\n// (no ErrBucketNotFound, ErrFileDoesNotExist, ErrNotBucketOwner, etc.)",
+      "code_snippet_after": "// private/ipc/errors.go after — added:\nvar ErrBucketNotFound = Error{Name: \"BucketNotFound\", Selector: [4]byte{0xc4, 0xc1, 0xa0, 0xc5}}\nvar ErrFileDoesNotExist = Error{Name: \"FileDoesNotExist\", Selector: [4]byte{0x3b, 0xcb, 0xb0, 0xde}}\nvar ErrNotBucketOwner = Error{Name: \"NotBucketOwner\", Selector: [4]byte{0x0d, 0x6b, 0x18, 0xf0}}\nvar ErrNotThePolicyOwner = Error{Name: \"NotThePolicyOwner\", Selector: [4]byte{0xa2, 0xc0, 0x9f, 0xea}}\nvar ErrCloneArgumentsTooLong = Error{Name: \"CloneArgumentsTooLong\", Selector: [4]byte{0x94, 0x28, 0x90, 0x54}}\nvar ErrCreate2EmptyBytecode = Error{Name: \"Create2EmptyBytecode\", Selector: [4]byte{0x4c, 0xa2, 0x49, 0xdc}}\nvar ErrAlreadyWhitelisted = Error{Name: \"AlreadyWhitelisted\", Selector: [4]byte{0xb7, 0x3e, 0x95, 0xe1}}\nvar ErrInvalidAddress = Error{Name: \"InvalidAddress\", Selector: [4]byte{0xe6, 0xc4, 0x24, 0x7b}}\nvar ErrNotWhitelisted = Error{Name: \"NotWhitelisted\", Selector: [4]byte{0x58, 0x4a, 0x79, 0x38}}\nvar ErrMathOverflowedMulDiv = Error{Name: \"MathOverflowedMulDiv\", Selector: [4]byte{0x22, 0x7b, 0xc1, 0x53}}\nvar ErrNotSignedByBucketOwner = Error{Name: \"NotSignedByBucketOwner\", Selector: [4]byte{0x48, 0xe0, 0xed, 0x68}}\nvar ErrNonceAlreadyUsed = Error{Name: \"NonceAlreadyUsed\", Selector: [4]byte{0x92, 0x3b, 0x8c, 0xbb}}"
+    },
+    {
+      "id": "CHANGE-5",
+      "title": "Remove gRPC NodeAPI / StreamAPI transport layer",
+      "priority": "medium",
+      "go_files": [
+        "private/pb/nodeapi.proto",
+        "private/pb/nodeapi.pb.go",
+        "private/pb/nodeapi_grpc.pb.go"
+      ],
+      "target_files": ["proto/ipcnodeapi.proto"],
+      "description": "Go's private/pb/nodeapi.proto (streaming gRPC service NodeAPI + StreamAPI) was deleted. This is a DIFFERENT service from the IPC node API gRPC (ipcnodeapi.proto). The Rust repo uses proto/ipcnodeapi.proto which is the IPC-over-gRPC service and was NOT deleted. No action is needed unless the Rust SDK has its own 'nodeapi' service binding.",
+      "current_state": "proto/ipcnodeapi.proto exists in the Rust repo. There is no proto/nodeapi.proto. The Rust SDK does not reference NodeAPI or StreamAPI.",
+      "required_change": "Verify there is no 'NodeAPI' or 'StreamAPI' gRPC service in src/. If none is found, no action is required. The 'ipcnodeapi.proto' (IPC node gRPC) is separate and should NOT be deleted."
+    },
+    {
+      "id": "CHANGE-6",
+      "title": "Remove PolicyFactory contract (deleted upstream)",
+      "priority": "low",
+      "go_files": ["private/ipc/contracts/policy_factory.go"],
+      "target_files": [],
+      "description": "Go's PolicyFactory contract binding file was deleted entirely. The Rust SDK appears to have no equivalent policy_factory.rs. No action needed unless a policy factory binding exists.",
+      "current_state": "No policy_factory.rs file found in src/blockchain/ directory listing. The directory contains: access_manager.rs, block.rs, contract_errors.rs, eip712.rs, eip712_types.rs, eip712_utils.rs, ipc_types.rs, mod.rs, provider.rs, storage.rs.",
+      "required_change": "If src/blockchain/ has no policy_factory file, skip this change. If it does, delete it and remove any references from mod.rs."
+    },
+    {
+      "id": "CHANGE-7",
+      "title": "SDK connection pool promoted to struct field (internal refactor)",
+      "priority": "low",
+      "go_files": ["sdk/sdk.go", "sdk/sdk_ipc.go"],
+      "target_files": ["src/sdk.rs"],
+      "description": "In Go, the per-call-site connection pool was promoted to an IPC struct field and is now shared across Upload, Download, ArchivalMetadata, etc. This is an internal efficiency change. The Rust SDK manages its own connection pool separately.",
+      "current_state": "src/sdk.rs (126 856 bytes) — Rust SDK has its own connection management. This Go change is an internal implementation detail.",
+      "required_change": "Audit src/sdk.rs for any per-operation connection pool creation that should be shared at SDK struct level (analogous to the Go refactor). If the Rust SDK already shares connections at the struct level, no change is needed."
+    },
+    {
+      "id": "CHANGE-8",
+      "title": "Add Block() test helper to test utility module",
+      "priority": "low",
+      "go_files": ["private/testrand/testrand.go"],
+      "target_files": [],
+      "description": "Go's testrand package gained a Block() function that generates a random IPFS Block with a CIDv1/DagProtobuf/SHA2-256 CID. This is a test utility used in integration tests.",
+      "current_state": "The Rust repo has tests/ directory. No direct testrand equivalent was identified.",
+      "required_change": "If the Rust test suite needs to generate random blocks, add a helper function with this signature:\n  fn random_block(size: usize) -> (Vec<u8>, Cid)\n  where the CID is CIDv1, DagProtobuf codec, SHA2-256 multihash over the data.\nThis is test-only code and optional."
+    }
+  ],
+  "contract_updates": [
+    {
+      "contract": "Storage",
+      "abi_file": "src/blockchain/storage.json",
+      "added_functions": [
+        {
+          "name": "addFileChunks",
+          "inputs": [
+            {"name": "bucketName", "type": "string"},
+            {"name": "fileName", "type": "string"},
+            {"name": "chunks", "type": "AddChunkArgs[]"}
+          ],
+          "outputs": [],
+          "selector": "computed at build time from ABI"
+        },
+        {
+          "name": "fillChunkBlocks",
+          "inputs": [
+            {"name": "bucketName", "type": "string"},
+            {"name": "fileName", "type": "string"},
+            {"name": "chunkCID", "type": "bytes"},
+            {"name": "args", "type": "FillChunkBlockArgs[]"}
+          ],
+          "outputs": [],
+          "selector": "computed at build time from ABI"
+        },
+        {
+          "name": "getBlockPeersOfChunk",
+          "inputs": [
+            {"name": "bucketName", "type": "string"},
+            {"name": "fileName", "type": "string"},
+            {"name": "chunkCID", "type": "bytes"}
+          ],
+          "outputs": [{"type": "BlockPeer[]"}],
+          "selector": "computed at build time from ABI"
+        },
+        {
+          "name": "getBucketsByIdsWithFiles",
+          "inputs": [{"name": "ids", "type": "uint256[]"}],
+          "outputs": [{"type": "BucketWithFiles[]"}],
+          "selector": "computed at build time from ABI"
+        },
+        {
+          "name": "getFileIndexById",
+          "inputs": [
+            {"name": "bucketName", "type": "string"},
+            {"name": "fileId", "type": "uint256"}
+          ],
+          "outputs": [{"type": "uint256"}],
+          "selector": "computed at build time from ABI"
+        }
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "encoding_notes": "FillChunkBlockArgs.blockIndex is encoded as uint8 (1 byte, padded to 32 in ABI encoding). Do NOT treat it as uint256. Passing a value > 255 will silently truncate."
+    },
+    {
+      "contract": "AccessManager",
+      "abi_file": "src/blockchain/access_manager.json",
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [
+        {
+          "name": "(bytecode only)",
+          "change_description": "Recompiled bytecode. ABI is unchanged. Update the bytecode/deployedBytecode fields in access_manager.json from the v0.4.4 contracts repository."
+        }
+      ],
+      "encoding_notes": "No ABI encoding changes. Only deployment bytecode changed."
+    }
+  ],
+  "test_updates": [
+    {
+      "id": "TEST-1",
+      "go_test_function": "TestBucketNotFound",
+      "go_file": "cmd/akavecli/storage_test.go",
+      "type": "integration",
+      "description": "Tests that operating on a non-existent bucket returns the error string 'BucketNotFound' (previously 'failed to get bucket: not found'). This reflects the error now being decoded from the EVM revert selector 0xc4c1a0c5.",
+      "port_instructions": "Update any Rust integration test that asserts on a 'bucket not found' error message. The error string should now be 'BucketNotFound', not 'failed to get bucket: not found'. Use the extract_error_from_message or decode_revert_reason helper in contract_errors.rs to decode the error name, then assert the name equals 'BucketNotFound'.",
+      "dependencies": ["CHANGE-4"]
+    },
+    {
+      "id": "TEST-2",
+      "go_test_function": "TestFileNotFound",
+      "go_file": "cmd/akavecli/storage_test.go",
+      "type": "integration",
+      "description": "Tests that operating on a non-existent file returns the error string 'BucketNotFound' or 'FileDoesNotExist' (previously 'file not exists').",
+      "port_instructions": "Update any Rust integration test that checks the error when accessing a file that does not exist. Assert the decoded error name is 'FileDoesNotExist' (selector 0x3bcbb0de) or 'FileNotExists' (selector 0x2abde339), not 'file not exists'.",
+      "dependencies": ["CHANGE-4"]
+    }
+  ]
+}
