@@ -36,7 +36,7 @@ Before doing anything else, determine whether this PR was created by an automate
 
 ## Objectives
 
-1. Read and understand the triggering pull request description, title, and relevant discussion context.
+1. Read and understand the `change_plan_<N>` file attached to the triggering pull request — there is exactly one such file per PR and it contains the complete description of all required changes. Use it as the change plan for what needs to be done.
 2. Read `.github/rust-instructions.md` and follow those Rust-specific conventions for any Rust code you touch.
 3. Apply only the requested Rust-side changes in this repository.
 4. Verify the updated code compiles.
