@@ -26,6 +26,13 @@ You are an AI coding agent working in this Rust repository.
 
 The triggering pull request contains the required change description, produced by automation from the Golang source repository. Your job is to convert that request into concrete Rust code updates in this repository.
 
+## Guard
+
+Before doing anything else, check the type of the PR author:
+
+- If the PR was opened by a **human** (i.e. `github.event.pull_request.user.type` is `"User"`, or the author login does **not** end with `[bot]`), call `noop` with the message: "PR opened by a human — no automated sync required." and stop.
+- Only proceed if the PR was opened by an automated agent or bot.
+
 ## Objectives
 
 1. Read and understand the triggering pull request description, title, and relevant discussion context.
