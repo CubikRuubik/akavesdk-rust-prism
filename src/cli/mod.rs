@@ -57,6 +57,9 @@ enum FileAction {
 enum WalletAction {
     Import(WalletImportArgs),
     Balance(WalletBalanceArgs),
+    Create(WalletCreateArgs),
+    List(WalletListArgs),
+    ExportKey(WalletExportKeyArgs),
 }
 
 // ── Argument structs ──────────────────────────────────────────────────────────
@@ -201,6 +204,26 @@ struct WalletBalanceArgs {
     keystore: Option<String>,
 }
 
+#[derive(Args)]
+struct WalletCreateArgs {
+    name: String,
+    #[arg(long)]
+    keystore: Option<String>,
+}
+
+#[derive(Args)]
+struct WalletListArgs {
+    #[arg(long)]
+    keystore: Option<String>,
+}
+
+#[derive(Args)]
+struct WalletExportKeyArgs {
+    name: String,
+    #[arg(long)]
+    keystore: Option<String>,
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 /// Run CLI args without the program name, e.g. `&["bucket", "create", "--private-key", ...]`.
@@ -250,6 +273,15 @@ pub async fn run_from_args(args: &[&str]) -> (String, String, bool) {
                 Commands::Wallet {
                     action: WalletAction::Balance(a),
                 } => wallet_balance(&node, a).await,
+                Commands::Wallet {
+                    action: WalletAction::Create(a),
+                } => wallet_create(a),
+                Commands::Wallet {
+                    action: WalletAction::List(a),
+                } => wallet_list(a),
+                Commands::Wallet {
+                    action: WalletAction::ExportKey(a),
+                } => wallet_export_key(a),
             }
         }
     }
@@ -795,6 +827,78 @@ async fn wallet_balance(node: &str, a: WalletBalanceArgs) -> (String, String, bo
             )
         }
         Err(e) => (String::new(), format!("{e}"), false),
+    }
+}
+
+fn wallet_create(a: WalletCreateArgs) -> (String, String, bool) {
+    use std::str::FromStr;
+    let keystore = a.keystore.unwrap_or_else(default_keystore_dir);
+    let wallet_path = format!("{keystore}/{}.json", a.name);
+    if std::path::Path::new(&wallet_path).exists() {
+        return (
+            String::new(),
+            format!("wallet '{}' already exists", a.name),
+            false,
+        );
+    }
+    let mut secret_bytes = [0u8; 32];
+    if let Err(e) = getrandom::getrandom(&mut secret_bytes) {
+        return (String::new(), format!("failed to generate key: {e}"), false);
+    }
+    let pk_hex = hex::encode(secret_bytes);
+    let key = match SecretKey::from_str(&pk_hex) {
+        Ok(k) => k,
+        Err(e) => return (String::new(), format!("invalid generated key: {e}"), false),
+    };
+    let address = format!("{:?}", SecretKeyRef::new(&key).address());
+    let info = serde_json::json!({"address": address, "private_key": pk_hex});
+    if let Err(e) = std::fs::create_dir_all(&keystore) {
+        return (
+            String::new(),
+            format!("failed to create keystore directory: {e}"),
+            false,
+        );
+    }
+    if let Err(e) = std::fs::write(&wallet_path, info.to_string()) {
+        return (String::new(), format!("failed to write wallet file: {e}"), false);
+    }
+    (
+        format!(
+            "Wallet ({}) created successfully\nAddress: {address}\n",
+            a.name
+        ),
+        String::new(),
+        true,
+    )
+}
+
+fn wallet_list(a: WalletListArgs) -> (String, String, bool) {
+    let keystore = a.keystore.unwrap_or_else(default_keystore_dir);
+    let entries = match std::fs::read_dir(&keystore) {
+        Ok(e) => e,
+        Err(_) => return (String::new(), "no wallets found".to_string(), false),
+    };
+    let mut names: Vec<String> = entries
+        .flatten()
+        .filter_map(|e| {
+            let fname = e.file_name().to_string_lossy().to_string();
+            fname
+                .ends_with(".json")
+                .then(|| fname.trim_end_matches(".json").to_string())
+        })
+        .collect();
+    names.sort();
+    if names.is_empty() {
+        return (String::new(), "no wallets found".to_string(), false);
+    }
+    (names.join("\n") + "\n", String::new(), true)
+}
+
+fn wallet_export_key(a: WalletExportKeyArgs) -> (String, String, bool) {
+    let keystore = a.keystore.unwrap_or_else(default_keystore_dir);
+    match load_wallet(&keystore, Some(&a.name)) {
+        Ok((pk, _, _)) => (format!("Private key: {pk}\n"), String::new(), true),
+        Err(e) => (String::new(), e, false),
     }
 }
 
@@ -2773,5 +2877,45 @@ mod tests {
             },
         ])
         .await;
+    }
+
+    // ── TestWalletFlow ────────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_wallet_flow() {
+        let keystore = std::env::temp_dir()
+            .join(format!("akave-wallet-test-{}", random_name("ks")))
+            .to_string_lossy()
+            .into_owned();
+        let wallet_name = random_name("wallet");
+
+        let (stdout, stderr, ok) = run_from_args(&[
+            "wallet", "create", &wallet_name, "--keystore", &keystore,
+        ])
+        .await;
+        let combined = stdout + &stderr;
+        assert!(ok, "wallet create failed: {combined}");
+        assert!(
+            combined.contains(&format!("Wallet ({wallet_name}) created successfully")),
+            "unexpected output: {combined}"
+        );
+
+        let (stdout, stderr, ok) = run_from_args(&[
+            "wallet", "list", "--keystore", &keystore,
+        ])
+        .await;
+        let combined = stdout + &stderr;
+        assert!(ok, "wallet list failed: {combined}");
+        assert!(combined.contains(&wallet_name), "name not in list: {combined}");
+
+        let (stdout, stderr, ok) = run_from_args(&[
+            "wallet", "export-key", &wallet_name, "--keystore", &keystore,
+        ])
+        .await;
+        let combined = stdout + &stderr;
+        assert!(ok, "wallet export-key failed: {combined}");
+        assert!(combined.contains("Private key:"), "no private key in output: {combined}");
+
+        let _ = std::fs::remove_dir_all(&keystore);
     }
 }
