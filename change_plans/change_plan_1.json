@@ -1,0 +1,245 @@
+{
+  "meta": {
+    "source_repo": "akavesdk (Go)",
+    "target_repo": "CubikRuubik/akavesdk-rust-prism",
+    "base_tag": "v0.4.3 (parent of 8b66e30659c79ae8e763744bc50ae0a0540cf899)",
+    "target_tag": "v0.4.4 (commit 8b66e30659c79ae8e763744bc50ae0a0540cf899)",
+    "created_at": "2026-04-30T11:44:23Z",
+    "description": "Sync akavesdk from tag v0.4.4: renamed gRPC proto API, removed PolicyFactory contract, added batch contract operations, expanded error codes, updated contract deployment with upgradeable proxy pattern"
+  },
+  "execution_order": [
+    "CHANGE-1: Rename gRPC proto service from nodeapi to ipcnodeapi — apply first as all other layers depend on correct service stubs",
+    "CHANGE-2: Remove PolicyFactory contract binding and all dependent code — apply before contract updates",
+    "CHANGE-3: Add new error codes to error-hash dispatch table — apply before contract function changes",
+    "CHANGE-4: Update Storage contract: add GetBucketIndexByName, GetBucketsByIds, GetBucketsByIdsWithFiles, IsFileFilledV2, and update DeleteBucket/DeleteFile signatures — apply after error updates",
+    "CHANGE-5: Add batch contract operations AddFileChunks and FillChunkBlocks to Storage binding — apply after CHANGE-4",
+    "CHANGE-6: Update contract deployment flow to use AkaveToken + ERC1967Proxy upgradeable pattern — apply after CHANGE-5",
+    "CHANGE-7: Update upload/download logic to use batch chunk operations — apply last"
+  ],
+  "changes": [
+    {
+      "id": "CHANGE-1",
+      "title": "Rename gRPC proto service from nodeapi to ipcnodeapi",
+      "priority": "critical",
+      "go_files": [
+        "private/pb/nodeapi.pb.go (REMOVED)",
+        "private/pb/nodeapi.proto (REMOVED)",
+        "private/pb/nodeapi_grpc.pb.go (REMOVED)",
+        "private/pb/ipcnodeapi.pb.go (NEW — replaces nodeapi.pb.go)",
+        "private/pb/ipcnodeapi.proto (NEW — replaces nodeapi.proto)",
+        "private/pb/ipcnodeapi_grpc.pb.go (NEW — replaces nodeapi_grpc.pb.go)"
+      ],
+      "target_files": [
+        "proto/ipcnodeapi.proto (if proto sources are vendored)",
+        "src/ipcnodeapi.rs or src/pb/mod.rs (generated gRPC stubs)"
+      ],
+      "description": "The gRPC proto service was renamed from 'nodeapi' to 'ipcnodeapi'. The old files (nodeapi.pb.go, nodeapi.proto, nodeapi_grpc.pb.go) were deleted and replaced with identically structured files named ipcnodeapi.pb.go, ipcnodeapi.proto, ipcnodeapi_grpc.pb.go. The service name, package path, and RPC method signatures remain equivalent; only the file and service identifier changed.",
+      "current_state": "Unknown — the Rust target repo may use generated bindings from the old nodeapi.proto or manually written equivalents.",
+      "required_change": "1. Locate any file in the Rust target repo that references the old proto service name 'nodeapi' or package path 'private/pb/nodeapi'. 2. Rename all references to 'ipcnodeapi'. 3. If proto files are vendored (e.g., in a proto/ directory), delete nodeapi.proto and add ipcnodeapi.proto with identical content except the service name and package declaration. 4. Regenerate or manually update any auto-generated Rust gRPC stubs (tonic or prost) to reflect the new service name. 5. Update any import paths or module paths that reference the old service identifier.",
+      "code_snippet_before": "// package: pb.nodeapi\n// service NodeAPI { ... }",
+      "code_snippet_after": "// package: pb.ipcnodeapi\n// service IPCNodeAPI { ... }"
+    },
+    {
+      "id": "CHANGE-2",
+      "title": "Remove PolicyFactory contract binding",
+      "priority": "high",
+      "go_files": [
+        "private/ipc/contracts/policy_factory.go (REMOVED, 408 lines)"
+      ],
+      "target_files": [
+        "src/blockchain/policy_factory.rs (or equivalent)"
+      ],
+      "description": "The PolicyFactory Ethereum contract binding was entirely removed (408 lines). Any code that deployed or interacted with a PolicyFactory contract must be removed or migrated. The ListPolicy contract (list_policy.go) still exists and is used via client.TestDeployListPolicy for test deployments.",
+      "current_state": "Unknown — the Rust target repo may have a Rust binding or wrapper for PolicyFactory.",
+      "required_change": "1. Find and delete any file or module in the Rust repo that corresponds to the PolicyFactory contract (look for 'policy_factory' in file names or module names). 2. Remove any exports, re-exports, or uses of PolicyFactory types from the blockchain or contracts module. 3. If the Rust repo has a deploy function that calls a PolicyFactory constructor, remove it. 4. The ListPolicy contract remains — do not remove list_policy equivalents; only remove PolicyFactory-specific code."
+    },
+    {
+      "id": "CHANGE-3",
+      "title": "Expand error code dispatch table with new error variants",
+      "priority": "high",
+      "go_files": [
+        "private/ipc/errors.go"
+      ],
+      "target_files": [
+        "src/blockchain/errors.rs or src/ipc/errors.rs"
+      ],
+      "description": "Many new error variants were added to the error hash dispatch table in errors.go. The table maps 4-byte Solidity error selectors (as hex strings) to named error values. The following errors are new or confirmed present in v0.4.4. Implementations must handle all these codes when parsing contract revert data.",
+      "current_state": "Unknown — the Rust target repo may have a partial or different error dispatch table.",
+      "required_change": "Add the following entries to the error-hash dispatch table. Each entry maps a 4-byte selector (hex) to a named error:\n- '0x9605a010' => ErrOffsetOutOfBounds\n- '0x923b8cbb' => ErrNonceAlreadyUsed\n- '0x48e0ed68' => ErrNotSignedByBucketOwner\n- '0x2abde339' => ErrFileNotExists\n- '0x55cbc831' => ErrLastChunkDuplicate\n- '0x59b452ef' => ErrInvalidBlockIndex\n- '0xe7b199a6' => ErrInvalidBlocksAmount\n- '0x227bc153' => ErrMathOverflowedMulDiv\n- '0x584a7938' => ErrNotWhitelisted\n- '0xe6c4247b' => ErrInvalidAddress\n- '0xb73e95e1' => ErrAlreadyWhitelisted\n- '0xf645eedf' => ErrECDSAInvalidSignature\n- '0x367e2e27' => ErrECDSAInvalidSignatureLength\n- '0xf3714a9b' => ErrECDSAInvalidSignatureS\n- '0x4ca249dc' => ErrCreate2EmptyBytecode\n- '0x94289054' => ErrCloneArgumentsTooLong\n- '0xa2c09fea' => ErrNotThePolicyOwner\n- '0x3bcbb0de' => ErrFileDoesNotExist\n- '0xc4c1a0c5' => ErrBucketNotFound\nThe full confirmed error table (all entries) is:\n- '0x497ef2c2' => ErrBucketAlreadyExists\n- '0x4f4b202a' => ErrBucketInvalid\n- '0xdc64d0ad' => ErrBucketInvalidOwner\n- '0x938a92b7' => ErrBucketNonexists\n- '0x89fddc00' => ErrBucketNonempty\n- '0x6891dde0' => ErrFileAlreadyExists\n- '0x77a3cbd8' => ErrFileInvalid\n- '0x21584586' => ErrFileNonexists\n- '0xc4a3b6f1' => ErrFileNonempty\n- '0xd09ec7af' => ErrFileNameDuplicate\n- '0xd96b03b1' => ErrFileFullyUploaded\n- '0x702cf740' => ErrFileChunkDuplicate\n- '0xc1edd16a' => ErrBlockAlreadyExists\n- '0xcb20e88c' => ErrBlockInvalid\n- '0x15123121' => ErrBlockNonexists\n- '0x856b300d' => ErrInvalidArrayLength\n- '0x17ec8370' => ErrInvalidFileBlocksCount\n- '0x5660ebd2' => ErrInvalidLastBlockSize\n- '0x1b6fdfeb' => ErrInvalidEncodedSize\n- '0xfe33db92' => ErrInvalidFileCID\n- '0x37c7f255' => ErrIndexMismatch\n- '0xcefa6b05' => ErrNoPolicy\n- '0x5c371e92' => ErrFileNotFilled\n- '0xdad01942' => ErrBlockAlreadyFilled\n- '0x4b6b8ec8' => ErrChunkCIDMismatch\n- '0x0d6b18f0' => ErrNotBucketOwner\n- '0xc4c1a0c5' => ErrBucketNotFound\n- '0x3bcbb0de' => ErrFileDoesNotExist\n- '0xa2c09fea' => ErrNotThePolicyOwner\n- '0x94289054' => ErrCloneArgumentsTooLong\n- '0x4ca249dc' => ErrCreate2EmptyBytecode\n- '0xf3714a9b' => ErrECDSAInvalidSignatureS\n- '0x367e2e27' => ErrECDSAInvalidSignatureLength\n- '0xf645eedf' => ErrECDSAInvalidSignature\n- '0xb73e95e1' => ErrAlreadyWhitelisted\n- '0xe6c4247b' => ErrInvalidAddress\n- '0x584a7938' => ErrNotWhitelisted\n- '0x227bc153' => ErrMathOverflowedMulDiv\n- '0xe7b199a6' => ErrInvalidBlocksAmount\n- '0x59b452ef' => ErrInvalidBlockIndex\n- '0x55cbc831' => ErrLastChunkDuplicate\n- '0x2abde339' => ErrFileNotExists\n- '0x48e0ed68' => ErrNotSignedByBucketOwner\n- '0x923b8cbb' => ErrNonceAlreadyUsed\n- '0x9605a010' => ErrOffsetOutOfBounds\nAlso add a helper function `ignore_offset_error(err)` that maps ErrOffsetOutOfBounds to None/Ok, returning all other errors unchanged."
+    },
+    {
+      "id": "CHANGE-4",
+      "title": "Update Storage contract: new query functions and updated delete signatures",
+      "priority": "critical",
+      "go_files": [
+        "private/ipc/contracts/storage.go"
+      ],
+      "target_files": [
+        "src/blockchain/storage.rs or src/contracts/storage.rs"
+      ],
+      "description": "Several new read-only functions were added to the Storage contract and the signatures of DeleteBucket and DeleteFile were updated to include an index parameter. All changes affect the ABI and must be reflected in the Rust contract binding.",
+      "current_state": "Unknown — the Rust repo may have an older version of the Storage contract ABI or Rust binding.",
+      "required_change": "1. Add the following new read-only (call) functions to the Storage contract binding:\n   a. get_bucket_index_by_name(bucket_name: String, owner: Address) -> Result<{ index: U256, exists: bool }>\n      Selector: 0x287e677f\n   b. get_buckets_by_ids(ids: Vec<[u8;32]>) -> Result<Vec<IStorageBucket>>\n      Selector: 0x35bdb711\n   c. get_buckets_by_ids_with_files(ids: Vec<[u8;32]>, bucket_offset: U256, bucket_limit: U256, file_offset: U256, file_limit: U256) -> Result<Vec<IStorageBucket>>\n      Selector: 0x62838c23\n   d. is_file_filled_v2(bucket_id: [u8;32], file_name: String) -> Result<bool>\n      (check current ABI for selector)\n2. Update delete_bucket signature:\n   Old: delete_bucket(id: [u8;32], bucket_name: String) -> Transaction\n   New: delete_bucket(id: [u8;32], bucket_name: String, index: U256) -> Transaction\n   Selector: 0xfd1d3c0c\n   Solidity: function deleteBucket(bytes32 id, string bucketName, uint256 index) returns(bool)\n3. Update delete_file signature:\n   Old: delete_file(file_id: [u8;32], bucket_id: [u8;32], file_name: String) -> Transaction\n   New: delete_file(file_id: [u8;32], bucket_id: [u8;32], file_name: String, index: U256) -> Transaction\n   Selector: 0xd6d3110b\n   Solidity: function deleteFile(bytes32 fileID, bytes32 bucketId, string fileName, uint256 index) returns(bool)\n4. The IStorageBucket struct is: { id: [u8;32], name: String, created_at: U256, owner: Address, files: Vec<[u8;32]> }\n5. The IStorageChunk struct is: { chunk_cids: Vec<Vec<u8>>, chunk_size: Vec<U256>, fulfilled_blocks: Vec<u32> }\n6. The IStorageFile struct includes: id, file_cid, bucket_id, name, encoded_size, actual_size, is_public, created_at",
+      "code_snippet_before": "// delete_bucket(id, bucket_name)\n// delete_file(file_id, bucket_id, file_name)",
+      "code_snippet_after": "// delete_bucket(id, bucket_name, index: U256)\n// delete_file(file_id, bucket_id, file_name, index: U256)"
+    },
+    {
+      "id": "CHANGE-5",
+      "title": "Add batch contract operations: AddFileChunks and FillChunkBlocks",
+      "priority": "critical",
+      "go_files": [
+        "private/ipc/contracts/storage.go",
+        "sdk/sdk_ipc.go"
+      ],
+      "target_files": [
+        "src/blockchain/storage.rs",
+        "src/sdk.rs or src/sdk_ipc.rs"
+      ],
+      "description": "Two new batch transaction functions were added to the Storage contract: AddFileChunks (submit multiple chunks in one transaction) and FillChunkBlocks (fill multiple blocks in one transaction). These replace the single-item AddFileChunk and FillChunkBlock functions in the upload hot path.",
+      "current_state": "Unknown — the Rust repo may only have the single-item variants.",
+      "required_change": "1. Add add_file_chunks transaction function to the Storage binding:\n   Signature: add_file_chunks(cids: Vec<Vec<u8>>, bucket_id: [u8;32], file_name: String, encoded_chunk_sizes: Vec<U256>, chunk_blocks_cids: Vec<Vec<[u8;32]>>, chunk_block_sizes: Vec<Vec<U256>>, starting_chunk_index: U256) -> Transaction\n   Selector: 0x51dc0c23\n   Solidity: function addFileChunks(bytes[] cids, bytes32 bucketId, string fileName, uint256[] encodedChunkSizes, bytes32[][] chunkBlocksCIDs, uint256[][] chunkBlockSizes, uint256 startingChunkIndex) returns()\n\n2. Add fill_chunk_blocks transaction function to the Storage binding:\n   Signature: fill_chunk_blocks(args: Vec<FillChunkBlockArgs>) -> Transaction\n   Selector: 0x308c3cf2\n   Solidity: function fillChunkBlocks((bytes32,bytes32,bytes32,uint256,uint256,uint8,string,bytes,uint256)[] args) returns()\n   FillChunkBlockArgs struct fields (in order):\n     - block_cid: [u8;32]\n     - node_id: [u8;32]\n     - bucket_id: [u8;32]\n     - chunk_index: U256\n     - nonce: U256\n     - block_index: u8\n     - file_name: String\n     - signature: Vec<u8>\n     - deadline: U256\n\n3. In the SDK upload logic, replace the loop calling add_file_chunk (single) with batched calls to add_file_chunks. Collect multiple ChunkData items (up to batch_size), then call add_file_chunks once per batch with all chunk CIDs, encoded sizes, block CIDs (2D array), block sizes (2D array), and the starting_chunk_index of the batch.\n\n4. Similarly, replace single fill_chunk_block calls with fill_chunk_blocks, passing a Vec of FillChunkBlockArgs.\n\n5. The batch_size configuration field on the SDK controls how many chunks are batched per transaction (default: 1, minimum: 1)."
+    },
+    {
+      "id": "CHANGE-6",
+      "title": "Update contract deployment to use AkaveToken and ERC1967Proxy upgradeable pattern",
+      "priority": "medium",
+      "go_files": [
+        "private/ipc/client.go",
+        "private/ipc/contracts/akave_token.go (NEW)",
+        "private/ipc/contracts/erc1967Proxy.go (NEW)"
+      ],
+      "target_files": [
+        "src/blockchain/client.rs or src/ipc/client.rs",
+        "src/blockchain/akave_token.rs (NEW)",
+        "src/blockchain/erc1967_proxy.rs (NEW)"
+      ],
+      "description": "The contract deployment flow was updated to use an upgradeable proxy pattern. The Storage contract is now deployed as an implementation behind an ERC1967Proxy, and it is initialized with an AkaveToken address. The AccessManager is deployed after the proxy.",
+      "current_state": "Unknown — the Rust repo may have an older deployment sequence without the proxy or token.",
+      "required_change": "Update the deploy_contracts function to follow this sequence:\n1. Deploy AkaveToken contract (no constructor args) — record its address as akave_token_addr\n2. Deploy Storage implementation contract (no constructor args) — record as storage_impl_address\n3. ABI-encode the 'initialize(address)' call with akave_token_addr as argument to get init_data\n4. Deploy ERC1967Proxy(storage_impl_address, init_data) — record proxy address as storage_proxy_address\n5. Instantiate the Storage contract at storage_proxy_address (not at storage_impl_address)\n6. Call token.grant_role(minter_role, storage_proxy_address) to grant minting rights\n   where minter_role = token.MINTER_ROLE() constant\n7. Deploy AccessManager(storage_proxy_address) — record as access_address\n8. Call storage.set_access_manager(access_address) to link the access manager\n9. Wait for all transactions to be confirmed before returning\nThe Config struct fields remain: dial_uri, private_key, storage_contract_address, access_contract_address."
+    },
+    {
+      "id": "CHANGE-7",
+      "title": "Update SDK upload logic for batch chunk operations",
+      "priority": "high",
+      "go_files": [
+        "sdk/sdk_ipc.go"
+      ],
+      "target_files": [
+        "src/sdk.rs or src/sdk_ipc.rs"
+      ],
+      "description": "The upload path in sdk_ipc.go was refactored to batch multiple chunks into a single blockchain transaction using the new AddFileChunks contract function. A new ChunkData and BatchTransaction data structure were introduced to accumulate chunk data before submitting.",
+      "current_state": "Unknown — Rust repo may call add_file_chunk (single) per chunk.",
+      "required_change": "1. Introduce a ChunkData struct holding: chunk_upload data, cids (Vec<[u8;32]>), sizes (Vec<U256>).\n2. Introduce a BatchTransaction struct holding: chunks (Vec<ChunkUpload>), tx (transaction handle).\n3. In the upload loop:\n   a. Collect up to batch_size chunks into a batch Vec<ChunkData>.\n   b. For each chunk in the batch, compute its CIDs and sizes (call to_ipc_proto_chunk equivalent).\n   c. Call create_batched_chunk_transaction(batch, bucket_id, file_name) which calls add_file_chunks with all chunk data.\n   d. Send BatchTransaction to the wait channel.\n4. The waiting goroutine/task calls wait_for_tx on each batch transaction and then processes all chunks in the batch.\n5. Resumable upload (continuation) logic: if file_upload.state.chunk_count > 0, skip to the last uploaded position and set chunk_index accordingly.\n6. The with_retry wrapper should still be used around the blockchain transaction submission."
+    }
+  ],
+  "contract_updates": [
+    {
+      "contract": "Storage",
+      "abi_file": "private/ipc/contracts/storage.go",
+      "added_functions": [
+        {
+          "name": "GetBucketIndexByName",
+          "inputs": [{"name": "bucketName", "type": "string"}, {"name": "owner", "type": "address"}],
+          "outputs": [{"name": "index", "type": "uint256"}, {"name": "exists", "type": "bool"}],
+          "selector": "0x287e677f"
+        },
+        {
+          "name": "GetBucketsByIds",
+          "inputs": [{"name": "ids", "type": "bytes32[]"}],
+          "outputs": [{"name": "", "type": "IStorageBucket[]"}],
+          "selector": "0x35bdb711"
+        },
+        {
+          "name": "GetBucketsByIdsWithFiles",
+          "inputs": [
+            {"name": "ids", "type": "bytes32[]"},
+            {"name": "bucketOffset", "type": "uint256"},
+            {"name": "bucketLimit", "type": "uint256"},
+            {"name": "fileOffset", "type": "uint256"},
+            {"name": "fileLimit", "type": "uint256"}
+          ],
+          "outputs": [{"name": "", "type": "IStorageBucket[]"}],
+          "selector": "0x62838c23"
+        },
+        {
+          "name": "AddFileChunks",
+          "inputs": [
+            {"name": "cids", "type": "bytes[]"},
+            {"name": "bucketId", "type": "bytes32"},
+            {"name": "fileName", "type": "string"},
+            {"name": "encodedChunkSizes", "type": "uint256[]"},
+            {"name": "chunkBlocksCIDs", "type": "bytes32[][]"},
+            {"name": "chunkBlockSizes", "type": "uint256[][]"},
+            {"name": "startingChunkIndex", "type": "uint256"}
+          ],
+          "outputs": [],
+          "selector": "0x51dc0c23"
+        },
+        {
+          "name": "FillChunkBlocks",
+          "inputs": [
+            {"name": "args", "type": "(bytes32,bytes32,bytes32,uint256,uint256,uint8,string,bytes,uint256)[]"}
+          ],
+          "outputs": [],
+          "selector": "0x308c3cf2"
+        },
+        {
+          "name": "IsFileFilledV2",
+          "inputs": [
+            {"name": "bucketId", "type": "bytes32"},
+            {"name": "fileName", "type": "string"}
+          ],
+          "outputs": [{"name": "", "type": "bool"}],
+          "selector": "check ABI"
+        }
+      ],
+      "removed_functions": [],
+      "modified_functions": [
+        {
+          "name": "DeleteBucket",
+          "change_description": "Added 'index' parameter (uint256) as the third argument. New Solidity signature: deleteBucket(bytes32 id, string bucketName, uint256 index) returns(bool). Selector: 0xfd1d3c0c. Before calling, obtain the index via GetBucketIndexByName."
+        },
+        {
+          "name": "DeleteFile",
+          "change_description": "Added 'index' parameter (uint256) as the fourth argument. New Solidity signature: deleteFile(bytes32 fileID, bytes32 bucketId, string fileName, uint256 index) returns(bool). Selector: 0xd6d3110b. Before calling, obtain the index via GetFileIndexById."
+        }
+      ],
+      "encoding_notes": "FillChunkBlockArgs struct encodes as a tuple: (bytes32 blockCID, bytes32 nodeId, bytes32 bucketId, uint256 chunkIndex, uint256 nonce, uint8 blockIndex, string fileName, bytes signature, uint256 deadline). Note blockIndex is uint8 (not uint256), which is a type change from prior versions if applicable — verify wire encoding in ABI."
+    },
+    {
+      "contract": "PolicyFactory",
+      "abi_file": "private/ipc/contracts/policy_factory.go (REMOVED)",
+      "added_functions": [],
+      "removed_functions": [
+        {
+          "name": "PolicyFactory (entire contract)",
+          "inputs": [],
+          "outputs": [],
+          "selector": "N/A — entire contract removed"
+        }
+      ],
+      "modified_functions": [],
+      "encoding_notes": "The PolicyFactory contract is fully removed. Remove all ABI, binding, and call-site code related to PolicyFactory in the Rust target repo."
+    }
+  ],
+  "test_updates": [
+    {
+      "id": "TEST-1",
+      "go_test_function": "TestExternalCreateBucketCommand",
+      "go_file": "cmd/akavecli/storage_test.go",
+      "type": "integration",
+      "description": "Tests the 'bucket create' CLI command with success cases, metadata encryption option, duplicate bucket error, empty name error, missing name error, and invalid private key error.",
+      "port_instructions": "1. Create an integration test that exercises the bucket create functionality.\n2. Use the ipctest package equivalent to pick a private key and the node RPC address from environment.\n3. Test cases to implement:\n   a. 'Create bucket successfully': call create_bucket(node_address, private_key, bucket_name), assert success and output contains 'Bucket created' and bucket name.\n   b. 'Create bucket with metadata encryption': same as above but pass metadata_encryption=true and an encryption_key.\n   c. 'Create bucket already exists': call create_bucket again with same name, assert error contains 'BucketAlreadyExists'.\n   d. 'Empty bucket name': call with empty string, assert error contains 'bucket name is required'.\n   e. 'Invalid private key': call with private_key='51ccv2', assert error contains 'invalid hex character'.\n4. Use testrand equivalent to generate a random 10-character bucket name.\n5. Dependencies: CHANGE-1 (gRPC stubs), CHANGE-3 (error codes).",
+      "dependencies": ["CHANGE-1", "CHANGE-3"]
+    },
+    {
+      "id": "TEST-2",
+      "go_test_function": "TestExternalUploadFileCommand (inferred from storage_test.go)",
+      "go_file": "cmd/akavecli/storage_test.go",
+      "type": "integration",
+      "description": "Tests file upload via the CLI, including batch upload, resumable upload, and encryption options.",
+      "port_instructions": "1. Create an integration test that exercises file upload.\n2. Set up a test bucket first using create_bucket.\n3. Test uploading a small file (> 127 bytes minimum file size).\n4. Test uploading with batch_size > 1 to verify batched chunk transactions.\n5. Verify the file appears in list_files after upload.\n6. Use pdptest equivalent for PDP-related assertions if applicable.\n7. Dependencies: CHANGE-4, CHANGE-5, CHANGE-7.",
+      "dependencies": ["CHANGE-4", "CHANGE-5", "CHANGE-7"]
+    }
+  ]
+}
