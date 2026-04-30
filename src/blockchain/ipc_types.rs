@@ -4,6 +4,38 @@ use web3::{
     types::{Address, U256},
 };
 
+#[derive(Debug)]
+pub struct BucketIndexResult {
+    pub index: U256,
+    pub exists: bool,
+}
+
+impl Detokenize for BucketIndexResult {
+    fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
+        if let [Token::Uint(index), Token::Bool(exists)] = tokens.as_slice() {
+            Ok(Self { index: *index, exists: *exists })
+        } else {
+            Err(web3::contract::Error::InterfaceUnsupported)
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct FileIndexResult {
+    pub index: U256,
+    pub exists: bool,
+}
+
+impl Detokenize for FileIndexResult {
+    fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
+        if let [Token::Uint(index), Token::Bool(exists)] = tokens.as_slice() {
+            Ok(Self { index: *index, exists: *exists })
+        } else {
+            Err(web3::contract::Error::InterfaceUnsupported)
+        }
+    }
+}
+
 use crate::types::{BucketId, FileId};
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -31,6 +63,7 @@ pub struct BucketResponse {
 pub(crate) struct IStorageChunk {
     chunk_cids: Vec<Vec<u8>>,
     chunk_size: Vec<U256>,
+    fulfilled_blocks: Vec<u32>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -44,6 +77,7 @@ pub struct FileResponse {
     pub name: String,
     encoded_size: U256,
     created_at: U256,
+    actual_size: U256,
     chunks: IStorageChunk,
 }
 
@@ -86,7 +120,7 @@ impl Detokenize for BucketResponse {
 impl Detokenize for FileResponse {
     fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
         if let [Token::Tuple(tokens)] = tokens.as_slice() {
-            if let [Token::FixedBytes(id), Token::Bytes(file_cid), Token::FixedBytes(bucket_id), Token::String(name), Token::Uint(encoded_size), Token::Uint(created_at), Token::Tuple(chunks_tokens)] =
+            if let [Token::FixedBytes(id), Token::Bytes(file_cid), Token::FixedBytes(bucket_id), Token::String(name), Token::Uint(encoded_size), Token::Uint(created_at), Token::Uint(actual_size), Token::Tuple(chunks_tokens)] =
                 tokens.as_slice()
             {
                 let mut id_bytes = [0u8; 32];
@@ -104,6 +138,7 @@ impl Detokenize for FileResponse {
                     name: name.clone(),
                     encoded_size: *encoded_size,
                     created_at: *created_at,
+                    actual_size: *actual_size,
                     chunks,
                 })
             } else {
@@ -118,7 +153,9 @@ impl Detokenize for FileResponse {
 impl Detokenize for IStorageChunk {
     fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
         if let [Token::Tuple(tokens)] = tokens.as_slice() {
-            if let [Token::Array(chunk_cids), Token::Array(chunk_sizes)] = tokens.as_slice() {
+            if let [Token::Array(chunk_cids), Token::Array(chunk_sizes), Token::Array(fulfilled_blocks_tokens)] =
+                tokens.as_slice()
+            {
                 let chunk_cids = chunk_cids
                     .iter()
                     .map(|token| {
@@ -141,9 +178,21 @@ impl Detokenize for IStorageChunk {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
+                let fulfilled_blocks = fulfilled_blocks_tokens
+                    .iter()
+                    .map(|token| {
+                        if let Token::Uint(v) = token {
+                            Ok(v.as_u32())
+                        } else {
+                            Err(web3::contract::Error::InterfaceUnsupported)
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
                 Ok(IStorageChunk {
                     chunk_cids,
                     chunk_size,
+                    fulfilled_blocks,
                 })
             } else {
                 Err(web3::contract::Error::InterfaceUnsupported)

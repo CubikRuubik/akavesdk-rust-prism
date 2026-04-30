@@ -199,6 +199,12 @@ impl BlockchainProvider {
                         Some(status) => {
                             if status.low_u64() == 0 {
                                 log_error!("Transaction failed with status 0");
+                                #[cfg(not(target_arch = "wasm32"))]
+                                if let Some(reason) =
+                                    self.get_revert_reason(receipt.transaction_hash).await
+                                {
+                                    return Err(ProviderError::ContractRevert(reason));
+                                }
                                 return Err(ProviderError::TransactionFailedStatus {
                                     tx_hash: format!("{:?}", receipt.transaction_hash),
                                     function: function_name.to_string(),
@@ -266,7 +272,7 @@ impl BlockchainProvider {
         let txopts = match options {
             Some(opts) => opts,
             None => Options {
-                gas: Some(U256::from(250_000u64)),
+                gas: Some(U256::from(1_000_000u64)),
                 ..Default::default()
             },
         };
@@ -303,6 +309,39 @@ impl BlockchainProvider {
                 .call(function_name, params, address, txopts)
                 .await
                 .map_err(|e| ProviderError::ContractCallError(e))?);
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn get_revert_reason(&self, hash: H256) -> Option<String> {
+        let eth = self.web3_provider.eth();
+        let tx = eth
+            .transaction(web3::types::TransactionId::Hash(hash))
+            .await
+            .ok()
+            .flatten()?;
+        let call_req = web3::types::CallRequest {
+            from: tx.from,
+            to: tx.to,
+            data: Some(tx.input),
+            ..Default::default()
+        };
+        match eth.call(call_req, None).await {
+            Err(web3::Error::Rpc(rpc_err)) => {
+                if let Some(data_val) = &rpc_err.data {
+                    if let Some(hex_str) = data_val.as_str() {
+                        if let Ok(bytes) = hex::decode(hex_str.trim_start_matches("0x")) {
+                            if let Some(name) =
+                                crate::blockchain::contract_errors::decode_revert_reason(&bytes)
+                            {
+                                return Some(name);
+                            }
+                        }
+                    }
+                }
+                crate::blockchain::contract_errors::extract_error_from_message(&rpc_err.message)
+            }
+            _ => None,
         }
     }
 
@@ -438,15 +477,15 @@ impl BlockchainProvider {
 
 #[derive(Error, Debug)]
 pub enum ProviderError {
-    #[error("transaction error")]
+    #[error("transaction error: {0}")]
     TransactionError(#[source] web3::Error),
     #[error("transaction confirmation timeout: {0}")]
     TransactionConfirmTimeout(String),
-    #[error("block number error")]
+    #[error("block number error: {0}")]
     BlockNumberError(#[source] web3::Error),
-    #[error("contract call error")]
+    #[error("contract call error: {0}")]
     ContractCallError(#[source] web3::contract::Error),
-    #[error("web3 call error")]
+    #[error("web3 call error: {0}")]
     Web3CallError(#[source] web3::Error),
     #[error("configuration error: {0}")]
     ConfigurationError(String),
@@ -469,4 +508,34 @@ pub enum ProviderError {
     TransactionFailedStatus { tx_hash: String, function: String },
     #[error("transaction receipt has unknown status")]
     TransactionUnknownStatus,
+    #[error("offset out of bounds")]
+    OffsetOutOfBounds,
+    #[cfg(not(target_arch = "wasm32"))]
+    #[error("{0}")]
+    ContractRevert(String),
+}
+
+/// Returns None if the error is an offset-out-of-bounds contract revert (treat as empty page),
+/// or Some(err) for any other error.
+pub fn ignore_offset_error(err: ProviderError) -> Option<ProviderError> {
+    if matches!(err, ProviderError::OffsetOutOfBounds) {
+        None
+    } else {
+        Some(err)
+    }
+}
+
+/// Checks a web3 contract call error string for the OffsetOutOfBounds selector (0x9605a010).
+pub fn is_offset_out_of_bounds_error(err: &web3::contract::Error) -> bool {
+    let msg = err.to_string();
+    msg.contains("0x9605a010") || msg.contains("OffsetOutOfBounds")
+}
+
+/// Maps a ContractCallError to OffsetOutOfBounds if it matches selector 0x9605a010.
+pub fn map_contract_error(err: web3::contract::Error) -> ProviderError {
+    if is_offset_out_of_bounds_error(&err) {
+        ProviderError::OffsetOutOfBounds
+    } else {
+        ProviderError::ContractCallError(err)
+    }
 }

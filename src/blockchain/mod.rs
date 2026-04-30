@@ -1,4 +1,5 @@
 pub mod access_manager;
+pub mod block;
 pub mod eip712_types;
 pub mod eip712_utils;
 pub mod ipc_types;
@@ -7,3 +8,6 @@ pub mod storage;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod eip712;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod contract_errors;

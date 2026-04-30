@@ -9,7 +9,7 @@ use crate::{types::BucketId, utils::timestamp::timestamp_serde_direct};
 
 #[derive(Error, Debug)]
 pub enum AkaveError {
-    #[error("blockchain error")]
+    #[error("blockchain error: {0}")]
     BlockchainError(#[source] web3::Error),
 
     #[error("block error: {0}")]
@@ -18,7 +18,7 @@ pub enum AkaveError {
     #[error("chunk error: {0}")]
     ChunkError(String),
 
-    #[error("grpc error")]
+    #[error("grpc error: {0}")]
     GrpcError(#[source] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("file error: {0}")]
@@ -55,7 +55,7 @@ pub enum AkaveError {
     #[error("internal error: {0}")]
     InternalError(String),
 
-    #[error("provider error")]
+    #[error("provider error: {0}")]
     ProviderError(#[from] crate::blockchain::provider::ProviderError),
 
     #[error("bucket error: {0}")]
@@ -151,7 +151,7 @@ pub struct IpcFileChunkUpload {
     pub chunk_cid: Cid,
     pub actual_size: usize,
     pub raw_data_size: usize,
-    pub proto_node_size: usize,
+    pub encoded_size: usize,
     pub blocks: Vec<FileBlockUpload>,
     pub bucket_id: BucketId,
     pub file_name: String,
@@ -161,20 +161,12 @@ pub struct IpcFileChunkUpload {
 #[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-pub struct AkaveBlockData {
-    pub permit: String,
-    pub node_address: String,
-    pub node_id: String,
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
-#[serde(rename_all = "camelCase")]
-#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
 pub struct FileBlockDownload {
     pub cid: String,
     pub data: Vec<u8>,
-    pub akave: AkaveBlockData,
+    pub permit: String,
+    pub node_address: String,
+    pub node_id: String,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -233,6 +225,7 @@ pub struct FileListResponse {
 pub struct FileListItem {
     pub root_cid: String,
     pub created_at: i64,
+    pub actual_size: i64,
     pub encoded_size: i64,
     pub name: String,
 }
@@ -244,6 +237,7 @@ pub struct FileListItem {
 pub struct FileViewResponse {
     pub root_cid: String,
     pub created_at: i64,
+    pub actual_size: i64,
     pub encoded_size: i64,
     pub name: String,
     pub bucket_name: String,
@@ -278,4 +272,47 @@ pub struct FileBlock {
     pub node_id: String,
     pub node_address: String,
     pub permit: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct PDPBlockData {
+    pub url: String,
+    pub offset: i64,
+    pub size: i64,
+    pub data_set_id: u64,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct ArchivalBlock {
+    pub cid: String,
+    pub size: i64,
+    pub pdp_data: Option<PDPBlockData>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct ArchivalChunk {
+    pub cid: String,
+    pub encoded_size: i64,
+    pub size: i64,
+    pub index: i64,
+    pub blocks: Vec<ArchivalBlock>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(target_arch = "wasm32", derive(tsify_next::Tsify))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct ArchivalMetadata {
+    pub bucket_name: String,
+    pub name: String,
+    pub chunks: Vec<ArchivalChunk>,
 }

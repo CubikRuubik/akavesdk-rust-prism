@@ -5,10 +5,7 @@ use cid::Cid;
 use serde_json::Value as JsonValue;
 use web3::types::{H160, U256};
 
-use crate::{
-    blockchain::eip712_types::{Domain, TypedData},
-    utils::peer_id::PeerId,
-};
+use crate::blockchain::eip712_types::{Domain, TypedData};
 
 type EIP712Result = Result<
     (
@@ -24,12 +21,14 @@ type EIP712Result = Result<
 pub fn create_block_eip712_data(
     block_cid: &Cid,
     chunk_cid: &Cid,
-    node_id: &PeerId,
+    node_id: &[u8; 32],
+    bucket_id: &[u8; 32],
     verifying_contract: H160,
     chunk_index: i64,
     block_index: i64,
     chain_id: U256,
     nonce: U256,
+    deadline: U256,
 ) -> EIP712Result {
     // Create domain based on the provided test data
     let domain = Domain {
@@ -62,11 +61,19 @@ pub fn create_block_eip712_data(
             },
             TypedData {
                 name: "nodeId".to_string(),
-                r#type: "bytes".to_string(),
+                r#type: "bytes32".to_string(),
             },
             TypedData {
                 name: "nonce".to_string(),
                 r#type: "uint256".to_string(),
+            },
+            TypedData {
+                name: "deadline".to_string(),
+                r#type: "uint256".to_string(),
+            },
+            TypedData {
+                name: "bucketId".to_string(),
+                r#type: "bytes32".to_string(),
             },
         ],
     );
@@ -101,14 +108,22 @@ pub fn create_block_eip712_data(
     );
 
     // Convert hex string to bytes for nodeId
-    let node_id_hex = hex::encode(node_id.to_bytes());
+    let node_id_hex = hex::encode(node_id);
     data_message.insert(
         "nodeId".to_string(),
         serde_json::json!(format!("0x{}", node_id_hex)),
     );
     data_message.insert(
         "nonce".to_string(),
-        serde_json::Value::Number(serde_json::Number::from(nonce.as_u64())),
+        serde_json::Value::String(nonce.to_string()),
+    );
+    data_message.insert(
+        "deadline".to_string(),
+        serde_json::Value::String(deadline.to_string()),
+    );
+    data_message.insert(
+        "bucketId".to_string(),
+        serde_json::json!(format!("0x{}", hex::encode(bucket_id))),
     );
     // return data message, domain message and data types
     Ok((data_message, domain, data_types))

@@ -64,7 +64,7 @@ time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
 tokio-stream = "0.1.17"
 
 [dev-dependencies]
-multihash-codetable = { version = "0.1.4", default-features = false, features = [
+multihash-codetable = { version = "0.2.1", default-features = false, features = [
   "sha2",
 ] }
 multihash-derive = { version = "0.9.0", default-features = false }
@@ -146,6 +146,7 @@ uuid = { version = "1.15.1", features = ["v4", "js"] }
 getrandom = { version = "0.2.15", features = ["std"] }
 hex-literal = "0.3.4"
 log = "0.4.22"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tokio = { version = "1.42.0", features = ["full"] }
 tonic = { version = "0.12", default-features = false, features = [
   "prost",
@@ -154,8 +155,13 @@ tonic = { version = "0.12", default-features = false, features = [
   "tls",
   "tls-roots",
 ] }
+clap = { version = "4", features = ["derive"] }
 uuid = { version = "1.15.1", features = ["v4"] }
 web3 = { version = "0.19.0", features = ["http", "signing"] }
+
+[[bin]]
+name = "akave"
+path = "src/bin/akave.rs"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor = "0.4.1"

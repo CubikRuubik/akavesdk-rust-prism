@@ -337,7 +337,6 @@ mod tests {
     use crate::utils::peer_id::PeerId;
 
     #[test]
-    #[ignore]
     fn test_sign_and_recover() {
         // Private key from the test vector
         let private_key =
@@ -376,11 +375,19 @@ mod tests {
                 },
                 TypedData {
                     name: "nodeId".to_string(),
-                    r#type: "bytes".to_string(),
+                    r#type: "bytes32".to_string(),
                 },
                 TypedData {
                     name: "nonce".to_string(),
                     r#type: "uint256".to_string(),
+                },
+                TypedData {
+                    name: "deadline".to_string(),
+                    r#type: "uint256".to_string(),
+                },
+                TypedData {
+                    name: "bucketId".to_string(),
+                    r#type: "bytes32".to_string(),
                 },
             ],
         );
@@ -442,7 +449,10 @@ mod tests {
         // Convert hex string to bytes for nodeId
         let node_id =
             PeerId::from_str("12D3KooWBPkG43Vjb3Rp2PFHYRgKkhAaMZCXAMRVb3M7PrQN2fC5").unwrap();
-        let node_id_hex = hex::encode(node_id.to_bytes());
+        let node_id_bytes = node_id.to_bytes();
+        let mut node_id_32 = [0u8; 32];
+        node_id_32.copy_from_slice(&node_id_bytes[6..38]);
+        let node_id_hex = hex::encode(node_id_32);
         data_message.insert(
             "nodeId".to_string(),
             serde_json::json!(format!("0x{}", node_id_hex)),
@@ -451,25 +461,36 @@ mod tests {
             "node id str: {}, hex: {:?}, bytes: {:?}, encoded: {:?}",
             node_id.to_string(),
             node_id_hex,
-            node_id.to_bytes(),
-            encode_value(&serde_json::json!(format!("0x{}", node_id_hex)), "bytes").unwrap()
+            node_id_32,
+            encode_value(&serde_json::json!(format!("0x{}", node_id_hex)), "bytes32").unwrap()
         );
 
         data_message.insert(
             "nonce".to_string(),
-            serde_json::Value::Number(serde_json::Number::from(1234567890)),
+            serde_json::Value::String("1234567890".to_string()),
+        );
+        data_message.insert(
+            "deadline".to_string(),
+            serde_json::Value::String("1234567999".to_string()),
+        );
+        let bucket_id = [1u8; 32];
+        data_message.insert(
+            "bucketId".to_string(),
+            serde_json::json!(format!("0x{}", hex::encode(bucket_id))),
         );
 
         let (auto_data_message, auto_domain, auto_data_types) =
             crate::blockchain::eip712_utils::create_block_eip712_data(
                 &block_cid,
                 &chunk_cid,
-                &node_id,
+                &node_id_32,
+                &bucket_id,
                 H160::from_str("0x1234567890123456789012345678901234567890").unwrap(),
                 1,
                 1,
                 U256::from(31337),
                 U256::from(1234567890),
+                U256::from(1234567999),
             )
             .unwrap();
         assert_eq!(
@@ -507,6 +528,150 @@ mod tests {
             recovered_address, expected_address,
             "Recovered address doesn't match the expected address"
         );
-        assert_eq!(hex::encode(&signature), "4434bb85d7de04944a3aafc3ce1575d6ba9993b4d942567d2c2983e6e651553212ee487d5418df0fe768caadd9a08d964660518ae2b06c970ddcf8cf872adfd51c", "Signature doesn't match the expected signature");
+    }
+
+    #[test]
+    fn test_sign_against_contract_vectors() {
+        let private_key =
+            SecretKey::from_str("ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+                .unwrap();
+
+        struct Vec {
+            chunk_cid: &'static str,
+            block_cid: &'static str,
+            node_id: &'static str,
+            nonce: u64,
+            deadline: u64,
+            bucket_id: &'static str,
+            storage_address: &'static str,
+            expected_sig: &'static str,
+        }
+
+        let cases = [
+            Vec {
+                chunk_cid: "86b258127d599eb74c729f97",
+                block_cid: "c00612ae8af29b5437ba40df50c46c0175c69b6dc3b3014ed19bda51e318f0f3",
+                node_id: "5a604f924e185f6ec5754156e331e9d52df8a669de7e1a060b90e636e0e9e818",
+                nonce: 3456789012,
+                deadline: 1759859212,
+                bucket_id: "930c2de1e6a9a0726f2d7bde19428453d9fdc11fa5c98205ce9b9e794bbd93a2",
+                storage_address: "4e7B1E9c3214C973Ff2fc680A9789E8579a5eD9d",
+                expected_sig: "726683359604ffe042e73afd7adef9b7f6e13ffd0078999d31bd1cc8c119e1e8324d44cffdc2f771912e500c522082ee94e5f30ac5844c06497e3c49dab8b6de1b",
+            },
+            Vec {
+                chunk_cid: "edf5fb5fdd325e462cd806f2",
+                block_cid: "fbeeb197dd90574c97d5993fab0610403197db0f18133033755ec39cab7596c9",
+                node_id: "3a59ed631290287c86c90777b2d45926c1a860b1e90828963358d72fa8834389",
+                nonce: 2345678901,
+                deadline: 1759862780,
+                bucket_id: "95f7f023dbf92b2ab036280c44037485c0deec1d854046443bae8ae16c37bc86",
+                storage_address: "23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f",
+                expected_sig: "47569b36d69bde9e8953cc8c6a01599f0a307850d25e9101c4b1338fbf562d58017bd4ecae535eb330ea7c7ca710fb0055d9d3697e2ebc18902aa32d252eb7361c",
+            },
+            Vec {
+                chunk_cid: "2e3adffef0437b35f247022b",
+                block_cid: "fc785a432d1c6d45671f60ed36f44378f63ae4fbbf4ef2a9f0d4951e77e81272",
+                node_id: "050f9e0347ebfbdcf50fddf89713b7f37e667d19279d9f550fa7b93237ce29fa",
+                nonce: 1234567890,
+                deadline: 1759866325,
+                bucket_id: "a928e74732b6ca5fd1bf7f3eedfdca3c578a05297157e239e7f7861de2b40f42",
+                storage_address: "9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
+                expected_sig: "8ccd5143f4b87e898021c4b3a4bf73e3e8d6e8b97e39106374fac72be610629463a0ba6fc4c975c41fbb1ad3940f76a30e6cb916a8e01d09afbe24538ce151ca1b",
+            },
+        ];
+
+        let data_types = {
+            let mut m = HashMap::new();
+            m.insert(
+                "StorageData".to_string(),
+                vec![
+                    TypedData {
+                        name: "chunkCID".to_string(),
+                        r#type: "bytes".to_string(),
+                    },
+                    TypedData {
+                        name: "blockCID".to_string(),
+                        r#type: "bytes32".to_string(),
+                    },
+                    TypedData {
+                        name: "chunkIndex".to_string(),
+                        r#type: "uint256".to_string(),
+                    },
+                    TypedData {
+                        name: "blockIndex".to_string(),
+                        r#type: "uint8".to_string(),
+                    },
+                    TypedData {
+                        name: "nodeId".to_string(),
+                        r#type: "bytes32".to_string(),
+                    },
+                    TypedData {
+                        name: "nonce".to_string(),
+                        r#type: "uint256".to_string(),
+                    },
+                    TypedData {
+                        name: "deadline".to_string(),
+                        r#type: "uint256".to_string(),
+                    },
+                    TypedData {
+                        name: "bucketId".to_string(),
+                        r#type: "bytes32".to_string(),
+                    },
+                ],
+            );
+            m
+        };
+
+        for tc in &cases {
+            let domain = Domain {
+                name: "Storage".to_string(),
+                version: "1".to_string(),
+                chain_id: U256::from(31337u64),
+                verifying_contract: Address::from_str(tc.storage_address).unwrap(),
+            };
+
+            let mut msg = HashMap::new();
+            msg.insert(
+                "chunkCID".to_string(),
+                serde_json::json!(format!("0x{}", tc.chunk_cid)),
+            );
+            msg.insert(
+                "blockCID".to_string(),
+                serde_json::json!(format!("0x{}", tc.block_cid)),
+            );
+            msg.insert(
+                "chunkIndex".to_string(),
+                serde_json::Value::Number(0.into()),
+            );
+            msg.insert(
+                "blockIndex".to_string(),
+                serde_json::Value::Number(0.into()),
+            );
+            msg.insert(
+                "nodeId".to_string(),
+                serde_json::json!(format!("0x{}", tc.node_id)),
+            );
+            msg.insert(
+                "nonce".to_string(),
+                serde_json::Value::String(tc.nonce.to_string()),
+            );
+            msg.insert(
+                "deadline".to_string(),
+                serde_json::Value::String(tc.deadline.to_string()),
+            );
+            msg.insert(
+                "bucketId".to_string(),
+                serde_json::json!(format!("0x{}", tc.bucket_id)),
+            );
+
+            let sig = sign_typed_data(&private_key, &domain, &msg, &data_types)
+                .unwrap_or_else(|e| panic!("sign failed for chunkCID={}: {e}", tc.chunk_cid));
+            assert_eq!(
+                tc.expected_sig,
+                hex::encode(&sig),
+                "signature mismatch for chunkCID={}",
+                tc.chunk_cid
+            );
+        }
     }
 }

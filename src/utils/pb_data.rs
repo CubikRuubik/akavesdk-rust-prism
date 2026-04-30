@@ -204,3 +204,84 @@ impl<'a> MessageWrite for Metadata<'a> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{mod_Data, PbData};
+    use quick_protobuf::{BytesReader, MessageRead, MessageWrite, Writer};
+    use std::borrow::Cow;
+
+    fn encode(pb: &PbData) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut writer = Writer::new(&mut out);
+        pb.write_message(&mut writer).unwrap();
+        out
+    }
+
+    fn decode(bytes: &[u8]) -> PbData<'_> {
+        let mut reader = BytesReader::from_bytes(bytes);
+        PbData::from_reader(&mut reader, bytes).unwrap()
+    }
+
+    #[test]
+    fn test_pb_data_roundtrip_minimal() {
+        let original = PbData {
+            data_type: mod_Data::DataType::File,
+            ..Default::default()
+        };
+        let encoded = encode(&original);
+        let decoded = decode(&encoded);
+        assert_eq!(decoded.data_type, mod_Data::DataType::File);
+        assert_eq!(decoded.data, None);
+        assert_eq!(decoded.file_size, None);
+        assert!(decoded.block_sizes.is_empty());
+    }
+
+    #[test]
+    fn test_pb_data_roundtrip_with_fields() {
+        let payload: Vec<u8> = b"test chunk data".to_vec();
+        let original = PbData {
+            data_type: mod_Data::DataType::File,
+            data: Some(Cow::Owned(payload.clone())),
+            file_size: Some(15),
+            block_sizes: vec![5, 5, 5],
+            ..Default::default()
+        };
+        let encoded = encode(&original);
+        let decoded = decode(&encoded);
+        assert_eq!(decoded.data_type, mod_Data::DataType::File);
+        assert_eq!(decoded.data.as_deref(), Some(payload.as_slice()));
+        assert_eq!(decoded.file_size, Some(15));
+        assert_eq!(decoded.block_sizes, vec![5u64, 5, 5]);
+    }
+
+    #[test]
+    fn test_pb_data_get_size_matches_encoded_length() {
+        let original = PbData {
+            data_type: mod_Data::DataType::Raw,
+            file_size: Some(100),
+            block_sizes: vec![50, 50],
+            ..Default::default()
+        };
+        let encoded = encode(&original);
+        assert_eq!(encoded.len(), original.get_size());
+    }
+
+    #[test]
+    fn test_pb_data_all_data_types_roundtrip() {
+        use mod_Data::DataType;
+        for dt in [
+            DataType::Raw,
+            DataType::Directory,
+            DataType::File,
+            DataType::Metadata,
+            DataType::Symlink,
+            DataType::HAMTShard,
+        ] {
+            let original = PbData { data_type: dt, ..Default::default() };
+            let encoded = encode(&original);
+            let decoded = decode(&encoded);
+            assert_eq!(decoded.data_type, dt, "DataType {:?} roundtrip failed", dt);
+        }
+    }
+}
