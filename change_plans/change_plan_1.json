@@ -1,0 +1,104 @@
+{
+  "meta": {
+    "source_repo": "akavesdk (Go)",
+    "target_repo": "CubikRuubik/akavesdk-rust-prism",
+    "base_tag": "unknown (no prior change plans found)",
+    "target_tag": "v0.4.4 (commit 8b66e30659c79ae8e763744bc50ae0a0540cf899)",
+    "created_at": "2026-04-30T13:56:04Z",
+    "description": "Sync from akave Go SDK tag v0.4.4: add cross-contract error definitions missing from contract_errors.rs, add is_file_filled_v2 to storage contract wrapper, reflect removal of PolicyFactory"
+  },
+  "execution_order": [
+    "CHANGE-1: Add missing error definitions to src/blockchain/contract_errors.rs — apply first as all error-handling code depends on this",
+    "CHANGE-2: Add is_file_filled_v2 to src/blockchain/storage.rs — apply after CHANGE-1",
+    "CHANGE-3: Reflect PolicyFactory removal in contract deployment helpers — apply last after contract wrapper updates"
+  ],
+  "changes": [
+    {
+      "id": "CHANGE-1",
+      "title": "Add missing error definitions from AccessManager, ListPolicy, and other contracts to contract_errors.rs",
+      "priority": "critical",
+      "go_files": ["private/ipc/errors.go", "private/ipc/contracts/access_manager.go", "private/ipc/contracts/list_policy.go"],
+      "target_files": ["src/blockchain/contract_errors.rs"],
+      "description": "Go v0.4.4 errors.go maps 47 error hash codes including errors from the AccessManager, ListPolicy, and other contracts. The Rust contract_errors.rs sol! macro only declares Storage contract errors. The 14 missing errors must be added so that the Rust decode_revert_reason() function can identify them from all deployed contracts.",
+      "current_state": "The Rust sol! macro in src/blockchain/contract_errors.rs declares errors only from the Storage contract ABI. It is missing the following 14 error types that are present in Go v0.4.4 errors.go: FileNonexists (selector 0x21584586), NoPolicy (selector 0xcefa6b05), NotBucketOwner (selector 0x0d6b18f0), BucketNotFound (selector 0xc4c1a0c5), FileDoesNotExist (selector 0x3bcbb0de), NotThePolicyOwner (selector 0xa2c09fea), CloneArgumentsTooLong (selector 0x94289054), Create2EmptyBytecode (selector 0x4ca249dc), AlreadyWhitelisted (selector 0xb73e95e1), InvalidAddress (selector 0xe6c4247b), NotWhitelisted (selector 0x584a7938), MathOverflowedMulDiv (selector 0x227bc153), NotSignedByBucketOwner (selector 0x48e0ed68), NonceAlreadyUsed (selector 0x923b8cbb). The current match_selectors! invocation also lacks these entries.",
+      "required_change": "In src/blockchain/contract_errors.rs: 1. Inside the existing sol! { ... } block, add the following 14 zero-argument error declarations (one per line, in alphabetical order relative to the existing entries): error AlreadyWhitelisted(); error BucketNotFound(); error CloneArgumentsTooLong(); error Create2EmptyBytecode(); error FileDoesNotExist(); error FileNonexists(); error InvalidAddress(); error MathOverflowedMulDiv(); error NonceAlreadyUsed(); error NotBucketOwner(); error NotSignedByBucketOwner(); error NotThePolicyOwner(); error NotWhitelisted(); error NoPolicy(); 2. Inside the match_selectors! macro call, add the corresponding 14 type names (without parentheses, in alphabetical order with the existing entries): AlreadyWhitelisted, BucketNotFound, CloneArgumentsTooLong, Create2EmptyBytecode, FileDoesNotExist, FileNonexists, InvalidAddress, MathOverflowedMulDiv, NonceAlreadyUsed, NotBucketOwner, NotSignedByBucketOwner, NotThePolicyOwner, NotWhitelisted, NoPolicy. All 14 new errors take no arguments — declare them as error Name(); with an empty argument list in the sol! block. The alloy::sol! macro will automatically compute the correct 4-byte selector from the Solidity-style signature. Note: FileNonexists() has selector 0x21584586 and is different from FileNotExists() (selector 0x2abde339) which already exists in the file. Both must be present.",
+      "code_snippet_before": "sol! {\n    error AddressEmptyCode(address target);\n    error BlockAlreadyExists();\n    // ... (existing errors) ...\n    error WrongAuthority();\n}",
+      "code_snippet_after": "sol! {\n    error AddressEmptyCode(address target);\n    error AlreadyWhitelisted();\n    error BlockAlreadyExists();\n    // ... (existing errors) ...\n    error BucketNotFound();\n    // ...\n    error CloneArgumentsTooLong();\n    error Create2EmptyBytecode();\n    // ...\n    error FileDoesNotExist();\n    error FileNonexists();\n    // ...\n    error InvalidAddress();\n    // ...\n    error MathOverflowedMulDiv();\n    // ...\n    error NonceAlreadyUsed();\n    error NoPolicy();\n    error NotBucketOwner();\n    error NotSignedByBucketOwner();\n    error NotThePolicyOwner();\n    error NotWhitelisted();\n    // ... (remaining existing errors) ...\n    error WrongAuthority();\n}"
+    },
+    {
+      "id": "CHANGE-2",
+      "title": "Add is_file_filled_v2 function to FileStorageContract",
+      "priority": "high",
+      "go_files": ["private/ipc/contracts/storage.go"],
+      "target_files": ["src/blockchain/storage.rs"],
+      "description": "Go v0.4.4 storage.go added a new read function IsFileFilledV2(fileId [32]byte) bool. This is a second version of the file-filled check (distinct from IsFileFilled). The Rust FileStorageContract only has is_file_filled and is missing this new function.",
+      "current_state": "src/blockchain/storage.rs has: pub async fn is_file_filled(&self, file_id: [u8; 32]) -> Result<bool, ProviderError> that calls the contract function using the constant IS_FILE_FILLED: &str = \"isFileFilled\". There is no is_file_filled_v2 function.",
+      "required_change": "In src/blockchain/storage.rs: 1. Add a new constant: const IS_FILE_FILLED_V2: &str = \"isFileFilledV2\"; (place it near the IS_FILE_FILLED constant). 2. Add a new async method on FileStorageContract: pub async fn is_file_filled_v2(&self, file_id: [u8; 32]) -> Result<bool, ProviderError>. The implementation should follow the exact same pattern as is_file_filled: call self.contract.query(IS_FILE_FILLED_V2, (file_id,), None, web3::contract::Options::default(), None).await and return the result. The function signature takes file_id as [u8; 32] and returns Result<bool, ProviderError>, same as is_file_filled.",
+      "code_snippet_before": "const IS_FILE_FILLED: &str = \"isFileFilled\";\n// ...\npub async fn is_file_filled(&self, file_id: [u8; 32]) -> Result<bool, ProviderError> {\n    self.contract\n        .query(IS_FILE_FILLED, (file_id,), None, web3::contract::Options::default(), None)\n        .await\n}",
+      "code_snippet_after": "const IS_FILE_FILLED: &str = \"isFileFilled\";\nconst IS_FILE_FILLED_V2: &str = \"isFileFilledV2\";\n// ...\npub async fn is_file_filled(&self, file_id: [u8; 32]) -> Result<bool, ProviderError> {\n    self.contract\n        .query(IS_FILE_FILLED, (file_id,), None, web3::contract::Options::default(), None)\n        .await\n}\npub async fn is_file_filled_v2(&self, file_id: [u8; 32]) -> Result<bool, ProviderError> {\n    self.contract\n        .query(IS_FILE_FILLED_V2, (file_id,), None, web3::contract::Options::default(), None)\n        .await\n}"
+    },
+    {
+      "id": "CHANGE-3",
+      "title": "Reflect PolicyFactory removal in contract deployment",
+      "priority": "medium",
+      "go_files": ["private/ipc/client.go", "private/ipc/contracts/policy_factory.go"],
+      "target_files": ["src/blockchain/provider.rs", "src/blockchain/mod.rs"],
+      "description": "Go v0.4.4 removed policy_factory.go entirely. The DeployContracts function in Go no longer deploys a PolicyFactory. Any Rust-side contract deployment code that deploys or references a PolicyFactory should be removed. If there is no PolicyFactory in the Rust codebase, this change may be a no-op.",
+      "current_state": "Unknown — the Rust codebase does not appear to have a policy_factory module or any explicit reference to PolicyFactory in the files inspected. This change is documented for completeness.",
+      "required_change": "Search src/blockchain/ for any file referencing 'policy_factory', 'PolicyFactory', or 'deploy_policy'. If found, remove those references. The contract deployment flow should deploy: AkaveToken → Storage implementation → ERC1967Proxy(Storage) → grant minter role to proxy → AccessManager → call SetAccessManager on the proxy. No ListPolicy or PolicyFactory deployment should occur in the standard deployment path. TestDeployListPolicy (or equivalent) may remain for testing only.",
+      "priority": "medium"
+    }
+  ],
+  "contract_updates": [
+    {
+      "contract": "Storage",
+      "abi_file": "private/ipc/contracts/storage.go",
+      "added_functions": [
+        {
+          "name": "isFileFilledV2",
+          "inputs": [{"name": "fileId", "type": "bytes32"}],
+          "outputs": [{"name": "", "type": "bool"}],
+          "selector": "computed from keccak256('isFileFilledV2(bytes32)')[0:4]"
+        }
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "encoding_notes": "isFileFilledV2 takes a bytes32 file ID and returns a bool. It is a view function (no state change). In Rust: takes [u8; 32], returns bool. This is a separate function from isFileFilled — both remain available."
+    },
+    {
+      "contract": "PolicyFactory",
+      "abi_file": "private/ipc/contracts/policy_factory.go (REMOVED — 408 lines deleted)",
+      "added_functions": [],
+      "removed_functions": [
+        {
+          "name": "PolicyFactory (entire contract binding)",
+          "inputs": [],
+          "outputs": [],
+          "selector": "N/A"
+        }
+      ],
+      "modified_functions": [],
+      "encoding_notes": "The entire PolicyFactory contract Go binding was removed. Errors CloneArgumentsTooLong and Create2EmptyBytecode previously emitted by this contract are still mapped in Go's errors.go for backward compatibility. These error selectors should still be handled in Rust contract_errors.rs (covered by CHANGE-1)."
+    }
+  ],
+  "test_updates": [
+    {
+      "id": "TEST-1",
+      "go_test_function": "TestContracts",
+      "go_file": "private/ipc/client_test.go",
+      "type": "integration",
+      "description": "Integration test verifying contract deployment no longer includes PolicyFactory. The test calls DeployContracts and verifies Storage + AccessManager are properly linked.",
+      "port_instructions": "1. In Rust integration tests (tests/ directory), verify any test that calls the contract deployment equivalent does NOT expect a PolicyFactory to be deployed. 2. If a test previously asserted that a policy_factory address was returned from deployment, remove that assertion. 3. Add or update an integration test that calls is_file_filled_v2 on a known file ID and verifies it returns a boolean without error (this validates CHANGE-2).",
+      "dependencies": ["CHANGE-2", "CHANGE-3"]
+    },
+    {
+      "id": "TEST-2",
+      "go_test_function": "TestLatestBlockNumber",
+      "go_file": "private/ipc/client_test.go",
+      "type": "integration",
+      "description": "Verifies LatestBlockNumber returns a block number > 0, a non-zero timestamp, and a non-empty hash. No dependency on PolicyFactory.",
+      "port_instructions": "1. Ensure the Rust equivalent test (if it exists) for latest_block_number does not reference any policy factory. 2. The test should: call client.latest_block_number(), assert number > 0, assert time is not zero/epoch, assert hash is not all-zeros.",
+      "dependencies": []
+    }
+  ]
+}
