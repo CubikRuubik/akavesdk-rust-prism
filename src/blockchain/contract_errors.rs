@@ -4,6 +4,7 @@ use alloy::sol_types::SolError;
 // All custom errors declared in the storage contract ABI.
 sol! {
     error AddressEmptyCode(address target);
+    error AlreadyWhitelisted();
     error BlockAlreadyExists();
     error BlockAlreadyFilled();
     error BlockInvalid();
@@ -13,7 +14,10 @@ sol! {
     error BucketInvalidOwner();
     error BucketNonempty();
     error BucketNonexists();
+    error BucketNotFound();
     error ChunkCIDMismatch(bytes fileCID);
+    error CloneArgumentsTooLong();
+    error Create2EmptyBytecode();
     error ECDSAInvalidSignature();
     error ECDSAInvalidSignatureLength(uint256 length);
     error ECDSAInvalidSignatureS(bytes32 s);
@@ -22,13 +26,16 @@ sol! {
     error FailedCall();
     error FileAlreadyExists();
     error FileChunkDuplicate();
+    error FileDoesNotExist();
     error FileFullyUploaded();
     error FileInvalid();
     error FileNameDuplicate();
+    error FileNonexists();
     error FileNonempty();
     error FileNotExists();
     error FileNotFilled();
     error IndexMismatch();
+    error InvalidAddress();
     error InvalidArrayLength(uint256 cidsLength, uint256 sizesLength);
     error InvalidBlockIndex();
     error InvalidBlocksAmount();
@@ -40,9 +47,16 @@ sol! {
     error InvalidLastBlockSize();
     error InvalidPeerIndex();
     error LastChunkDuplicate();
+    error MathOverflowedMulDiv();
+    error NoPolicy();
     error NoPeersForCID();
+    error NonceAlreadyUsed();
+    error NotBucketOwner();
     error NotEligibleToUpgrade();
     error NotInitializing();
+    error NotSignedByBucketOwner();
+    error NotThePolicyOwner();
+    error NotWhitelisted();
     error OffsetOutOfBounds();
     error TooManyBlockCIDs();
     error UUPSUnauthorizedCallContext();
@@ -66,6 +80,7 @@ pub fn decode_revert_reason(data: &[u8]) -> Option<String> {
 
     match_selectors!(
         AddressEmptyCode,
+        AlreadyWhitelisted,
         BlockAlreadyExists,
         BlockAlreadyFilled,
         BlockInvalid,
@@ -75,7 +90,10 @@ pub fn decode_revert_reason(data: &[u8]) -> Option<String> {
         BucketInvalidOwner,
         BucketNonempty,
         BucketNonexists,
+        BucketNotFound,
         ChunkCIDMismatch,
+        CloneArgumentsTooLong,
+        Create2EmptyBytecode,
         ECDSAInvalidSignature,
         ECDSAInvalidSignatureLength,
         ECDSAInvalidSignatureS,
@@ -84,13 +102,16 @@ pub fn decode_revert_reason(data: &[u8]) -> Option<String> {
         FailedCall,
         FileAlreadyExists,
         FileChunkDuplicate,
+        FileDoesNotExist,
         FileFullyUploaded,
         FileInvalid,
         FileNameDuplicate,
+        FileNonexists,
         FileNonempty,
         FileNotExists,
         FileNotFilled,
         IndexMismatch,
+        InvalidAddress,
         InvalidArrayLength,
         InvalidBlockIndex,
         InvalidBlocksAmount,
@@ -102,9 +123,16 @@ pub fn decode_revert_reason(data: &[u8]) -> Option<String> {
         InvalidLastBlockSize,
         InvalidPeerIndex,
         LastChunkDuplicate,
+        MathOverflowedMulDiv,
+        NoPolicy,
         NoPeersForCID,
+        NonceAlreadyUsed,
+        NotBucketOwner,
         NotEligibleToUpgrade,
         NotInitializing,
+        NotSignedByBucketOwner,
+        NotThePolicyOwner,
+        NotWhitelisted,
         OffsetOutOfBounds,
         TooManyBlockCIDs,
         UUPSUnauthorizedCallContext,
@@ -131,4 +159,16 @@ pub fn decode_revert_reason(data: &[u8]) -> Option<String> {
 pub fn extract_error_from_message(msg: &str) -> Option<String> {
     let rest = msg.strip_prefix("execution reverted: ")?;
     Some(rest.trim_end_matches("()").to_string())
+}
+
+/// Maps `OffsetOutOfBounds` errors to `None`, passing all other errors through unchanged.
+///
+/// This is used in resumable upload paths where an out-of-bounds offset simply
+/// means there is no data at that position, which is a benign condition.
+pub fn ignore_offset_error<T>(result: Result<T, String>) -> Option<Result<T, String>> {
+    match result {
+        Ok(v) => Some(Ok(v)),
+        Err(ref e) if e.contains("OffsetOutOfBounds") => None,
+        Err(e) => Some(Err(e)),
+    }
 }

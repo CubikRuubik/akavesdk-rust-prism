@@ -5,12 +5,16 @@ use std::sync::Arc;
 // External crate imports (general)
 use web3::{
     contract::{Contract, Options},
+    ethabi::Token,
     types::{TransactionReceipt, H160, U256},
     Error,
 };
 
 // Internal imports
-use super::ipc_types::{BucketIndexResult, BucketResponse, FileIndexResult, FileResponse};
+use super::ipc_types::{
+    BucketIndexResult, BucketList, BucketResponse, FileIndexResult, FileResponse,
+    FillChunkBlockArgs,
+};
 use crate::{
     blockchain::provider::{BlockchainProvider, ProviderError},
     log_debug, log_error, log_info,
@@ -47,14 +51,19 @@ const CREATE_BUCKET: &str = "createBucket";
 const DELETE_BUCKET: &str = "deleteBucket";
 const GET_BUCKET_BY_NAME: &str = "getBucketByName";
 const GET_BUCKET_INDEX_BY_NAME: &str = "getBucketIndexByName";
+const GET_BUCKETS_BY_IDS: &str = "getBucketsByIds";
+const GET_BUCKETS_BY_IDS_WITH_FILES: &str = "getBucketsByIdsWithFiles";
 const ADD_FILE_CHUNK: &str = "addFileChunk";
 const ADD_FILE_CHUNKS: &str = "addFileChunks";
 const COMMIT_FILE: &str = "commitFile";
 const CREATE_FILE: &str = "createFile";
 const DELETE_FILE: &str = "deleteFile";
+const FILL_CHUNK_BLOCK: &str = "fillChunkBlock";
+const FILL_CHUNK_BLOCKS: &str = "fillChunkBlocks";
 const GET_FILE_INDEX_BY_NAME: &str = "getFileIndexById";
 const GET_FILE_BY_NAME: &str = "getFileByName";
 const IS_FILE_FILLED: &str = "isFileFilled";
+const IS_FILE_FILLED_V2: &str = "isFileFilledV2";
 
 #[derive(Clone)]
 pub struct FileStorageContract {
@@ -441,5 +450,97 @@ impl FileStorageContract {
             .await
             .map_err(ProviderError::ContractCallError)?;
         Ok(result)
+    }
+
+    /// Queries whether a file is fully uploaded using the v2 selector (takes `fileId: bytes32`).
+    pub async fn is_file_filled_v2(&self, file_id: [u8; 32]) -> Result<bool, ProviderError> {
+        let result: bool = self
+            .contract
+            .query(IS_FILE_FILLED_V2, file_id, None, Options::default(), None)
+            .await
+            .map_err(ProviderError::ContractCallError)?;
+        Ok(result)
+    }
+
+    /// Returns bucket metadata for each of the given bucket IDs.
+    pub async fn get_buckets_by_ids(
+        &self,
+        ids: Vec<[u8; 32]>,
+    ) -> Result<Vec<BucketResponse>, ProviderError> {
+        let address = self.client.get_address().await?;
+        let result: BucketList = self
+            .contract
+            .query(
+                GET_BUCKETS_BY_IDS,
+                (ids,),
+                address,
+                Options::default(),
+                None,
+            )
+            .await
+            .map_err(ProviderError::ContractCallError)?;
+        Ok(result.0)
+    }
+
+    /// Returns bucket metadata (with paginated file lists) for the given bucket IDs.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn get_buckets_by_ids_with_files(
+        &self,
+        ids: Vec<[u8; 32]>,
+        bucket_offset: U256,
+        bucket_limit: U256,
+        file_offset: U256,
+        file_limit: U256,
+    ) -> Result<Vec<BucketResponse>, ProviderError> {
+        let address = self.client.get_address().await?;
+        let result: BucketList = self
+            .contract
+            .query(
+                GET_BUCKETS_BY_IDS_WITH_FILES,
+                (ids, bucket_offset, bucket_limit, file_offset, file_limit),
+                address,
+                Options::default(),
+                None,
+            )
+            .await
+            .map_err(ProviderError::ContractCallError)?;
+        Ok(result.0)
+    }
+
+    /// Submits a single `FillChunkBlockArgs` transaction to the Storage contract.
+    pub async fn fill_chunk_block(
+        &self,
+        args: FillChunkBlockArgs,
+    ) -> Result<TransactionReceipt, ProviderError> {
+        log_debug!("Filling chunk block (single): {:?}", args.block_cid);
+        let params = vec![args.into_tuple_token()];
+        let result = self
+            .client
+            .call_contract_with_confirmations(&self.contract, FILL_CHUNK_BLOCK, params, None)
+            .await;
+        match &result {
+            Ok(_) => log_info!("Chunk block filled successfully"),
+            Err(e) => log_error!("Failed to fill chunk block: {}", e),
+        }
+        result
+    }
+
+    /// Submits a batch of `FillChunkBlockArgs` in a single transaction.
+    pub async fn fill_chunk_blocks(
+        &self,
+        args: Vec<FillChunkBlockArgs>,
+    ) -> Result<TransactionReceipt, ProviderError> {
+        log_debug!("Filling {} chunk blocks (batch)", args.len());
+        let tuple_tokens: Vec<Token> = args.into_iter().map(|a| a.into_tuple_token()).collect();
+        let params = vec![Token::Array(tuple_tokens)];
+        let result = self
+            .client
+            .call_contract_with_confirmations(&self.contract, FILL_CHUNK_BLOCKS, params, None)
+            .await;
+        match &result {
+            Ok(_) => log_info!("Chunk blocks batch filled successfully"),
+            Err(e) => log_error!("Failed to fill chunk blocks batch: {}", e),
+        }
+        result
     }
 }

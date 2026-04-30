@@ -4,6 +4,57 @@ use web3::{
     types::{Address, U256},
 };
 
+/// Arguments for the `fillChunkBlock` / `fillChunkBlocks` contract functions.
+#[derive(Debug, Clone)]
+pub struct FillChunkBlockArgs {
+    pub block_cid: [u8; 32],
+    pub node_id: [u8; 32],
+    pub bucket_id: [u8; 32],
+    pub chunk_index: U256,
+    pub nonce: U256,
+    /// Solidity `uint8` — must fit in one byte.
+    pub block_index: u8,
+    pub file_name: String,
+    pub signature: Vec<u8>,
+    pub deadline: U256,
+}
+
+impl FillChunkBlockArgs {
+    /// Encode this value as the Solidity `FillChunkBlockArgs` tuple token.
+    pub fn into_tuple_token(self) -> Token {
+        Token::Tuple(vec![
+            Token::FixedBytes(self.block_cid.to_vec()),
+            Token::FixedBytes(self.node_id.to_vec()),
+            Token::FixedBytes(self.bucket_id.to_vec()),
+            Token::Uint(self.chunk_index),
+            Token::Uint(self.nonce),
+            Token::Uint(U256::from(self.block_index)),
+            Token::String(self.file_name),
+            Token::Bytes(self.signature),
+            Token::Uint(self.deadline),
+        ])
+    }
+}
+
+/// Wraps `Vec<BucketResponse>` so it can be decoded from a contract query
+/// that returns a Solidity `Bucket[]` (i.e. `Token::Array` of `Token::Tuple`s).
+pub struct BucketList(pub Vec<BucketResponse>);
+
+impl Detokenize for BucketList {
+    fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
+        match tokens.as_slice() {
+            [Token::Array(items)] => {
+                let buckets = items
+                    .iter()
+                    .map(|t| BucketResponse::from_tokens(vec![t.clone()]))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(BucketList(buckets))
+            }
+            _ => Err(web3::contract::Error::InterfaceUnsupported),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct BucketIndexResult {
     pub index: U256,
@@ -13,7 +64,10 @@ pub struct BucketIndexResult {
 impl Detokenize for BucketIndexResult {
     fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
         if let [Token::Uint(index), Token::Bool(exists)] = tokens.as_slice() {
-            Ok(Self { index: *index, exists: *exists })
+            Ok(Self {
+                index: *index,
+                exists: *exists,
+            })
         } else {
             Err(web3::contract::Error::InterfaceUnsupported)
         }
@@ -29,7 +83,10 @@ pub struct FileIndexResult {
 impl Detokenize for FileIndexResult {
     fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
         if let [Token::Uint(index), Token::Bool(exists)] = tokens.as_slice() {
-            Ok(Self { index: *index, exists: *exists })
+            Ok(Self {
+                index: *index,
+                exists: *exists,
+            })
         } else {
             Err(web3::contract::Error::InterfaceUnsupported)
         }
