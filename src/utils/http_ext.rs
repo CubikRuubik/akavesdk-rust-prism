@@ -8,9 +8,7 @@ pub async fn range_download(
     length: i64,
 ) -> Result<Vec<u8>, AkaveError> {
     if length <= 0 {
-        return Err(AkaveError::InvalidInput(
-            "length must be positive".into(),
-        ));
+        return Err(AkaveError::InvalidInput("length must be positive".into()));
     }
     if offset < 0 {
         return Err(AkaveError::InvalidInput(

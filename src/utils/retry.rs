@@ -80,7 +80,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_with_retry_success_on_first_attempt() {
-        let retry = WithRetry { max_attempts: 3, base_delay: Duration::from_millis(1) };
+        let retry = WithRetry {
+            max_attempts: 3,
+            base_delay: Duration::from_millis(1),
+        };
         let calls = Arc::new(Mutex::new(0usize));
         let c = calls.clone();
         let (_tx, rx) = make_cancel();
@@ -99,7 +102,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_with_retry_failure_without_retry() {
-        let retry = WithRetry { max_attempts: 3, base_delay: Duration::from_millis(1) };
+        let retry = WithRetry {
+            max_attempts: 3,
+            base_delay: Duration::from_millis(1),
+        };
         let calls = Arc::new(Mutex::new(0usize));
         let c = calls.clone();
         let (_tx, rx) = make_cancel();
@@ -118,7 +124,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_with_retry_retry_and_success() {
-        let retry = WithRetry { max_attempts: 3, base_delay: Duration::from_millis(1) };
+        let retry = WithRetry {
+            max_attempts: 3,
+            base_delay: Duration::from_millis(1),
+        };
         let calls = Arc::new(Mutex::new(0usize));
         let c = calls.clone();
         let (_tx, rx) = make_cancel();
@@ -146,7 +155,10 @@ mod tests {
     #[tokio::test]
     async fn test_with_retry_exceeds_max_attempts() {
         // MaxAttempts=2 → 1 initial + 2 retries = 3 total calls
-        let retry = WithRetry { max_attempts: 2, base_delay: Duration::from_millis(1) };
+        let retry = WithRetry {
+            max_attempts: 2,
+            base_delay: Duration::from_millis(1),
+        };
         let calls = Arc::new(Mutex::new(0usize));
         let c = calls.clone();
         let (_tx, rx) = make_cancel();
@@ -175,7 +187,9 @@ mod tests {
             let _ = cancel_tx.send(true);
         });
         let result: Result<(), RetryError<String>> = retry
-            .do_retry(cancel_rx, || async { Err((true, "always fails".to_string())) })
+            .do_retry(cancel_rx, || async {
+                Err((true, "always fails".to_string()))
+            })
             .await;
         let err_str = match &result {
             Err(e) => e.to_string(),
@@ -190,7 +204,10 @@ mod tests {
     #[tokio::test]
     async fn test_with_retry_max_attempts_zero() {
         // MaxAttempts=0 → no retries, single call then fail
-        let retry = WithRetry { max_attempts: 0, base_delay: Duration::from_millis(1) };
+        let retry = WithRetry {
+            max_attempts: 0,
+            base_delay: Duration::from_millis(1),
+        };
         let calls = Arc::new(Mutex::new(0usize));
         let c = calls.clone();
         let (_tx, rx) = make_cancel();

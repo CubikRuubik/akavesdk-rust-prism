@@ -860,7 +860,11 @@ fn wallet_create(a: WalletCreateArgs) -> (String, String, bool) {
         );
     }
     if let Err(e) = std::fs::write(&wallet_path, info.to_string()) {
-        return (String::new(), format!("failed to write wallet file: {e}"), false);
+        return (
+            String::new(),
+            format!("failed to write wallet file: {e}"),
+            false,
+        );
     }
     (
         format!(
@@ -2889,10 +2893,8 @@ mod tests {
             .into_owned();
         let wallet_name = random_name("wallet");
 
-        let (stdout, stderr, ok) = run_from_args(&[
-            "wallet", "create", &wallet_name, "--keystore", &keystore,
-        ])
-        .await;
+        let (stdout, stderr, ok) =
+            run_from_args(&["wallet", "create", &wallet_name, "--keystore", &keystore]).await;
         let combined = stdout + &stderr;
         assert!(ok, "wallet create failed: {combined}");
         assert!(
@@ -2900,21 +2902,29 @@ mod tests {
             "unexpected output: {combined}"
         );
 
-        let (stdout, stderr, ok) = run_from_args(&[
-            "wallet", "list", "--keystore", &keystore,
-        ])
-        .await;
+        let (stdout, stderr, ok) =
+            run_from_args(&["wallet", "list", "--keystore", &keystore]).await;
         let combined = stdout + &stderr;
         assert!(ok, "wallet list failed: {combined}");
-        assert!(combined.contains(&wallet_name), "name not in list: {combined}");
+        assert!(
+            combined.contains(&wallet_name),
+            "name not in list: {combined}"
+        );
 
         let (stdout, stderr, ok) = run_from_args(&[
-            "wallet", "export-key", &wallet_name, "--keystore", &keystore,
+            "wallet",
+            "export-key",
+            &wallet_name,
+            "--keystore",
+            &keystore,
         ])
         .await;
         let combined = stdout + &stderr;
         assert!(ok, "wallet export-key failed: {combined}");
-        assert!(combined.contains("Private key:"), "no private key in output: {combined}");
+        assert!(
+            combined.contains("Private key:"),
+            "no private key in output: {combined}"
+        );
 
         let _ = std::fs::remove_dir_all(&keystore);
     }

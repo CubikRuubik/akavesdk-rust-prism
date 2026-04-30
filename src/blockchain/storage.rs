@@ -55,6 +55,7 @@ const DELETE_FILE: &str = "deleteFile";
 const GET_FILE_INDEX_BY_NAME: &str = "getFileIndexById";
 const GET_FILE_BY_NAME: &str = "getFileByName";
 const IS_FILE_FILLED: &str = "isFileFilled";
+const IS_FILE_FILLED_V2: &str = "isFileFilledV2";
 
 #[derive(Clone)]
 pub struct FileStorageContract {
@@ -122,6 +123,16 @@ impl FileStorageContract {
         let result: bool = self
             .contract
             .query(IS_FILE_FILLED, file_id, None, Options::default(), None)
+            .await
+            .map_err(ProviderError::ContractCallError)?;
+        Ok(result)
+    }
+
+    /// Checks whether all blocks of a file have been filled (v2 variant).
+    pub async fn is_file_filled_v2(&self, file_id: [u8; 32]) -> Result<bool, ProviderError> {
+        let result: bool = self
+            .contract
+            .query(IS_FILE_FILLED_V2, file_id, None, Options::default(), None)
             .await
             .map_err(ProviderError::ContractCallError)?;
         Ok(result)

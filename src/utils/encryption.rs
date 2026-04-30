@@ -152,7 +152,11 @@ impl Encryption {
     }
 
     /// Decrypts data encrypted with encrypt_deterministic (nonce at start of ciphertext).
-    pub fn decrypt_deterministic(&self, data: &[u8], info: &[u8]) -> Result<Vec<u8>, EncryptionError> {
+    pub fn decrypt_deterministic(
+        &self,
+        data: &[u8],
+        info: &[u8],
+    ) -> Result<Vec<u8>, EncryptionError> {
         let gcm = self.make_gcm_cipher(info)?;
 
         if data.len() < GCM_NONCE_SIZE {
@@ -290,7 +294,11 @@ mod tests {
             let data: Vec<u8> = (0..size).map(|j| (j % 251) as u8).collect();
             let encrypted = enc.encrypt(&data, format!("{i}").as_bytes()).unwrap();
 
-            assert_ne!(&data[..10], &encrypted[..10], "encrypted data should differ from plaintext");
+            assert_ne!(
+                &data[..10],
+                &encrypted[..10],
+                "encrypted data should differ from plaintext"
+            );
             let overhead = encrypted.len() - data.len();
             println!(
                 "Data size: {}, Encrypted size: {}, overhead: {}",
