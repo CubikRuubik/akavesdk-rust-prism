@@ -18,6 +18,8 @@ safe-outputs:
   add-comment:
     max: 1
   noop:
+  write-file:
+    paths: ["change_plans/**"]
 ---
 
 # Rust Sync From Golang PR
@@ -44,23 +46,60 @@ Before doing anything else, determine whether this PR was created by an automate
 
 ## Implementation Rules
 
-1. Treat the triggering PR body as the source of truth for required changes.
+1. Treat the `change_plan_<N>` file as the source of truth for required changes.
 2. Read `.github/rust-instructions.md` before editing and treat it as the coding standard for Rust changes in this repository.
 3. Make focused edits in Rust-related files, such as `src/**/*.rs`, `Cargo.toml`, and `README.md` only when required by the change.
 4. Keep changes minimal and avoid unrelated refactors.
-5. If requirements are ambiguous, infer the most conservative implementation and document assumptions in the PR body.
+5. If requirements are ambiguous, infer the most conservative implementation and document assumptions in the change summary file.
+6. If the change plan includes deleted, renamed, or refactored files on the Go side, apply the equivalent structural change in Rust — remove or restructure the corresponding Rust code rather than leaving orphaned code behind.
+
+## Formatting
+
+Run `cargo fmt` **only on files you have actually modified**. Never run it on the entire repository.
+
+```bash
+# Format only the files you changed, e.g.:
+rustfmt src/blockchain/storage.rs src/blockchain/ipc_types.rs
+```
+
+Do not run `cargo fmt` or `rustfmt` on any file you did not edit as part of this task.
 
 ## Validation
 
-Run these checks after making changes:
+Run these checks after making changes, **in order**:
 
 ```bash
-cargo fmt
-cargo check
+cargo build
 cargo test
 ```
 
+`cargo build` must succeed before pushing. If it fails, fix the errors — do not push a branch that does not compile. If you cannot fix the build confidently, call `add-comment` instead of pushing (see Output Behavior).
+
 If tests do not exist, still run `cargo test` and report the result.
+
+## Change Summary
+
+After completing all tasks (or deciding to skip them), create a file at `change_plans/summary_<N>.md` where `<N>` matches the change plan number. The file must contain one section per task from the change plan:
+
+- **Done**: one-sentence description of what was changed and which files were affected.
+- **Skipped**: why the task did not require a Rust change (e.g. "Go-only tooling change", "JSON artifact already up to date", "no Rust equivalent exists").
+
+Example structure:
+
+```markdown
+# Change Summary for change_plan_<N>
+
+## CHANGE-1
+Skipped — Makefile tooling change with no Rust equivalent.
+
+## CHANGE-2
+Done — Added `fill_chunk_blocks`, `get_block_peers_of_chunk`, and `get_buckets_by_ids_with_files` to `src/blockchain/storage.rs` with supporting types in `src/blockchain/ipc_types.rs`.
+
+## CHANGE-3
+Skipped — `storage.json` ABI artifact already up to date in this repository.
+```
+
+Include this file in the push.
 
 ## Staging Changes
 
@@ -85,10 +124,10 @@ When you finish:
      - The exact failing check(s)
      - Next action required from maintainers
 3. If changes are made and checks pass:
-   - Push the changes directly to the triggering PR branch using `push-to-pull-request-branch`.
+   - Push the changes (including `change_plans/summary_<N>.md`) to the triggering PR branch using `push-to-pull-request-branch`.
    - Call `add-comment` on the triggering PR with:
      - A concise summary of implemented changes
-     - Validation output summary for `cargo check` and `cargo test`
+     - Validation output summary for `cargo build` and `cargo test`
 
 ## Safety
 
