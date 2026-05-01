@@ -18,8 +18,6 @@ safe-outputs:
   add-comment:
     max: 1
   noop:
-  write-file:
-    paths: ["change_plans/**"]
 ---
 
 # Rust Sync From Golang PR
