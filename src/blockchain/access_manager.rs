@@ -46,6 +46,7 @@ const DELEGATE_ACCESS: &str = "delegateAccess";
 const GET_FILE_ACCESS_INFO: &str = "getFileAccessInfo";
 const GET_POLICY: &str = "getPolicy";
 const GET_VALIDATE_ACCESS: &str = "getValidateAccess";
+const GET_VALIDATE_ACCESS_TO_BUCKET: &str = "getValidateAccessToBucket";
 const IS_BUCKET_OWNER_OR_DELEGATE: &str = "isBucketOwnerOrDelegate";
 const REMOVE_ACCESS: &str = "removeAccess";
 const SET_BUCKET_POLICY: &str = "setBucketPolicy";
@@ -162,6 +163,27 @@ impl AccessManagerContract {
             .query(
                 GET_VALIDATE_ACCESS,
                 (file_id, user, data),
+                address,
+                Options::default(),
+                None,
+            )
+            .await
+            .map_err(ProviderError::ContractCallError)
+    }
+
+    /// Validates whether the given user can access the specified bucket, using the policy contract.
+    pub async fn get_validate_access_to_bucket(
+        &self,
+        bucket_id: [u8; 32],
+        user: H160,
+        data: Vec<u8>,
+    ) -> Result<bool, ProviderError> {
+        log_debug!("Validating access for bucket: {:?}", bucket_id);
+        let address = self.client.get_address().await?;
+        self.contract
+            .query(
+                GET_VALIDATE_ACCESS_TO_BUCKET,
+                (bucket_id, user, data),
                 address,
                 Options::default(),
                 None,

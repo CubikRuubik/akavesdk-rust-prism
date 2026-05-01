@@ -168,3 +168,6 @@ ctor = "0.4.1"
 env_logger = "0.11.7"
 test-log = "0.2.17"
 # -----------------------------------------
+
+[patch.crates-io]
+alloy-consensus = { path = "patches/alloy-consensus" }

@@ -89,7 +89,41 @@ mod native_support {
     pub use tokio_stream::{self, StreamExt};
     pub use tonic::transport::{Channel, ClientTlsConfig};
     pub type ClientTransport = Channel;
-    // Add more native-specific imports/types here if needed
+
+    use std::collections::HashMap;
+    use tokio::sync::RwLock;
+
+    use super::{AkaveError, IpcNodeApiClient};
+
+    pub struct NodeConnectionPool {
+        clients: RwLock<HashMap<String, IpcNodeApiClient<ClientTransport>>>,
+    }
+
+    impl NodeConnectionPool {
+        pub fn new() -> Self {
+            Self {
+                clients: RwLock::new(HashMap::new()),
+            }
+        }
+
+        pub async fn get_or_connect(
+            &self,
+            node_address: &str,
+        ) -> Result<IpcNodeApiClient<ClientTransport>, AkaveError> {
+            {
+                let clients = self.clients.read().await;
+                if let Some(client) = clients.get(node_address) {
+                    return Ok(client.clone());
+                }
+            }
+            let client = super::AkaveSDK::get_client_for_node_address(node_address).await?;
+            let mut clients = self.clients.write().await;
+            Ok(clients
+                .entry(node_address.to_string())
+                .or_insert(client)
+                .clone())
+        }
+    }
 }
 #[cfg(not(target_arch = "wasm32"))]
 use native_support::*;
@@ -120,6 +154,8 @@ pub struct AkaveSDK {
     max_concurrent_blocks: usize,
     batch_size: usize,
     chain_id: U256,
+    #[cfg(not(target_arch = "wasm32"))]
+    node_pool: Arc<NodeConnectionPool>,
 }
 
 /// Builder for AkaveSDK
@@ -408,6 +444,7 @@ impl AkaveSDK {
                 max_concurrent_blocks,
                 batch_size,
                 chain_id,
+                node_pool: Arc::new(NodeConnectionPool::new()),
             })
         }
     }
@@ -995,6 +1032,8 @@ impl AkaveSDK {
                         deadline_secs as i64,
                         Some(ipc_chunk.clone()),
                         block_part_size,
+                        #[cfg(not(target_arch = "wasm32"))]
+                        self.node_pool.clone(),
                     )
                     .await
                     .map_err(|e| {
@@ -1176,6 +1215,7 @@ impl AkaveSDK {
         deadline: i64,
         chunk: Option<IpcChunk>,
         block_part_size: usize,
+        #[cfg(not(target_arch = "wasm32"))] node_pool: Arc<NodeConnectionPool>,
     ) -> Result<(), AkaveError> {
         let data_len = data.len();
         if data_len == 0 {
@@ -1257,9 +1297,7 @@ impl AkaveSDK {
                 block_index,
                 node_address
             );
-            let mut node_client = AkaveSDK::get_client_for_node_address(node_address)
-                .await
-                .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
+            let mut node_client = node_pool.get_or_connect(node_address).await?;
             match node_client.file_upload_block(stream).await {
                 Ok(response) => {
                     eprintln!(
@@ -1557,11 +1595,15 @@ impl AkaveSDK {
 
             // --- Concurrent block downloads inside the chunk ---
             let mut block_futures = Vec::new();
+            #[cfg(not(target_arch = "wasm32"))]
+            let node_pool = self.node_pool.clone();
             for (block_index, block) in chunk_download.blocks.into_iter().enumerate() {
                 let address = address.clone();
                 let chunk_cid = chunk_download.cid.clone();
                 let bucket_name = bucket_name.clone();
                 let file_name = file_name.clone();
+                #[cfg(not(target_arch = "wasm32"))]
+                let node_pool = node_pool.clone();
 
                 block_futures.push(async move {
                     let mut chunk_data = vec![];
@@ -1582,6 +1624,9 @@ impl AkaveSDK {
                     eprintln!("[DOWNLOAD] block_cid={} chunk_cid={} chunk_index={} block_index={} node={}",
                         req.block_cid, req.chunk_cid, req.chunk_index, req.block_index, block.node_address);
 
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let mut node_client = node_pool.get_or_connect(&block.node_address).await?;
+                    #[cfg(target_arch = "wasm32")]
                     let mut node_client =
                         AkaveSDK::get_client_for_node_address(&block.node_address)
                             .await
@@ -1756,6 +1801,8 @@ impl AkaveSDK {
                     let bucket_name = bucket_name.clone();
                     let file_name = file_name.clone();
                     let semaphore = semaphore.clone();
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let node_pool = self_clone.node_pool.clone();
 
                     block_futures.push(async move {
                         // Acquire semaphore permit to limit concurrency
@@ -1778,6 +1825,9 @@ impl AkaveSDK {
                             chunk_index
                         );
 
+                        #[cfg(not(target_arch = "wasm32"))]
+                        let mut node_client = node_pool.get_or_connect(&block.node_address).await?;
+                        #[cfg(target_arch = "wasm32")]
                         let mut node_client =
                             AkaveSDK::get_client_for_node_address(&block.node_address)
                                 .await

@@ -58,9 +58,13 @@ fn build(dir: &Path, proto: &str, target_arch: String) {
 
     #[cfg(feature = "vendored-protox")]
     {
+        use protox::prost::Message as ProtoxMessage;
         let file_descriptors = protox::compile([source.clone()], ["proto/".to_string()]).unwrap();
-        std::fs::write(&descriptor_file, file_descriptors.encode_to_vec()).unwrap();
-        conf.skip_protoc_run();
+        std::fs::write(
+            &descriptor_file,
+            ProtoxMessage::encode_to_vec(&file_descriptors),
+        )
+        .unwrap();
     }
 
     // Determine if we're building for WASM
@@ -71,6 +75,11 @@ fn build(dir: &Path, proto: &str, target_arch: String) {
 
     // Configure protobuf code generation
     let mut conf = tonic_build::configure();
+
+    #[cfg(feature = "vendored-protox")]
+    {
+        conf = conf.skip_protoc_run();
+    }
 
     // Common configuration for both WASM and non-WASM
     conf = conf
