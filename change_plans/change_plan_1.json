@@ -1,0 +1,267 @@
+{
+  "meta": {
+    "source_repo": "akavesdk (Go)",
+    "target_repo": "CubikRuubik/akavesdk-rust-prism",
+    "base_tag": "760c3da",
+    "target_tag": "8b66e30",
+    "created_at": "2026-05-01T08:40:50Z",
+    "description": "Sync from akave repo tag v0.4.4: remove PolicyFactory contract, promote connection pool to SDK level, add error sentinel variables, update Storage and AccessManager ABIs, remove legacy NodeAPI proto files"
+  },
+  "execution_order": [
+    "CHANGE-1: Update AccessManager contract ABI — apply first as downstream changes depend on the new ABI",
+    "CHANGE-2: Update Storage contract ABI — apply before error and logic changes",
+    "CHANGE-3: Add missing contract error types to error decoder — apply after ABI updates",
+    "CHANGE-4: Remove PolicyFactory contract support — apply after error types are in place",
+    "CHANGE-5: Promote connection pool to SDK-level shared field — apply after contract changes",
+    "CHANGE-6: Rename DeployListPolicy to TestDeployListPolicy and update implementation — apply after connection pool",
+    "CHANGE-7: Remove legacy NodeAPI proto / gRPC service — apply last as it is low-impact for Rust",
+    "CHANGE-8: Add Block test helper — apply last as it is test-only"
+  ],
+  "changes": [
+    {
+      "id": "CHANGE-1",
+      "title": "Update AccessManager contract ABI",
+      "priority": "high",
+      "go_files": [
+        "private/ipc/contracts/access_manager.go"
+      ],
+      "target_files": [
+        "src/blockchain/access_manager.json",
+        "src/blockchain/access_manager.rs"
+      ],
+      "description": "The AccessManager contract ABI (and bytecode) was updated. The Go binding in access_manager.go had its ABI string replaced with a new version. The Rust repo stores the ABI in access_manager.json and generates Rust bindings from it. The JSON file and any hand-written wrapper code must be updated to match the new ABI.",
+      "current_state": "src/blockchain/access_manager.json declares the following ABI errors: BucketNotFound, FileDoesNotExist, InvalidAddress, NoDelegatedAccess, NoPolicy, NotBucketOwner. The Rust binding in src/blockchain/access_manager.rs wraps a web3::contract::Contract and exposes methods such as get_validate_access, get_validate_access_to_bucket, delegate_access, remove_access, set_file_policy, set_bucket_policy, change_public_access, get_file_access_info, get_policy, is_bucket_owner_or_delegate, set_storage_contract, storageContract.",
+      "required_change": "1. Obtain the updated AccessManager ABI from the Go source file private/ipc/contracts/access_manager.go (the ABI string is the value of the `ABI` field of `AccessManagerMetaData`). 2. Replace the contents of src/blockchain/access_manager.json with the new ABI array. 3. Review src/blockchain/access_manager.rs to ensure all function signatures still match the new ABI. 4. If any function was added, removed, or had its input/output types changed, update the corresponding Rust method accordingly.",
+      "code_snippet_before": "-\tABI: \"[{\\\"inputs\\\":[{\\\"internalType\\\":\\\"address\\\",\\\"name\\\":\\\"storageAddress\\\",\\\"type\\\":\\\"address\\\"}], ...old ABI string... }]\"",
+      "code_snippet_after": "+\tABI: \"[{\\\"inputs\\\":[{\\\"internalType\\\":\\\"address\\\",\\\"name\\\":\\\"storageAddress\\\",\\\"type\\\":\\\"address\\\"}], ...new ABI string (see go source)... }]\""
+    },
+    {
+      "id": "CHANGE-2",
+      "title": "Update Storage contract ABI",
+      "priority": "high",
+      "go_files": [
+        "private/ipc/contracts/storage.go"
+      ],
+      "target_files": [
+        "src/blockchain/storage.json",
+        "src/blockchain/storage.rs"
+      ],
+      "description": "The Storage contract ABI was updated with 23 additions and 2 deletions in the Go binding file. The Rust repo stores the ABI in storage.json. The new ABI must be extracted from the updated Go file and applied to the Rust repo.",
+      "current_state": "src/blockchain/storage.json exists and defines the Storage contract ABI. src/blockchain/storage.rs wraps it via web3::contract::Contract with methods like create_bucket, delete_bucket, get_bucket, create_file, commit_file, add_file_blocks, fill_chunk_block, get_file, etc.",
+      "required_change": "1. Obtain the updated Storage ABI from the Go source file private/ipc/contracts/storage.go (the ABI string is the value of the `ABI` field of `StorageMetaData`). 2. Replace the contents of src/blockchain/storage.json with the new ABI array. 3. Review src/blockchain/storage.rs to ensure all function signatures still match. 4. Update any function signatures that have changed input or output types.",
+      "code_snippet_before": "var StorageMetaData = &bind.MetaData{\n\tABI: \"[... old ABI ...]\",",
+      "code_snippet_after": "var StorageMetaData = &bind.MetaData{\n\tABI: \"[... new ABI with updated error types and functions ...]\","
+    },
+    {
+      "id": "CHANGE-3",
+      "title": "Add missing contract error types to error decoder",
+      "priority": "critical",
+      "go_files": [
+        "private/ipc/errors.go"
+      ],
+      "target_files": [
+        "src/blockchain/contract_errors.rs"
+      ],
+      "description": "The Go errors.go was refactored to expose all contract errors as named sentinel variables instead of inline errors.New() calls. This makes 45 named errors available for comparison (errors.Is). The Rust equivalent is contract_errors.rs which uses alloy::sol! to declare typed errors and match their 4-byte ABI selectors. The Rust file is missing several error types that the Go code handles: NoPolicy, NotBucketOwner, BucketNotFound, FileDoesNotExist, NotThePolicyOwner, CloneArgumentsTooLong, Create2EmptyBytecode, AlreadyWhitelisted, InvalidAddress, NotWhitelisted, MathOverflowedMulDiv, NotSignedByBucketOwner, NonceAlreadyUsed. These errors have concrete 4-byte selector hashes in the Go code.",
+      "current_state": "src/blockchain/contract_errors.rs declares the following errors in its sol! macro block:\n```rust\nsol! {\n    error AddressEmptyCode(address target);\n    error BlockAlreadyExists();\n    error BlockAlreadyFilled();\n    error BlockInvalid();\n    error BlockNonexists();\n    error BucketAlreadyExists();\n    error BucketInvalid();\n    error BucketInvalidOwner();\n    error BucketNonempty();\n    error BucketNonexists();\n    error ChunkCIDMismatch(bytes fileCID);\n    error ECDSAInvalidSignature();\n    error ECDSAInvalidSignatureLength(uint256 length);\n    error ECDSAInvalidSignatureS(bytes32 s);\n    error ERC1967InvalidImplementation(address implementation);\n    error ERC1967NonPayable();\n    error FailedCall();\n    error FileAlreadyExists();\n    error FileChunkDuplicate();\n    error FileFullyUploaded();\n    error FileInvalid();\n    error FileNameDuplicate();\n    error FileNonempty();\n    error FileNotExists();\n    error FileNotFilled();\n    error IndexMismatch();\n    error InvalidArrayLength(uint256 cidsLength, uint256 sizesLength);\n    error InvalidBlockIndex();\n    error InvalidBlocksAmount();\n    error InvalidEncodedSize();\n    error InvalidFileBlocksCount();\n    error InvalidFileCID();\n    error InvalidImplementation();\n    error InvalidInitialization();\n    error InvalidLastBlockSize();\n    error InvalidPeerIndex();\n    error LastChunkDuplicate();\n    error NoPeersForCID();\n    error NotEligibleToUpgrade();\n    error NotInitializing();\n    error OffsetOutOfBounds();\n    error TooManyBlockCIDs();\n    error UUPSUnauthorizedCallContext();\n    error UUPSUnsupportedProxiableUUID(bytes32 slot);\n    error WrongAuthority();\n}\n```\nThe `decode_revert_reason` and `match_selectors!` macro also only covers these types.",
+      "required_change": "1. Add the following error declarations inside the `sol! { ... }` block in src/blockchain/contract_errors.rs:\n   - `error NoPolicy();`  (selector 0xcefa6b05)\n   - `error NotBucketOwner();`  (selector 0x0d6b18f0)\n   - `error BucketNotFound();`  (selector 0xc4c1a0c5)\n   - `error FileDoesNotExist();`  (selector 0x3bcbb0de)\n   - `error NotThePolicyOwner();`  (selector 0xa2c09fea)\n   - `error CloneArgumentsTooLong();`  (selector 0xa67bef4e)\n   - `error Create2EmptyBytecode();`  (selector 0x03f8e008)\n   - `error AlreadyWhitelisted();`  (selector 0x2a89dc37)\n   - `error InvalidAddress();`  (selector 0x8baa579f)\n   - `error NotWhitelisted();`  (selector 0xd01a7b2e)\n   - `error MathOverflowedMulDiv();`  (selector 0x6a3e2ce2)\n   - `error NotSignedByBucketOwner();`  (selector 0x3b1adfdf)\n   - `error NonceAlreadyUsed();`  (selector 0xb3cbc23e)\n2. Add each new type to the `match_selectors!( ... )` macro call in `decode_revert_reason`.\n3. Verify: the Rust SELECTOR constant for each type should equal the 4-byte hash from Go errors.go switch. Cross-check at least two: `NoPolicy::SELECTOR` should equal `[0xce, 0xfa, 0x6b, 0x05]` and `BucketNotFound::SELECTOR` should equal `[0xc4, 0xc1, 0xa0, 0xc5]`.",
+      "code_snippet_before": "// From private/ipc/errors.go (before this commit, inline):\ncase \"0xcefa6b05\":\n    return errors.New(\"NoPolicy\")\ncase \"0x0d6b18f0\":\n    return errors.New(\"NotBucketOwner\")\ncase \"0xc4c1a0c5\":\n    return errors.New(\"BucketNotFound\")",
+      "code_snippet_after": "// From private/ipc/errors.go (after this commit, sentinel):\ncase \"0xcefa6b05\":\n    return ErrNoPolicy\ncase \"0x0d6b18f0\":\n    return ErrNotBucketOwner\ncase \"0xc4c1a0c5\":\n    return ErrBucketNotFound"
+    },
+    {
+      "id": "CHANGE-4",
+      "title": "Remove PolicyFactory contract support",
+      "priority": "critical",
+      "go_files": [
+        "private/ipc/contracts/policy_factory.go",
+        "private/ipc/client.go"
+      ],
+      "target_files": [],
+      "description": "The PolicyFactory contract (408 lines of Go bindings) was completely removed. The Config struct lost the PolicyFactoryContractAddress field. The Client struct lost PolicyFactory, ListPolicyAbi, and PolicyFactoryAbi fields. ContractsAddresses lost the PolicyFactory field. The Dial() function no longer loads policy ABIs or instantiates PolicyFactory. DeployContracts() no longer deploys ListPolicy or PolicyFactory. The function DeployListPolicy() was renamed to TestDeployListPolicy() and its implementation changed to deploy ListPolicy directly (not via factory).",
+      "current_state": "Rust SDK (src/sdk.rs, src/blockchain/) has no PolicyFactory references. Grep for 'policy_factory', 'PolicyFactory' returns zero results in the Rust source. This change is already aligned.",
+      "required_change": "No action required. The Rust SDK does not implement PolicyFactory. Verify by running: `grep -rn 'policy_factory\\|PolicyFactory' src/` — this should return no results.",
+      "code_snippet_before": "// From private/ipc/client.go (removed fields):\ntype Config struct {\n    DialURI                      string\n    PrivateKey                   string\n    StorageContractAddress       string\n    AccessContractAddress        string\n    PolicyFactoryContractAddress string  // <-- removed\n}\ntype Client struct {\n    Storage          *contracts.Storage\n    AccessManager    *contracts.AccessManager\n    PolicyFactory    *contracts.PolicyFactory  // <-- removed\n    ListPolicyAbi    *abi.ABI                  // <-- removed\n    PolicyFactoryAbi *abi.ABI                  // <-- removed\n    Auth             *bind.TransactOpts\n    Eth              *ethclient.Client\n    Addresses        ContractsAddresses\n    chainID          *big.Int\n}\ntype ContractsAddresses struct {\n    Storage       string\n    AccessManager string\n    PolicyFactory string  // <-- removed\n}",
+      "code_snippet_after": "// From private/ipc/client.go (after removal):\ntype Config struct {\n    DialURI                string\n    PrivateKey             string\n    StorageContractAddress string\n    AccessContractAddress  string\n}\ntype Client struct {\n    Storage       *contracts.Storage\n    AccessManager *contracts.AccessManager\n    Auth          *bind.TransactOpts\n    Eth           *ethclient.Client\n    Addresses     ContractsAddresses\n    chainID       *big.Int\n}\ntype ContractsAddresses struct {\n    Storage       string\n    AccessManager string\n}"
+    },
+    {
+      "id": "CHANGE-5",
+      "title": "Promote connection pool to SDK-level shared field",
+      "priority": "high",
+      "go_files": [
+        "sdk/sdk.go",
+        "sdk/sdk_ipc.go"
+      ],
+      "target_files": [
+        "src/sdk.rs"
+      ],
+      "description": "Previously, each call to Upload(), Download(), DownloadArchival(), and ArchivalMetadata() created a local connectionPool and deferred its close. Now a single connectionPool is created when the SDK is constructed and stored as a field on both SDK and IPC structs. The pool's lifetime matches the SDK lifetime and is closed by SDK.Close(). The SDK struct no longer holds a direct pb.NodeAPIClient; IPC struct no longer holds a *grpc.ClientConn. All internal methods that previously accepted a pool argument now access it via the receiver (sdk.pool).",
+      "current_state": "In src/sdk.rs the AkaveSDK struct holds:\n```rust\npub struct AkaveSDK {\n    client: IpcNodeApiClient<ClientTransport>,\n    storage: FileStorageContract,\n    access_manager: AccessManagerContract,\n    erasure_code: Option<utils::erasure::ErasureCode>,\n    ...\n}\n```\nThe client field is a direct gRPC client, not a pool. There is no separate connection pool abstraction. The `create_ipc_client` helper (line ~1942) creates a new client per call for block-level uploads.",
+      "required_change": "1. Introduce a connection pool struct (e.g. `ConnectionPool`) in src/sdk.rs or a new src/connection_pool.rs file. The pool should map node addresses (String) to cached gRPC clients (IpcNodeApiClient or IpcArchivalApiClient). 2. Add a `pool: Arc<ConnectionPool>` (or equivalent thread-safe wrapper) field to AkaveSDK in place of or alongside the existing `client` field. 3. Modify the `create_ipc_client` and `create_archival_client` helpers to use the pool instead of creating clients on each call. 4. Add pool cleanup in any Drop implementation or explicit close() method for AkaveSDK. 5. The constructor (AkaveSDKBuilder::build) should initialize the pool. 6. Note: the existing `client` field on AkaveSDK is used for the main node calls (metadata, bucket ops, file ops). This is the equivalent of the Go SDK's primary gRPC connection (sdk.conn). Do NOT remove this field — it is still needed. The pool is used only for per-block connections to individual storage node addresses.",
+      "code_snippet_before": "// sdk/sdk.go (before):\ntype SDK struct {\n    client     pb.NodeAPIClient  // direct client\n    conn       *grpc.ClientConn\n    ...\n}\nfunc (sdk *SDK) Close() error {\n    return sdk.conn.Close()\n}\n\n// sdk/sdk_ipc.go (before) — pool created per-operation:\npool := newConnectionPool()\ndefer func() {\n    if err := pool.close(); err != nil {\n        slog.Warn(\"failed to close connection\", ...)\n    }\n}()\n...\nif err := sdk.uploadChunk(chunkCtx, chunkUpload, pool, ...); err != nil { ... }",
+      "code_snippet_after": "// sdk/sdk.go (after):\ntype SDK struct {\n    conn       *grpc.ClientConn\n    httpClient *http.Client\n    ec         *erasurecode.ErasureCode\n    pool       *connectionPool  // SDK-level pool\n    ...\n}\nfunc (sdk *SDK) Close() error {\n    return errors.Join(sdk.conn.Close(), sdk.pool.close())\n}\n\n// sdk/sdk_ipc.go (after) — pool accessed via receiver:\nif err := sdk.uploadChunk(chunkCtx, chunkUpload, ...); err != nil { ... }\nfunc (sdk *IPC) uploadChunk(...) {\n    client, closer, err := sdk.pool.createIPCClient(block.NodeAddress, sdk.useConnectionPool)\n}"
+    },
+    {
+      "id": "CHANGE-6",
+      "title": "Rename DeployListPolicy to TestDeployListPolicy and update implementation",
+      "priority": "medium",
+      "go_files": [
+        "private/ipc/client.go",
+        "private/ipc/client_test.go"
+      ],
+      "target_files": [],
+      "description": "The method DeployListPolicy on the IPC client was renamed to TestDeployListPolicy to signal it is test-only. Its implementation was also simplified: instead of calling PolicyFactory.DeployPolicy and parsing the PolicyDeployed event to find the new contract address, it now directly deploys ListPolicy via contracts.DeployListPolicy, then calls listPolicy.Initialize(client.Auth, user) on the resulting instance.",
+      "current_state": "Rust SDK does not have a DeployListPolicy method. No action needed.",
+      "required_change": "No action required. The Rust SDK does not expose a DeployListPolicy or equivalent method. If a test helper exists in Rust that deploys a ListPolicy contract, it should be updated to call DeployListPolicy directly and then Initialize, rather than going through a factory. Verify: `grep -rn 'deploy_list_policy\\|DeployListPolicy' src/ tests/'` — if results appear, update them to deploy ListPolicy directly and call initialize(user_address).",
+      "code_snippet_before": "// private/ipc/client.go (old implementation):\nfunc (client *Client) DeployListPolicy(ctx context.Context, user common.Address) (*contracts.ListPolicy, error) {\n    abiByte, err := client.ListPolicyAbi.Pack(\"initialize\", user)\n    ...\n    tx, err := client.PolicyFactory.DeployPolicy(client.Auth, abiByte)\n    ...\n    r, err := client.Eth.TransactionReceipt(ctx, tx.Hash())\n    ...\n    // parse PolicyDeployed event to find contract address\n    eventHash := client.PolicyFactoryAbi.Events[\"PolicyDeployed\"].ID\n    for _, log := range r.Logs {\n        if log.Topics[0] == eventHash { policyInstance = ... }\n    }\n    listPolicy, err := contracts.NewListPolicy(policyInstance, client.Eth)\n    ...\n}",
+      "code_snippet_after": "// private/ipc/client.go (new implementation — TestDeployListPolicy):\nfunc (client *Client) TestDeployListPolicy(ctx context.Context, user common.Address) (*contracts.ListPolicy, error) {\n    _, tx, listPolicy, err := contracts.DeployListPolicy(client.Auth, client.Eth)\n    if err != nil { return nil, err }\n    if err := client.WaitForTx(ctx, tx.Hash()); err != nil { return nil, err }\n    tx, err = listPolicy.Initialize(client.Auth, user)\n    if err != nil { return nil, err }\n    ...\n    return listPolicy, nil\n}"
+    },
+    {
+      "id": "CHANGE-7",
+      "title": "Remove legacy NodeAPI proto / gRPC service",
+      "priority": "low",
+      "go_files": [
+        "private/pb/nodeapi.proto",
+        "private/pb/nodeapi.pb.go",
+        "private/pb/nodeapi_grpc.pb.go"
+      ],
+      "target_files": [],
+      "description": "The old NodeAPI gRPC service definition (3475 + 834 + 251 lines) was completely removed from the Go repo. This was a separate gRPC service distinct from the IPC Node API. The Rust repo already uses only ipcnodeapi.proto (confirmed: proto/ipcnodeapi.proto exists, no nodeapi.proto present). No action needed.",
+      "current_state": "The Rust repo proto/ directory contains only ipcnodeapi.proto. No nodeapi.proto or NodeAPI service is referenced anywhere in the Rust source.",
+      "required_change": "No action required. The Rust SDK was already using only the IPC Node API proto.",
+      "code_snippet_before": "// private/pb/nodeapi.proto (removed entirely — 251 lines defining service NodeAPI)",
+      "code_snippet_after": "// File deleted. Only private/pb/ipcnodeapi.proto (and its Rust equivalent proto/ipcnodeapi.proto) remains."
+    },
+    {
+      "id": "CHANGE-8",
+      "title": "Add Block test helper to testrand",
+      "priority": "low",
+      "go_files": [
+        "private/testrand/testrand.go"
+      ],
+      "target_files": [
+        "tests/"
+      ],
+      "description": "A new helper function Block(t, size) was added to the testrand package. It generates a random IPFS block (data + CIDv1/dag-pb/sha2-256 CID) of the given size. This is a test utility used by other test files.",
+      "current_state": "The Rust test utilities in tests/ do not have an equivalent generic block generator. Individual tests may create test data inline.",
+      "required_change": "Optionally add a test helper in the Rust test utilities that generates a random block with a valid CIDv1/DagPb/Sha2-256 CID. Pseudocode:\n1. Generate `size` random bytes.\n2. Compute sha2-256 multihash of the bytes.\n3. Create a CIDv1 with codec 0x70 (dag-pb) and the multihash.\n4. Return (data_bytes, cid_string). This helper is only needed if new tests require it.",
+      "code_snippet_before": "// private/testrand/testrand.go — function did not exist",
+      "code_snippet_after": "// private/testrand/testrand.go (added):\nfunc Block(t *testing.T, size memory.Size) blocks.Block {\n    t.Helper()\n    data := Bytes(t, size.ToInt64())\n    mh, err := multihash.Sum(data, multihash.SHA2_256, -1)\n    require.NoError(t, err)\n    c := cid.NewCidV1(cid.DagProtobuf, mh)\n    block, err := blocks.NewBlockWithCid(data, c)\n    require.NoError(t, err)\n    return block\n}"
+    },
+    {
+      "id": "CHANGE-9",
+      "title": "Update error message expectations in CLI tests",
+      "priority": "low",
+      "go_files": [
+        "cmd/akavecli/storage_test.go"
+      ],
+      "target_files": [
+        "tests/"
+      ],
+      "description": "Several integration tests that expected the error string 'failed to get bucket: not found' or 'file not exists' were updated to expect 'BucketNotFound' — the exact string from the error sentinel. This is a consequence of CHANGE-3: errors now return named sentinels whose .Error() string is the contract error name.",
+      "current_state": "Rust integration tests (in tests/) may check error strings for bucket/file operations. The exact error message format depends on how the Rust SDK surfaces contract errors.",
+      "required_change": "1. Search for any Rust test that asserts on error message strings like 'not found', 'bucket not found', or 'file not exists'. 2. Update those assertions to expect the canonical contract error name (e.g. 'BucketNotFound', 'FileDoesNotExist') since the Go SDK now returns those exact strings from error sentinels. 3. Ensure the Rust SDK's decode_revert_reason (contract_errors.rs) returns the same canonical name string when it decodes a matching selector.",
+      "code_snippet_before": "// cmd/akavecli/storage_test.go (before):\nexpectedOutput: []string{\"failed to get bucket: not found\"},",
+      "code_snippet_after": "// cmd/akavecli/storage_test.go (after):\nexpectedOutput: []string{\"BucketNotFound\"},"
+    },
+    {
+      "id": "CHANGE-10",
+      "title": "Makefile and README updates",
+      "priority": "low",
+      "go_files": [
+        "Makefile",
+        "README.md"
+      ],
+      "target_files": [],
+      "description": "The Makefile was updated (9 additions, 13 deletions) and README was updated (2 additions, 127 deletions) to reflect v0.4.4 changes. These are documentation/build changes with no direct impact on the Rust SDK.",
+      "current_state": "The Rust repo has its own Makefile equivalents (Cargo commands) and README. These are independent.",
+      "required_change": "No action required. Review the README.md changes in the Go repo to understand if any API-level descriptions changed that should be reflected in the Rust README.",
+      "code_snippet_before": "N/A — documentation changes only",
+      "code_snippet_after": "N/A — documentation changes only"
+    },
+    {
+      "id": "CHANGE-11",
+      "title": "Dependency updates (go.mod / go.sum)",
+      "priority": "low",
+      "go_files": [
+        "go.mod",
+        "go.sum"
+      ],
+      "target_files": [
+        "Cargo.toml"
+      ],
+      "description": "go.mod had 301 additions and 49 deletions — significant dependency changes as part of the v0.4.4 update. go.sum was updated correspondingly. The Rust equivalent is Cargo.toml/Cargo.lock.",
+      "current_state": "Rust Cargo.toml defines dependencies independently. The Go dependency changes do not directly translate.",
+      "required_change": "Review go.mod changes for any new third-party libraries introduced (especially for Ethereum/gRPC interactions) to determine if equivalent Rust crates need to be added or updated. No automatic action; treat as informational.",
+      "code_snippet_before": "N/A — dependency manifest",
+      "code_snippet_after": "N/A — dependency manifest"
+    }
+  ],
+  "contract_updates": [
+    {
+      "contract": "AccessManager",
+      "abi_file": "src/blockchain/access_manager.json",
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [
+        {
+          "name": "AccessManagerMetaData (ABI string)",
+          "change_description": "The ABI string (and binary bytecode) was updated in Go's access_manager.go. 1 line added, 1 line removed. The Rust equivalent JSON file must be regenerated from the new ABI. The contract interface (functions, events, errors) appears unchanged based on the small diff size, but the bytecode changed, indicating a recompilation of the contract."
+        }
+      ],
+      "encoding_notes": "No type changes observed in the AccessManager ABI from this diff. The same functions (delegateAccess, removeAccess, getValidateAccess, etc.) and errors (BucketNotFound, FileDoesNotExist, InvalidAddress, NoDelegatedAccess, NoPolicy, NotBucketOwner) remain."
+    },
+    {
+      "contract": "Storage",
+      "abi_file": "src/blockchain/storage.json",
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [
+        {
+          "name": "StorageMetaData (ABI string)",
+          "change_description": "23 additions, 2 deletions in storage.go. The ABI string was updated. Likely new error types and/or function signatures were added. The Rust storage.json must be regenerated from the updated ABI string in storage.go."
+        }
+      ],
+      "encoding_notes": "Review the new ABI carefully for any parameter type changes (e.g. uint8 → uint256) that would affect wire encoding of function calls or event decoding."
+    },
+    {
+      "contract": "PolicyFactory",
+      "abi_file": "N/A — removed",
+      "added_functions": [],
+      "removed_functions": [
+        {
+          "name": "PolicyFactory (entire contract)",
+          "inputs": [],
+          "outputs": [],
+          "selector": "N/A"
+        }
+      ],
+      "modified_functions": [],
+      "encoding_notes": "PolicyFactory contract was entirely removed from the Go repo. The Rust SDK has no PolicyFactory — no action needed."
+    }
+  ],
+  "test_updates": [
+    {
+      "id": "TEST-1",
+      "go_test_function": "TestContracts",
+      "go_file": "private/ipc/client_test.go",
+      "type": "integration",
+      "description": "Integration test that deploys contracts and verifies end-to-end contract interactions. Updated to call TestDeployListPolicy instead of DeployListPolicy. Verifies: (1) deploy ListPolicy directly, (2) call AssignRole on it, (3) call ValidateAccess and assert result is true.",
+      "port_instructions": "1. If a Rust integration test exists that deploys a ListPolicy, update it to not use PolicyFactory. 2. The test should: deploy ListPolicy directly (using contracts::DeployListPolicy equivalent), call initialize(user_address) on it, call assign_role(address), call validate_access(address, nil) and assert it returns true. 3. No PolicyFactory deployment or ABI packing is needed.",
+      "dependencies": [
+        "CHANGE-4",
+        "CHANGE-6"
+      ]
+    },
+    {
+      "id": "TEST-2",
+      "go_test_function": "TestExternalDeleteBucketCommand, TestExternalViewBucketCommand, TestExternalFileInfoCommand",
+      "go_file": "cmd/akavecli/storage_test.go",
+      "type": "integration",
+      "description": "CLI integration tests updated to expect 'BucketNotFound' error string instead of 'failed to get bucket: not found' or 'file not exists'. This reflects the new error sentinel naming.",
+      "port_instructions": "1. Search Rust integration tests for assertions on error strings: 'not found', 'bucket not found', 'file not exists'. 2. Replace with the canonical contract error name: 'BucketNotFound'. 3. Ensure the Rust error decoder (contract_errors.rs decode_revert_reason) returns exactly the string 'BucketNotFound' (and not 'BucketNotFound()') when it matches selector 0xc4c1a0c5.",
+      "dependencies": [
+        "CHANGE-3"
+      ]
+    }
+  ]
+}
