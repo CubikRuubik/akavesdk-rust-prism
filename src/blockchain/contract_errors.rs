@@ -1,9 +1,10 @@
 use alloy::sol;
 use alloy::sol_types::SolError;
 
-// All custom errors declared in the storage contract ABI.
+// All custom errors declared in the storage and access-manager contract ABIs.
 sol! {
     error AddressEmptyCode(address target);
+    error AlreadyWhitelisted();
     error BlockAlreadyExists();
     error BlockAlreadyFilled();
     error BlockInvalid();
@@ -13,7 +14,10 @@ sol! {
     error BucketInvalidOwner();
     error BucketNonempty();
     error BucketNonexists();
+    error BucketNotFound();
     error ChunkCIDMismatch(bytes fileCID);
+    error CloneArgumentsTooLong();
+    error Create2EmptyBytecode();
     error ECDSAInvalidSignature();
     error ECDSAInvalidSignatureLength(uint256 length);
     error ECDSAInvalidSignatureS(bytes32 s);
@@ -22,6 +26,7 @@ sol! {
     error FailedCall();
     error FileAlreadyExists();
     error FileChunkDuplicate();
+    error FileDoesNotExist();
     error FileFullyUploaded();
     error FileInvalid();
     error FileNameDuplicate();
@@ -29,6 +34,7 @@ sol! {
     error FileNotExists();
     error FileNotFilled();
     error IndexMismatch();
+    error InvalidAddress();
     error InvalidArrayLength(uint256 cidsLength, uint256 sizesLength);
     error InvalidBlockIndex();
     error InvalidBlocksAmount();
@@ -40,9 +46,16 @@ sol! {
     error InvalidLastBlockSize();
     error InvalidPeerIndex();
     error LastChunkDuplicate();
+    error MathOverflowedMulDiv();
+    error NonceAlreadyUsed();
     error NoPeersForCID();
+    error NoPolicy();
+    error NotBucketOwner();
     error NotEligibleToUpgrade();
     error NotInitializing();
+    error NotSignedByBucketOwner();
+    error NotThePolicyOwner();
+    error NotWhitelisted();
     error OffsetOutOfBounds();
     error TooManyBlockCIDs();
     error UUPSUnauthorizedCallContext();
@@ -66,6 +79,7 @@ pub fn decode_revert_reason(data: &[u8]) -> Option<String> {
 
     match_selectors!(
         AddressEmptyCode,
+        AlreadyWhitelisted,
         BlockAlreadyExists,
         BlockAlreadyFilled,
         BlockInvalid,
@@ -75,7 +89,10 @@ pub fn decode_revert_reason(data: &[u8]) -> Option<String> {
         BucketInvalidOwner,
         BucketNonempty,
         BucketNonexists,
+        BucketNotFound,
         ChunkCIDMismatch,
+        CloneArgumentsTooLong,
+        Create2EmptyBytecode,
         ECDSAInvalidSignature,
         ECDSAInvalidSignatureLength,
         ECDSAInvalidSignatureS,
@@ -84,6 +101,7 @@ pub fn decode_revert_reason(data: &[u8]) -> Option<String> {
         FailedCall,
         FileAlreadyExists,
         FileChunkDuplicate,
+        FileDoesNotExist,
         FileFullyUploaded,
         FileInvalid,
         FileNameDuplicate,
@@ -91,6 +109,7 @@ pub fn decode_revert_reason(data: &[u8]) -> Option<String> {
         FileNotExists,
         FileNotFilled,
         IndexMismatch,
+        InvalidAddress,
         InvalidArrayLength,
         InvalidBlockIndex,
         InvalidBlocksAmount,
@@ -102,9 +121,16 @@ pub fn decode_revert_reason(data: &[u8]) -> Option<String> {
         InvalidLastBlockSize,
         InvalidPeerIndex,
         LastChunkDuplicate,
+        MathOverflowedMulDiv,
+        NonceAlreadyUsed,
         NoPeersForCID,
+        NoPolicy,
+        NotBucketOwner,
         NotEligibleToUpgrade,
         NotInitializing,
+        NotSignedByBucketOwner,
+        NotThePolicyOwner,
+        NotWhitelisted,
         OffsetOutOfBounds,
         TooManyBlockCIDs,
         UUPSUnauthorizedCallContext,
