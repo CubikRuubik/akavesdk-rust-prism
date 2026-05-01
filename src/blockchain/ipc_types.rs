@@ -1,5 +1,5 @@
 use web3::{
-    contract::tokens::Detokenize,
+    contract::tokens::{Detokenize, Tokenizable},
     ethabi::Token,
     types::{Address, U256},
 };
@@ -13,7 +13,10 @@ pub struct BucketIndexResult {
 impl Detokenize for BucketIndexResult {
     fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
         if let [Token::Uint(index), Token::Bool(exists)] = tokens.as_slice() {
-            Ok(Self { index: *index, exists: *exists })
+            Ok(Self {
+                index: *index,
+                exists: *exists,
+            })
         } else {
             Err(web3::contract::Error::InterfaceUnsupported)
         }
@@ -29,7 +32,10 @@ pub struct FileIndexResult {
 impl Detokenize for FileIndexResult {
     fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
         if let [Token::Uint(index), Token::Bool(exists)] = tokens.as_slice() {
-            Ok(Self { index: *index, exists: *exists })
+            Ok(Self {
+                index: *index,
+                exists: *exists,
+            })
         } else {
             Err(web3::contract::Error::InterfaceUnsupported)
         }
@@ -197,6 +203,88 @@ impl Detokenize for IStorageChunk {
             } else {
                 Err(web3::contract::Error::InterfaceUnsupported)
             }
+        } else {
+            Err(web3::contract::Error::InterfaceUnsupported)
+        }
+    }
+}
+
+/// Arguments for a single block fill, used as elements in a `fillChunkBlocks` batch call.
+///
+/// Matches the `IStorage.FillChunkBlockArgs` Solidity struct.
+#[derive(Debug, Clone)]
+pub struct FillChunkBlockArgs {
+    pub block_cid: [u8; 32],
+    pub node_id: [u8; 32],
+    pub bucket_id: [u8; 32],
+    pub chunk_index: U256,
+    pub nonce: U256,
+    /// Encoded as `uint8` in the ABI — must not exceed 255.
+    pub block_index: u8,
+    pub file_name: String,
+    pub signature: Vec<u8>,
+    pub deadline: U256,
+}
+
+impl Tokenizable for FillChunkBlockArgs {
+    fn from_token(_token: Token) -> Result<Self, web3::contract::Error> {
+        // Decoding not required; this type is only encoded for contract calls.
+        Err(web3::contract::Error::InterfaceUnsupported)
+    }
+
+    fn into_token(self) -> Token {
+        Token::Tuple(vec![
+            Token::FixedBytes(self.block_cid.to_vec()),
+            Token::FixedBytes(self.node_id.to_vec()),
+            Token::FixedBytes(self.bucket_id.to_vec()),
+            Token::Uint(self.chunk_index),
+            Token::Uint(self.nonce),
+            Token::Uint(U256::from(self.block_index)),
+            Token::String(self.file_name),
+            Token::Bytes(self.signature),
+            Token::Uint(self.deadline),
+        ])
+    }
+}
+
+/// Decoded result from `getBlockPeersOfChunk`: an ordered list of node-ID bytes32 values.
+#[derive(Debug)]
+pub struct BlockPeersResult(pub Vec<[u8; 32]>);
+
+impl Detokenize for BlockPeersResult {
+    fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
+        if let [Token::Array(items)] = tokens.as_slice() {
+            let peers = items
+                .iter()
+                .map(|t| {
+                    if let Token::FixedBytes(bytes) = t {
+                        let mut arr = [0u8; 32];
+                        arr.copy_from_slice(bytes);
+                        Ok(arr)
+                    } else {
+                        Err(web3::contract::Error::InterfaceUnsupported)
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(BlockPeersResult(peers))
+        } else {
+            Err(web3::contract::Error::InterfaceUnsupported)
+        }
+    }
+}
+
+/// Decoded result from `getBucketsByIdsWithFiles`: a list of buckets with their file IDs.
+#[derive(Debug)]
+pub struct BucketListResult(pub Vec<BucketResponse>);
+
+impl Detokenize for BucketListResult {
+    fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
+        if let [Token::Array(items)] = tokens.as_slice() {
+            let buckets = items
+                .iter()
+                .map(|t| BucketResponse::from_tokens(vec![t.clone()]))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(BucketListResult(buckets))
         } else {
             Err(web3::contract::Error::InterfaceUnsupported)
         }

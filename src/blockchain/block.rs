@@ -49,7 +49,10 @@ mod tests {
     #[test]
     fn test_parse_block_from_json_null_block() {
         let result = parse_block_from_json("null");
-        assert!(result.is_ok(), "null block JSON should not be a parse error");
+        assert!(
+            result.is_ok(),
+            "null block JSON should not be a parse error"
+        );
         assert!(result.unwrap().is_none(), "null JSON should yield None");
     }
 
@@ -61,9 +64,7 @@ mod tests {
 
     #[test]
     fn test_parse_block_from_json_empty_transactions_and_uncles() {
-        let block = parse_block_from_json(VALID_BLOCK_JSON)
-            .unwrap()
-            .unwrap();
+        let block = parse_block_from_json(VALID_BLOCK_JSON).unwrap().unwrap();
         assert_eq!(block.transactions.len(), 0, "transactions should be empty");
         assert_eq!(block.uncles.len(), 0, "uncles should be empty");
     }

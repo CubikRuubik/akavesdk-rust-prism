@@ -48,6 +48,19 @@ sol! {
     error UUPSUnauthorizedCallContext();
     error UUPSUnsupportedProxiableUUID(bytes32 slot);
     error WrongAuthority();
+    // Access-manager / policy errors added in v0.4.4
+    error BucketNotFound();
+    error FileDoesNotExist();
+    error NotBucketOwner();
+    error NotThePolicyOwner();
+    error CloneArgumentsTooLong();
+    error Create2EmptyBytecode();
+    error AlreadyWhitelisted();
+    error InvalidAddress();
+    error NotWhitelisted();
+    error MathOverflowedMulDiv();
+    error NotSignedByBucketOwner();
+    error NonceAlreadyUsed();
 }
 
 /// Match the first 4 bytes of `data` against every known error selector and
@@ -110,6 +123,18 @@ pub fn decode_revert_reason(data: &[u8]) -> Option<String> {
         UUPSUnauthorizedCallContext,
         UUPSUnsupportedProxiableUUID,
         WrongAuthority,
+        BucketNotFound,
+        FileDoesNotExist,
+        NotBucketOwner,
+        NotThePolicyOwner,
+        CloneArgumentsTooLong,
+        Create2EmptyBytecode,
+        AlreadyWhitelisted,
+        InvalidAddress,
+        NotWhitelisted,
+        MathOverflowedMulDiv,
+        NotSignedByBucketOwner,
+        NonceAlreadyUsed,
     );
 
     // Standard `Error(string)` revert: selector 0x08c379a0

@@ -10,7 +10,10 @@ use web3::{
 };
 
 // Internal imports
-use super::ipc_types::{BucketIndexResult, BucketResponse, FileIndexResult, FileResponse};
+use super::ipc_types::{
+    BlockPeersResult, BucketIndexResult, BucketListResult, BucketResponse, FileIndexResult,
+    FileResponse, FillChunkBlockArgs,
+};
 use crate::{
     blockchain::provider::{BlockchainProvider, ProviderError},
     log_debug, log_error, log_info,
@@ -55,6 +58,9 @@ const DELETE_FILE: &str = "deleteFile";
 const GET_FILE_INDEX_BY_NAME: &str = "getFileIndexById";
 const GET_FILE_BY_NAME: &str = "getFileByName";
 const IS_FILE_FILLED: &str = "isFileFilled";
+const FILL_CHUNK_BLOCKS: &str = "fillChunkBlocks";
+const GET_BLOCK_PEERS_OF_CHUNK: &str = "getBlockPeersOfChunk";
+const GET_BUCKETS_BY_IDS_WITH_FILES: &str = "getBucketsByIdsWithFiles";
 
 #[derive(Clone)]
 pub struct FileStorageContract {
@@ -441,5 +447,73 @@ impl FileStorageContract {
             .await
             .map_err(ProviderError::ContractCallError)?;
         Ok(result)
+    }
+
+    /// Submits multiple block-fill proofs in a single batched transaction.
+    ///
+    /// Each element of `args` corresponds to one `IStorage.FillChunkBlockArgs` struct.
+    /// `blockIndex` inside each arg is encoded as `uint8` — values must fit in one byte.
+    pub async fn fill_chunk_blocks(
+        &self,
+        args: Vec<FillChunkBlockArgs>,
+    ) -> Result<TransactionReceipt, ProviderError> {
+        log_debug!("Filling {} chunk blocks (batch)", args.len());
+        let result = self
+            .client
+            .call_contract_with_confirmations(&self.contract, FILL_CHUNK_BLOCKS, (args,), None)
+            .await;
+        match &result {
+            Ok(_) => log_info!("Chunk blocks batch filled successfully"),
+            Err(e) => log_error!("Failed to fill chunk blocks batch: {}", e),
+        }
+        result
+    }
+
+    /// Returns the peer node IDs for the blocks of a given chunk, identified by their CIDs.
+    pub async fn get_block_peers_of_chunk(
+        &self,
+        block_cids: Vec<[u8; 32]>,
+        file_id: [u8; 32],
+        chunk_index: U256,
+    ) -> Result<Vec<[u8; 32]>, ProviderError> {
+        log_debug!("Getting block peers for chunk (file_id={:?})", file_id);
+        let address = self.client.get_address().await?;
+        let result: BlockPeersResult = self
+            .contract
+            .query(
+                GET_BLOCK_PEERS_OF_CHUNK,
+                (block_cids, file_id, chunk_index),
+                address,
+                Options::default(),
+                None,
+            )
+            .await
+            .map_err(ProviderError::ContractCallError)?;
+        Ok(result.0)
+    }
+
+    /// Returns buckets (with their file lists) for the given bucket IDs, with pagination.
+    pub async fn get_buckets_by_ids_with_files(
+        &self,
+        ids: Vec<[u8; 32]>,
+        bucket_offset: U256,
+        bucket_limit: U256,
+        file_offset: U256,
+        file_limit: U256,
+    ) -> Result<Vec<BucketResponse>, ProviderError> {
+        log_debug!("Getting buckets by IDs with files ({} IDs)", ids.len());
+        let address = self.client.get_address().await?;
+        let result: BucketListResult = self
+            .contract
+            .query(
+                GET_BUCKETS_BY_IDS_WITH_FILES,
+                (ids, bucket_offset, bucket_limit, file_offset, file_limit),
+                address,
+                Options::default(),
+                None,
+            )
+            .await
+            .map_err(ProviderError::ContractCallError)?;
+        Ok(result.0)
     }
 }
