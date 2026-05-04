@@ -1,0 +1,87 @@
+{
+  "meta": {
+    "source_repo": "CubikRuubik/akavesdk-prism",
+    "source_commit": "8b66e30659c79ae8e763744bc50ae0a0540cf899",
+    "target_repo": "CubikRuubik/akavesdk-rust-prism",
+    "created_at": "2026-05-04T14:14:25Z",
+    "description": "Sync from akave repo tag v0.4.4: PolicyFactory removed from deployment flow, Storage ABI updated for UUPS proxy pattern, error constants exported as sentinel vars, connection pool lifted to SDK struct level"
+  },
+  "execution_order": [
+    "CHANGE-1: Remove PolicyFactory from IPC client config, provider struct, and deployment — apply first as all downstream changes depend on it",
+    "CHANGE-2: Refactor error constants to exported sentinel variables — apply after CHANGE-1",
+    "CHANGE-3: Refactor connection pool lifecycle to SDK struct level — apply after CHANGE-1 and CHANGE-2"
+  ],
+  "changes": [
+    {
+      "id": "CHANGE-1",
+      "title": "Remove PolicyFactory contract from IPC client configuration and deployment flow",
+      "priority": "high",
+      "go_files": ["private/ipc/client.go"],
+      "target_files": ["src/blockchain/provider.rs"],
+      "description": "PolicyFactory was removed entirely from the IPC client. In the Config struct, the PolicyFactoryContractAddress field was removed. In the Client struct, the PolicyFactory, ListPolicyAbi, and PolicyFactoryAbi fields were removed. In ContractsAddresses, the PolicyFactory field was removed. The Dial function no longer creates a PolicyFactory contract binding. The DeployContracts function no longer deploys ListPolicy or PolicyFactory contracts — the deployment sequence now ends after deploying AkaveToken, Storage (via ERC1967Proxy), and AccessManager. The old DeployListPolicy method (which used the factory) was replaced by TestDeployListPolicy, which deploys a ListPolicy directly by calling its Initialize method. Read private/ipc/client.go at meta.source_commit for the authoritative new Config, Client, ContractsAddresses structures, and deployment sequence."
+    },
+    {
+      "id": "CHANGE-2",
+      "title": "Refactor error dispatch table to use exported sentinel error constants",
+      "priority": "medium",
+      "go_files": ["private/ipc/errors.go"],
+      "target_files": ["src/blockchain/contract_errors.rs"],
+      "description": "All error entries in the dispatch table were refactored from inline error construction inside a switch statement to package-level exported sentinel variables (e.g., ErrBucketNotFound, ErrOffsetOutOfBounds, ErrFileNotExists). No error names, 4-byte selectors, or error strings were added, removed, or modified — the set of 45 errors and their selectors are identical to the previous version. The IgnoreOffsetError helper was updated to use sentinel equality comparison (errors.Is) instead of string comparison. In the Rust target, expose errors as typed constants or an enum matching the Go sentinel pattern, and update any error comparisons that currently use string matching to use typed comparisons. Read private/ipc/errors.go at meta.source_commit for the authoritative list of error names and their 4-byte selectors."
+    },
+    {
+      "id": "CHANGE-3",
+      "title": "Lift connection pool lifecycle from per-operation to SDK struct level",
+      "priority": "medium",
+      "go_files": ["sdk/sdk.go", "sdk/sdk_ipc.go"],
+      "target_files": ["src/sdk.rs"],
+      "description": "The connection pool (used for connecting to storage nodes) was moved from per-operation creation to a persistent field on the IPC struct. Previously, Upload, DownloadArchival, and ArchivalMetadata each created a local connection pool and deferred its close. Now the pool is created once when the SDK is initialized and closed when SDK.Close() is called. In sdk.go, the IPC struct is initialized with a pool field instead of a conn field. Close() now closes both the main gRPC connection and the pool using error joining. In sdk_ipc.go, the IPC struct replaced its conn field with a pool field; internal methods uploadChunk, downloadChunkBlocks, downloadChunkBlocks2, resolveBlock, and fetchBlockData no longer accept a pool parameter and instead use sdk.pool directly. The gRPC import was removed from sdk_ipc.go. If the Rust SDK manages connection pools per-operation, update it to hold the pool for the lifetime of the SDK instance and close it on SDK drop/close."
+    }
+  ],
+  "contract_updates": [
+    {
+      "contract": "Storage",
+      "go_source_file": "private/ipc/contracts/storage.go",
+      "change_type": "updated",
+      "notes": "ABI updated with UUPS upgradeable proxy support. New functions added: initialize (accepts token address), proxiableUUID, upgradeToAndCall, token (returns IAkaveToken address). New errors and functions visible in the ABI. The contract is now deployed via ERC1967Proxy with an initialize call rather than directly. Read the full ABI from private/ipc/contracts/storage.go at meta.source_commit and replace src/blockchain/storage.json entirely."
+    },
+    {
+      "contract": "AccessManager",
+      "go_source_file": "private/ipc/contracts/access_manager.go",
+      "change_type": "updated",
+      "notes": "Minor ABI change (net +1/-1 line). Read the full ABI from private/ipc/contracts/access_manager.go at meta.source_commit and replace src/blockchain/access_manager.json entirely."
+    },
+    {
+      "contract": "PolicyFactory",
+      "go_source_file": "private/ipc/contracts/policy_factory.go",
+      "change_type": "removed",
+      "notes": "PolicyFactory contract file was deleted entirely from the Go source. No PolicyFactory ABI, bindings, or references should exist in the target repo. If any policy_factory.json or PolicyFactory type exists, remove it."
+    }
+  ],
+  "test_updates": [
+    {
+      "id": "TEST-1",
+      "go_test_function": "TestBucketOpsIPC",
+      "go_file": "cmd/akavecli/storage_test.go",
+      "type": "integration",
+      "description": "Error message assertions updated from transport-layer error strings to contract-level error names. Assertions that previously matched the string 'failed to get bucket: not found' now match 'BucketNotFound'. Assertions that previously matched 'file not exists' also now match 'BucketNotFound'. This reflects that the storage layer now surfaces contract errors directly rather than wrapping them in generic transport messages.",
+      "port_instructions": [
+        "1. Find integration tests for bucket and file operations that assert on error message strings.",
+        "2. Replace any assertion matching 'failed to get bucket: not found' or similar gRPC transport error strings with an assertion matching the error name 'BucketNotFound'.",
+        "3. Replace any assertion matching 'file not exists' with an assertion matching 'BucketNotFound'.",
+        "4. Prefer matching against typed error constants from contract_errors.rs rather than raw strings if the Rust codebase has typed errors after CHANGE-2 is applied."
+      ],
+      "dependencies": ["CHANGE-2"]
+    }
+  ],
+  "skipped_files": [
+    {"path": "Makefile", "reason": "build"},
+    {"path": "README.md", "reason": "documentation"},
+    {"path": "go.mod", "reason": "dependencies"},
+    {"path": "go.sum", "reason": "dependencies"},
+    {"path": "private/ipc/client_test.go", "reason": "other"},
+    {"path": "private/pb/nodeapi.pb.go", "reason": "generated"},
+    {"path": "private/pb/nodeapi.proto", "reason": "generated"},
+    {"path": "private/pb/nodeapi_grpc.pb.go", "reason": "generated"},
+    {"path": "private/testrand/testrand.go", "reason": "other"}
+  ]
+}
