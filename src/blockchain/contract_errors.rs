@@ -1,8 +1,9 @@
 use alloy::sol;
 use alloy::sol_types::SolError;
 
-// All custom errors declared in the storage contract ABI.
+// All custom errors declared in the storage and access manager contract ABIs.
 sol! {
+    // Storage contract errors
     error AddressEmptyCode(address target);
     error BlockAlreadyExists();
     error BlockAlreadyFilled();
@@ -48,6 +49,14 @@ sol! {
     error UUPSUnauthorizedCallContext();
     error UUPSUnsupportedProxiableUUID(bytes32 slot);
     error WrongAuthority();
+
+    // AccessManager contract errors (v0.4.4)
+    error BucketNotFound();
+    error FileDoesNotExist();
+    error InvalidAddress();
+    error NoDelegatedAccess();
+    error NoPolicy();
+    error NotBucketOwner();
 }
 
 /// Match the first 4 bytes of `data` against every known error selector and
@@ -75,6 +84,7 @@ pub fn decode_revert_reason(data: &[u8]) -> Option<String> {
         BucketInvalidOwner,
         BucketNonempty,
         BucketNonexists,
+        BucketNotFound,
         ChunkCIDMismatch,
         ECDSAInvalidSignature,
         ECDSAInvalidSignatureLength,
@@ -84,6 +94,7 @@ pub fn decode_revert_reason(data: &[u8]) -> Option<String> {
         FailedCall,
         FileAlreadyExists,
         FileChunkDuplicate,
+        FileDoesNotExist,
         FileFullyUploaded,
         FileInvalid,
         FileNameDuplicate,
@@ -91,6 +102,7 @@ pub fn decode_revert_reason(data: &[u8]) -> Option<String> {
         FileNotExists,
         FileNotFilled,
         IndexMismatch,
+        InvalidAddress,
         InvalidArrayLength,
         InvalidBlockIndex,
         InvalidBlocksAmount,
@@ -102,7 +114,10 @@ pub fn decode_revert_reason(data: &[u8]) -> Option<String> {
         InvalidLastBlockSize,
         InvalidPeerIndex,
         LastChunkDuplicate,
+        NoDelegatedAccess,
         NoPeersForCID,
+        NoPolicy,
+        NotBucketOwner,
         NotEligibleToUpgrade,
         NotInitializing,
         OffsetOutOfBounds,
