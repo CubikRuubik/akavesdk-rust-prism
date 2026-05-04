@@ -59,8 +59,10 @@ fn build(dir: &Path, proto: &str, target_arch: String) {
     #[cfg(feature = "vendored-protox")]
     {
         let file_descriptors = protox::compile([source.clone()], ["proto/".to_string()]).unwrap();
-        std::fs::write(&descriptor_file, file_descriptors.encode_to_vec()).unwrap();
-        conf.skip_protoc_run();
+        // Use protox's re-exported prost (0.12) Message trait via UFCS to avoid
+        // version conflict with our build-dependency on prost 0.13.
+        let bytes = protox::prost::Message::encode_to_vec(&file_descriptors);
+        std::fs::write(&descriptor_file, bytes).unwrap();
     }
 
     // Determine if we're building for WASM
@@ -120,6 +122,11 @@ fn build(dir: &Path, proto: &str, target_arch: String) {
 
     // Add any additional type-specific attributes
     conf = conf.type_attribute("routeguide.Point", "#[derive(Hash)]");
+
+    #[cfg(feature = "vendored-protox")]
+    {
+        conf = conf.skip_protoc_run();
+    }
 
     // Compile the protobuf definitions
     conf.compile_protos(&[source], &["proto/".to_string()])

@@ -94,7 +94,47 @@ mod native_support {
 #[cfg(not(target_arch = "wasm32"))]
 use native_support::*;
 
-// Constants
+// ==========================
+// Connection pool
+// ==========================
+use std::collections::HashMap;
+use tokio::sync::Mutex as TokioMutex;
+
+/// Caches gRPC client connections keyed by node address, avoiding repeated
+/// handshakes when the same storage node handles multiple block operations.
+#[derive(Clone)]
+struct ConnectionPool {
+    clients: Arc<TokioMutex<HashMap<String, IpcNodeApiClient<ClientTransport>>>>,
+}
+
+impl ConnectionPool {
+    fn new() -> Self {
+        Self {
+            clients: Arc::new(TokioMutex::new(HashMap::new())),
+        }
+    }
+
+    /// Returns a cached client for `node_address`, or creates and caches a new one.
+    async fn get_or_connect(
+        &self,
+        node_address: &str,
+    ) -> Result<IpcNodeApiClient<ClientTransport>, AkaveError> {
+        {
+            let map = self.clients.lock().await;
+            if let Some(client) = map.get(node_address) {
+                return Ok(client.clone());
+            }
+        }
+
+        let client = AkaveSDK::create_node_client(node_address).await?;
+
+        let mut map = self.clients.lock().await;
+        // Insert only if another task has not already populated it.
+        map.entry(node_address.to_string())
+            .or_insert_with(|| client.clone());
+        Ok(client)
+    }
+}
 const ENCRYPTION_OVERHEAD: usize = 32;
 const BLOCK_SIZE: usize = MB as usize;
 const MIN_BUCKET_NAME_LENGTH: usize = 3;
@@ -107,6 +147,7 @@ const BLOCK_PART_SIZE: usize = ByteSize::kb(128).as_u64() as usize;
 #[derive(Clone)]
 pub struct AkaveSDK {
     client: IpcNodeApiClient<ClientTransport>,
+    connection_pool: ConnectionPool,
     storage: FileStorageContract,
     access_manager: AccessManagerContract,
     erasure_code: Option<utils::erasure::ErasureCode>,
@@ -332,6 +373,7 @@ impl AkaveSDK {
             log_info!("AkaveSDK initialized successfully");
             Ok(Self {
                 client,
+                connection_pool: ConnectionPool::new(),
                 storage,
                 access_manager,
                 erasure_code,
@@ -395,6 +437,7 @@ impl AkaveSDK {
             log_info!("AkaveSDK initialized successfully");
             Ok(Self {
                 client,
+                connection_pool: ConnectionPool::new(),
                 storage,
                 access_manager,
                 erasure_code,
@@ -995,6 +1038,7 @@ impl AkaveSDK {
                         deadline_secs as i64,
                         Some(ipc_chunk.clone()),
                         block_part_size,
+                        self.connection_pool.clone(),
                     )
                     .await
                     .map_err(|e| {
@@ -1176,6 +1220,7 @@ impl AkaveSDK {
         deadline: i64,
         chunk: Option<IpcChunk>,
         block_part_size: usize,
+        pool: ConnectionPool,
     ) -> Result<(), AkaveError> {
         let data_len = data.len();
         if data_len == 0 {
@@ -1206,7 +1251,8 @@ impl AkaveSDK {
             };
 
             log_debug!("Uploading block {}", block_index);
-            let mut node_client = AkaveSDK::get_client_for_node_address(node_address)
+            let mut node_client = pool
+                .get_or_connect(node_address)
                 .await
                 .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
             eprintln!(
@@ -1257,7 +1303,8 @@ impl AkaveSDK {
                 block_index,
                 node_address
             );
-            let mut node_client = AkaveSDK::get_client_for_node_address(node_address)
+            let mut node_client = pool
+                .get_or_connect(node_address)
                 .await
                 .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
             match node_client.file_upload_block(stream).await {
@@ -1557,11 +1604,13 @@ impl AkaveSDK {
 
             // --- Concurrent block downloads inside the chunk ---
             let mut block_futures = Vec::new();
+            let pool = self.connection_pool.clone();
             for (block_index, block) in chunk_download.blocks.into_iter().enumerate() {
                 let address = address.clone();
                 let chunk_cid = chunk_download.cid.clone();
                 let bucket_name = bucket_name.clone();
                 let file_name = file_name.clone();
+                let pool = pool.clone();
 
                 block_futures.push(async move {
                     let mut chunk_data = vec![];
@@ -1583,7 +1632,7 @@ impl AkaveSDK {
                         req.block_cid, req.chunk_cid, req.chunk_index, req.block_index, block.node_address);
 
                     let mut node_client =
-                        AkaveSDK::get_client_for_node_address(&block.node_address)
+                        pool.get_or_connect(&block.node_address)
                             .await
                             .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
                     let mut stream = node_client
@@ -1749,6 +1798,7 @@ impl AkaveSDK {
 
                 // Create semaphore for concurrency limiting
                 let semaphore = Arc::new(Semaphore::new(self_clone.max_concurrent_blocks));
+                let pool = self_clone.connection_pool.clone();
 
                 for (block_index, block) in chunk_download.blocks.into_iter().enumerate() {
                     let address = address.clone();
@@ -1756,6 +1806,7 @@ impl AkaveSDK {
                     let bucket_name = bucket_name.clone();
                     let file_name = file_name.clone();
                     let semaphore = semaphore.clone();
+                    let pool = pool.clone();
 
                     block_futures.push(async move {
                         // Acquire semaphore permit to limit concurrency
@@ -1778,10 +1829,10 @@ impl AkaveSDK {
                             chunk_index
                         );
 
-                        let mut node_client =
-                            AkaveSDK::get_client_for_node_address(&block.node_address)
-                                .await
-                                .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
+                        let mut node_client = pool
+                            .get_or_connect(&block.node_address)
+                            .await
+                            .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
 
                         let mut stream = node_client
                             .file_download_block(req)
@@ -1937,7 +1988,8 @@ impl AkaveSDK {
         })
     }
 
-    async fn get_client_for_node_address(
+    /// Creates a fresh (uncached) gRPC client for the given node address.
+    async fn create_node_client(
         node_address: &str,
     ) -> Result<IpcNodeApiClient<ClientTransport>, AkaveError> {
         #[cfg(target_arch = "wasm32")]
