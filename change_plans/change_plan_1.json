@@ -1,0 +1,168 @@
+{
+  "meta": {
+    "source_repo": "CubikRuubik/akavesdk-prism",
+    "source_commit": "8b66e30659c79ae8e763744bc50ae0a0540cf899",
+    "target_repo": "CubikRuubik/akavesdk-rust-prism",
+    "created_at": "2026-05-04T14:44:53Z",
+    "description": "Sync from akave repo tag v0.4.4: remove PolicyFactory contract, refactor connection pool to struct field, export error sentinel values, update Storage and AccessManager ABIs"
+  },
+  "execution_order": [
+    "CHANGE-1: Remove PolicyFactoryContractAddress from IPC configuration struct — apply before any other client changes",
+    "CHANGE-2: Remove PolicyFactory, ListPolicyAbi, and PolicyFactoryAbi from IPC client struct and initialization — apply after CHANGE-1",
+    "CHANGE-3: Rename deploy-list-policy method to test-deploy-list-policy with simplified direct-deploy logic — apply after CHANGE-2",
+    "CHANGE-4: Move connection pool from per-operation local variable to persistent struct field; update close to also close pool; remove pool parameter from upload/download helpers — apply after CHANGE-3",
+    "CHANGE-5: Export all error values as named sentinel constants; update offset-out-of-bounds check to use identity comparison instead of string match — apply after CHANGE-4"
+  ],
+  "changes": [
+    {
+      "id": "CHANGE-1",
+      "title": "Remove PolicyFactoryContractAddress from IPC configuration struct",
+      "priority": "high",
+      "go_files": ["private/ipc/client.go"],
+      "target_files": ["src/sdk.rs"],
+      "description": "The PolicyFactoryContractAddress field was removed from the IPC client configuration struct (ContractsAddresses). Any equivalent field in the Rust configuration or connection-params struct that references the policy factory contract address should be removed."
+    },
+    {
+      "id": "CHANGE-2",
+      "title": "Remove PolicyFactory, ListPolicyAbi, and PolicyFactoryAbi from IPC client struct",
+      "priority": "high",
+      "go_files": ["private/ipc/client.go"],
+      "target_files": ["src/sdk.rs", "src/blockchain/mod.rs"],
+      "description": "The Client struct lost three fields: the PolicyFactory contract binding, the ListPolicyAbi ABI object, and the PolicyFactoryAbi ABI object. The initialization code that deployed or loaded the PolicyFactory contract (including DeployListPolicy and DeployPolicyFactory calls) was removed. Any Rust equivalent that holds a policy-factory contract reference or ABI handle should be removed. The PolicyFactory contract binding file was also deleted entirely (see contract_updates)."
+    },
+    {
+      "id": "CHANGE-3",
+      "title": "Rename DeployListPolicy to TestDeployListPolicy with simplified direct-deploy logic",
+      "priority": "medium",
+      "go_files": ["private/ipc/client.go"],
+      "target_files": ["src/sdk.rs"],
+      "description": "The DeployListPolicy method was renamed to TestDeployListPolicy. Its implementation was simplified: instead of using the PolicyFactory contract to deploy a ListPolicy through a factory pattern and then listening for a PolicyDeployed event to discover the new address, it now deploys a ListPolicy contract directly and calls Initialize on it. The old factory-mediated deployment flow (DeployPolicy call, transaction receipt inspection, event log parsing) was removed. Any Rust equivalent should be updated to reflect direct deployment followed by an initialize call."
+    },
+    {
+      "id": "CHANGE-4",
+      "title": "Move connection pool from per-operation local variable to persistent struct field",
+      "priority": "high",
+      "go_files": ["sdk/sdk.go", "sdk/sdk_ipc.go"],
+      "target_files": ["src/sdk.rs"],
+      "description": "The IPC SDK struct gained a persistent connection-pool field. Previously, a new connection pool was created at the start of each upload or download operation and closed (with a deferred cleanup) at the end. Now a single pool is created during SDK initialization and lives for the entire lifetime of the SDK instance. The Close method was updated to close both the main gRPC connection and the pool. The uploadChunk, resolveBlock, and fetchBlockData internal helpers no longer receive the pool as a parameter; they access it through the SDK struct receiver. Any Rust equivalent that manages per-operation gRPC connections should be refactored to use a shared, struct-level connection pool that is cleaned up on drop or explicit close."
+    },
+    {
+      "id": "CHANGE-5",
+      "title": "Export all error values as named sentinel constants and update offset-out-of-bounds check",
+      "priority": "medium",
+      "go_files": ["private/ipc/errors.go"],
+      "target_files": ["src/blockchain/contract_errors.rs"],
+      "description": "All error strings in the error dispatch table were extracted into exported package-level variables (e.g. ErrBucketAlreadyExists, ErrFileNonexists). The dispatch function now returns these named values instead of freshly constructed error objects. The IgnoreOffsetError helper was updated to compare the error by identity (errors.Is) rather than by string value. In Rust, the equivalent contract_errors module already uses typed error variants via the sol! macro; verify that the OffsetOutOfBounds check in any equivalent ignore-offset helper uses a type-based match rather than a string comparison, and ensure all error names in the dispatch table match those in private/ipc/errors.go at the source commit."
+    }
+  ],
+  "contract_updates": [
+    {
+      "contract": "Storage",
+      "go_source_file": "private/ipc/contracts/storage.go",
+      "change_type": "updated",
+      "notes": "ABI recompiled for v0.4.4; read full ABI from go_source_file at source_commit and replace src/blockchain/storage.json entirely"
+    },
+    {
+      "contract": "AccessManager",
+      "go_source_file": "private/ipc/contracts/access_manager.go",
+      "change_type": "updated",
+      "notes": "ABI updated for v0.4.4; read full ABI from go_source_file at source_commit and replace src/blockchain/access_manager.json entirely"
+    },
+    {
+      "contract": "PolicyFactory",
+      "go_source_file": "private/ipc/contracts/policy_factory.go",
+      "change_type": "removed",
+      "notes": "PolicyFactory contract binding was deleted entirely from the Go source. No equivalent file exists in the Rust repo; this entry confirms the removal is intentional and no action is needed in the target unless a policy_factory binding was added previously."
+    }
+  ],
+  "test_updates": [
+    {
+      "id": "TEST-1",
+      "go_test_function": "TestExternalDeleteBucketCommand",
+      "go_file": "cmd/akavecli/storage_test.go",
+      "type": "integration",
+      "description": "Verifies that CLI delete-bucket commands return the correct error code when the bucket does not exist. Assertions were updated from descriptive human-readable messages (e.g. 'failed to get bucket: not found') to raw contract error names (e.g. 'BucketNotFound').",
+      "port_instructions": [
+        "Find or create integration tests that call the delete-bucket CLI path with a non-existent bucket name.",
+        "Update expected error output strings from any human-readable wrapper messages to the contract error name 'BucketNotFound'.",
+        "Verify the Rust error-decoding path returns the bare error name string when the contract reverts with BucketNotFound."
+      ],
+      "dependencies": ["CHANGE-5"]
+    },
+    {
+      "id": "TEST-2",
+      "go_test_function": "TestExternalViewBucketCommand",
+      "go_file": "cmd/akavecli/storage_test.go",
+      "type": "integration",
+      "description": "Verifies that CLI view-bucket commands return 'BucketNotFound' when the bucket does not exist. Assertions changed from 'failed to get bucket: not found' to 'BucketNotFound'.",
+      "port_instructions": [
+        "Find or create integration tests for the view-bucket CLI path with a non-existent bucket.",
+        "Update expected error output to 'BucketNotFound'.",
+        "Ensure the Rust error decoding surface returns the contract error name directly."
+      ],
+      "dependencies": ["CHANGE-5"]
+    },
+    {
+      "id": "TEST-3",
+      "go_test_function": "TestExternalFileInfoCommand",
+      "go_file": "cmd/akavecli/storage_test.go",
+      "type": "integration",
+      "description": "Verifies that CLI file-info commands return 'BucketNotFound' when the bucket does not exist. Assertions changed from 'file not exists' to 'BucketNotFound'.",
+      "port_instructions": [
+        "Find or create integration tests for the file-info CLI path with a non-existent bucket.",
+        "Update expected error output to 'BucketNotFound'.",
+        "Ensure the Rust error decoding surface returns the contract error name directly."
+      ],
+      "dependencies": ["CHANGE-5"]
+    },
+    {
+      "id": "TEST-4",
+      "go_test_function": "TestContracts",
+      "go_file": "private/ipc/client_test.go",
+      "type": "integration",
+      "description": "Tests the ListPolicy contract lifecycle: deploy, initialize, assign role, and validate access. Updated to use the renamed TestDeployListPolicy method (previously DeployListPolicy) and the simplified direct-deploy pattern.",
+      "port_instructions": [
+        "Find or create integration tests for the list-policy contract lifecycle.",
+        "Replace any call to deploy_list_policy (factory-mediated) with a direct deploy-and-initialize pattern matching TestDeployListPolicy in private/ipc/client.go at source_commit.",
+        "The renamed function deploys a ListPolicy contract directly (without going through PolicyFactory) and calls Initialize with the user address.",
+        "Update the local variable name from policy_factory to list_policy for clarity.",
+        "Verify that assign_role and validate_access are called on the returned list-policy instance."
+      ],
+      "dependencies": ["CHANGE-2", "CHANGE-3"]
+    }
+  ],
+  "skipped_files": [
+    {
+      "path": "Makefile",
+      "reason": "build"
+    },
+    {
+      "path": "README.md",
+      "reason": "documentation"
+    },
+    {
+      "path": "go.mod",
+      "reason": "dependencies"
+    },
+    {
+      "path": "go.sum",
+      "reason": "dependencies"
+    },
+    {
+      "path": "private/pb/nodeapi.pb.go",
+      "reason": "generated"
+    },
+    {
+      "path": "private/pb/nodeapi.proto",
+      "reason": "generated"
+    },
+    {
+      "path": "private/pb/nodeapi_grpc.pb.go",
+      "reason": "generated"
+    },
+    {
+      "path": "private/testrand/testrand.go",
+      "reason": "other"
+    }
+  ]
+}
