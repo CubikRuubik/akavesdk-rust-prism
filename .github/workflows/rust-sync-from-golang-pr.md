@@ -48,9 +48,9 @@ Before doing anything else, determine whether this PR was created by an automate
 2. Read `.github/rust-instructions.md` before editing and treat it as the coding standard for Rust changes in this repository.
 3. Make focused edits in Rust-related files, such as `src/**/*.rs`, `Cargo.toml`, and `README.md` only when required by the change.
 4. Keep changes minimal and avoid unrelated refactors.
-5. Implement only changes required by change-plan, in case there is unresolvable conflict
-6. If requirements are ambiguous, infer the most conservative implementation and document assumptions in the change summary file.
-7. If the change plan includes deleted, renamed, or refactored files on the Go side, apply the equivalent structural change in Rust — remove or restructure the corresponding Rust code rather than leaving orphaned code behind.
+5. If requirements are ambiguous, infer the most conservative implementation and document assumptions in the change summary file.
+6. If the change plan includes deleted, renamed, or refactored files on the Go side, apply the equivalent structural change in Rust — remove or restructure the corresponding Rust code rather than leaving orphaned code behind.
+7. If the Go diff updates a contract's `MetaData.ABI` field (e.g. in `contracts/storage.go` or `contracts/access_manager.go`), extract the new ABI string from the diff and overwrite the corresponding JSON file in `src/blockchain/` (e.g. `src/blockchain/storage.json`, `src/blockchain/access_manager.json`). The ABI string is the value of the `ABI:` field inside the `var *MetaData = &bind.MetaData{...}` block. Do not skip this step because the Go source files are not present in this repository — the diff itself contains the new ABI string.
 
 ## Formatting
 
