@@ -7,7 +7,7 @@ on:
 permissions: read-all
 tools:
   github:
-    toolsets: [default]
+    toolsets: [default, repos]
 timeout-minutes: 40
 network:
   allowed:
@@ -50,7 +50,27 @@ Before doing anything else, determine whether this PR was created by an automate
 4. Keep changes minimal and avoid unrelated refactors.
 5. If requirements are ambiguous, infer the most conservative implementation and document assumptions in the change summary file.
 6. If the change plan includes deleted, renamed, or refactored files on the Go side, apply the equivalent structural change in Rust — remove or restructure the corresponding Rust code rather than leaving orphaned code behind.
-7. If the Go diff updates a contract's `MetaData.ABI` field (e.g. in `contracts/storage.go` or `contracts/access_manager.go`), extract the new ABI string from the diff and overwrite the corresponding JSON file in `src/blockchain/` (e.g. `src/blockchain/storage.json`, `src/blockchain/access_manager.json`). The ABI string is the value of the `ABI:` field inside the `var *MetaData = &bind.MetaData{...}` block. Do not skip this step because the Go source files are not present in this repository — the diff itself contains the new ABI string.
+7. For every `contract_updates[]` entry with `change_type: "updated"`, read the Go source file directly from the Go repository at `meta.source_commit` (see **Accessing Go Source Files** below). Extract the full ABI string from the `ABI:` field inside the `var *MetaData = &bind.MetaData{...}` block and overwrite the corresponding JSON file in `src/blockchain/`. Do not extract ABI values from diff context lines — read from the source file directly.
+
+## Accessing Go Source Files
+
+Every change plan contains `meta.source_repo` (e.g. `CubikRuubik/akavesdk-prism`) and `meta.source_commit` (full 40-character hash). When a `changes[]` entry lists `go_files`, those paths are authoritative references into the Go repository at that exact commit.
+
+**When to read Go source:**
+- For every `contract_updates[]` entry with `change_type: "updated"` — read the contract file to get the full ABI.
+- When the change plan description alone is insufficient to implement a change (e.g. a new function signature, a struct field type, a selector value).
+- Any time you are uncertain whether a Rust value matches what the Go source expects.
+
+**How to read Go source:**
+Use the GitHub API via the `repos` toolset to fetch file content:
+
+```
+GET /repos/{meta.source_repo}/contents/{go_file_path}?ref={meta.source_commit}
+```
+
+The response body contains the file content (base64-encoded). Decode and read the relevant section.
+
+Go source at `meta.source_commit` is authoritative. If the change plan description and the Go source disagree, trust the Go source.
 
 ## Formatting
 
