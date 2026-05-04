@@ -1,0 +1,88 @@
+{
+  "meta": {
+    "source_repo": "CubikRuubik/akavesdk-prism",
+    "source_commit": "8b66e30659c79ae8e763744bc50ae0a0540cf899",
+    "target_repo": "CubikRuubik/akavesdk-rust-prism",
+    "created_at": "2026-05-04T12:56:48Z",
+    "description": "Sync from akave repo tag v0.4.4: refactor error dispatch to named constants, remove PolicyFactory from IPC client, promote connection pool to SDK-level field, update Storage and AccessManager contract ABIs"
+  },
+  "execution_order": [
+    "CHANGE-2: Remove PolicyFactory from IPC client configuration and public API — apply first so contract binding code is consistent with updated ABIs",
+    "CHANGE-1: Update error dispatch table to use named sentinel constants — apply after contract ABI updates since new error names may originate from updated contracts",
+    "CHANGE-3: Reflect connection pool promotion to SDK-level field — apply last as an internal architecture change with no public API impact"
+  ],
+  "changes": [
+    {
+      "id": "CHANGE-1",
+      "title": "Error dispatch table refactored to named sentinel constants",
+      "priority": "medium",
+      "go_files": ["private/ipc/errors.go"],
+      "target_files": ["src/blockchain/contract_errors.rs"],
+      "description": "Error dispatch table updated — added: none, removed: none, modified: AlreadyWhitelisted, BlockAlreadyExists, BlockAlreadyFilled, BlockInvalid, BlockNonexists, BucketAlreadyExists, BucketInvalid, BucketInvalidOwner, BucketNonempty, BucketNonexists, BucketNotFound, ChunkCIDMismatch, CloneArgumentsTooLong, Create2EmptyBytecode, ECDSAInvalidSignature, ECDSAInvalidSignatureLength, ECDSAInvalidSignatureS, FileAlreadyExists, FileChunkDuplicate, FileDoesNotExist, FileFullyUploaded, FileInvalid, FileNameDuplicate, FileNonempty, FileNonexists, FileNotExists, FileNotFilled, IndexMismatch, InvalidAddress, InvalidArrayLength, InvalidBlockIndex, InvalidBlocksAmount, InvalidEncodedSize, InvalidFileBlocksCount, InvalidFileCID, InvalidLastBlockSize, LastChunkDuplicate, MathOverflowedMulDiv, NoPolicy, NonceAlreadyUsed, NotBucketOwner, NotSignedByBucketOwner, NotThePolicyOwner, NotWhitelisted, OffsetOutOfBounds. Previously each error was returned as an inline string literal; now each is a named package-level constant wrapping the same string value. Read `private/ipc/errors.go` at `meta.source_commit` for authoritative selector values. The Rust equivalent should ensure `src/blockchain/contract_errors.rs` declares and dispatches all error names present in the Go file."
+    },
+    {
+      "id": "CHANGE-2",
+      "title": "PolicyFactory removed from IPC client configuration and public API",
+      "priority": "high",
+      "go_files": ["private/ipc/client.go"],
+      "target_files": ["src/sdk.rs"],
+      "description": "The IPC client configuration struct (`ContractsAddresses`) no longer has a `PolicyFactory` field. The `Client` struct no longer holds `PolicyFactory`, `ListPolicyAbi`, or `PolicyFactoryAbi` fields. The `Config` struct no longer has `PolicyFactoryContractAddress`. The public method `DeployListPolicy` has been removed from the IPC client; it moved to a test-only helper. The `DeployPolicyFactory` logic that deployed a base ListPolicy and then a PolicyFactory is also removed. If the Rust SDK builder or SDK struct currently exposes any equivalent policy-factory contract address or deployment capability, those should be removed. If no such fields exist, no structural change is needed, but confirm the configuration surface area matches the updated Go source."
+    },
+    {
+      "id": "CHANGE-3",
+      "title": "Connection pool promoted to SDK-level persistent field",
+      "priority": "low",
+      "go_files": ["sdk/sdk.go", "sdk/sdk_ipc.go"],
+      "target_files": ["src/sdk.rs"],
+      "description": "In the Go SDK, a `connectionPool` was previously created and closed within each upload and download operation. It is now a persistent field (`pool`) on the SDK struct, created at construction time and closed alongside the gRPC connection in `Close()`. Functions `uploadChunk`, `resolveBlock`, and `fetchBlockData` no longer accept a `pool` parameter; they access `sdk.pool` directly. The Rust SDK manages per-node connections differently (channels created inline per node address in upload/download paths), but if there is an equivalent connection-reuse mechanism, ensure it follows a similar lifecycle: created at SDK construction, shared across operations, and closed on SDK teardown."
+    }
+  ],
+  "contract_updates": [
+    {
+      "contract": "AccessManager",
+      "go_source_file": "private/ipc/contracts/access_manager.go",
+      "change_type": "updated",
+      "notes": "ABI recompiled; read the full ABI from go_source_file at meta.source_commit and replace the target ABI file `src/blockchain/access_manager.json` entirely."
+    },
+    {
+      "contract": "PolicyFactory",
+      "go_source_file": "private/ipc/contracts/policy_factory.go",
+      "change_type": "removed",
+      "notes": "The policy_factory.go file was deleted in this commit. If the Rust SDK has a corresponding policy_factory ABI or binding file, remove it. Verify no remaining code references PolicyFactory bindings."
+    },
+    {
+      "contract": "Storage",
+      "go_source_file": "private/ipc/contracts/storage.go",
+      "change_type": "updated",
+      "notes": "ABI recompiled; a new `setAuthority(address _upgradeAuthority)` function was added (selector 0x7a9e5e4b). Read the full ABI from go_source_file at meta.source_commit and replace `src/blockchain/storage.json` entirely."
+    }
+  ],
+  "test_updates": [
+    {
+      "id": "TEST-1",
+      "go_test_function": "TestContracts",
+      "go_file": "private/ipc/client_test.go",
+      "type": "integration",
+      "description": "The test previously called the public `DeployListPolicy` method on the IPC client to obtain a list policy instance, then used that instance to assign roles and validate access. After this change, `DeployListPolicy` no longer exists on the public client; the test now calls `TestDeployListPolicy`, a test-only helper that performs the same deployment. The functional assertions (AssignRole, ValidateAccess) are unchanged.",
+      "port_instructions": [
+        "1. Confirm whether the Rust test suite has an equivalent integration test that deploys a ListPolicy and validates access control.",
+        "2. If such a test exists and previously called a public SDK method for policy deployment, update it to use any available test-only helper instead, since the public deployment API was removed.",
+        "3. If no such test exists in Rust (the Rust SDK does not implement PolicyFactory or ListPolicy deployment), no porting is required for this test.",
+        "4. Ensure the Rust integration test suite still exercises bucket and file access control paths that do not depend on PolicyFactory."
+      ],
+      "dependencies": ["CHANGE-2"]
+    }
+  ],
+  "skipped_files": [
+    {"path": "Makefile", "reason": "build"},
+    {"path": "README.md", "reason": "documentation"},
+    {"path": "cmd/akavecli/storage_test.go", "reason": "test"},
+    {"path": "go.mod", "reason": "dependencies"},
+    {"path": "go.sum", "reason": "dependencies"},
+    {"path": "private/pb/nodeapi.pb.go", "reason": "generated"},
+    {"path": "private/pb/nodeapi.proto", "reason": "generated"},
+    {"path": "private/pb/nodeapi_grpc.pb.go", "reason": "generated"},
+    {"path": "private/testrand/testrand.go", "reason": "test"},
+    {"path": "private/ipc/client_test.go", "reason": "test"}
+  ]
+}
