@@ -1,0 +1,127 @@
+{
+  "meta": {
+    "source_repo": "CubikRuubik/akavesdk-prism",
+    "source_commit": "8b66e30659c79ae8e763744bc50ae0a0540cf899",
+    "target_repo": "CubikRuubik/akavesdk-rust-prism",
+    "created_at": "2026-05-04T13:32:43Z",
+    "description": "sync from akave repo from tag v0.4.4: remove PolicyFactory, update contract ABIs, refactor errors to sentinel variables, move connection pool to SDK level"
+  },
+  "execution_order": [
+    "CHANGE-1: Update Storage contract ABI binding — apply first to ensure downstream code compiles against updated interface",
+    "CHANGE-2: Update AccessManager contract ABI binding — apply after Storage ABI update",
+    "CHANGE-3: Update error dispatch table — apply after ABI changes so new error variants align with updated contracts",
+    "CHANGE-4: Remove PolicyFactory support from blockchain provider and config — apply after contract updates",
+    "CHANGE-5: Move connection pool to SDK struct level — apply after provider changes",
+    "CHANGE-6: Refactor IPC to use shared connection pool — apply after CHANGE-5"
+  ],
+  "changes": [
+    {
+      "id": "CHANGE-1",
+      "title": "Update Storage contract ABI binding",
+      "priority": "critical",
+      "go_files": ["private/ipc/contracts/storage.go"],
+      "target_files": ["src/blockchain/storage.json", "src/blockchain/storage.rs"],
+      "description": "The Storage contract ABI was updated in this sync. Read the full ABI from the Go source file at meta.source_commit and replace the target ABI JSON entirely. Regenerate or update the Rust binding module to match the new ABI."
+    },
+    {
+      "id": "CHANGE-2",
+      "title": "Update AccessManager contract ABI binding",
+      "priority": "critical",
+      "go_files": ["private/ipc/contracts/access_manager.go"],
+      "target_files": ["src/blockchain/access_manager.json", "src/blockchain/access_manager.rs"],
+      "description": "The AccessManager contract ABI was updated in this sync. Read the full ABI from the Go source file at meta.source_commit and replace the target ABI JSON entirely. Regenerate or update the Rust binding module to match the new ABI."
+    },
+    {
+      "id": "CHANGE-3",
+      "title": "Sync error dispatch table with authoritative Go sentinel list",
+      "priority": "high",
+      "go_files": ["private/ipc/errors.go"],
+      "target_files": ["src/blockchain/contract_errors.rs"],
+      "description": "Error dispatch table updated — added: BucketAlreadyExists, BucketInvalid, BucketInvalidOwner, BucketNonexists, BucketNonempty, FileAlreadyExists, FileInvalid, FileNonexists, FileNonempty, FileNameDuplicate, FileFullyUploaded, FileChunkDuplicate, BlockAlreadyExists, BlockInvalid, BlockNonexists, InvalidArrayLength, InvalidFileBlocksCount, InvalidLastBlockSize, InvalidEncodedSize, InvalidFileCID, IndexMismatch, NoPolicy, FileNotFilled, BlockAlreadyFilled, ChunkCIDMismatch, NotBucketOwner, BucketNotFound, FileDoesNotExist, NotThePolicyOwner, CloneArgumentsTooLong, Create2EmptyBytecode, ECDSAInvalidSignatureS, ECDSAInvalidSignatureLength, ECDSAInvalidSignature, AlreadyWhitelisted, InvalidAddress, NotWhitelisted, MathOverflowedMulDiv, InvalidBlocksAmount, InvalidBlockIndex, LastChunkDuplicate, FileNotExists, NotSignedByBucketOwner, NonceAlreadyUsed, OffsetOutOfBounds (as sentinel identities); removed: none from dispatch table; modified: OffsetOutOfBounds comparison changed from string equality to identity-based comparison. Read `private/ipc/errors.go` at `meta.source_commit` for authoritative selector values. Ensure all error names and their 4-byte selectors in `contract_errors.rs` match those listed in the Go file."
+    },
+    {
+      "id": "CHANGE-4",
+      "title": "Remove PolicyFactory support from blockchain provider and config",
+      "priority": "high",
+      "go_files": ["private/ipc/client.go"],
+      "target_files": ["src/blockchain/provider.rs", "src/sdk.rs"],
+      "description": "The PolicyFactoryContractAddress field was removed from the Config struct. The PolicyFactory, ListPolicyAbi, and PolicyFactoryAbi fields were removed from the Client struct. PolicyFactory was removed from ContractsAddresses. All PolicyFactory initialization and deployment code was removed from Dial and DeployContracts. The DeployListPolicy function was renamed to TestDeployListPolicy and reimplemented to deploy ListPolicy directly rather than via a PolicyFactory contract. Remove any equivalent PolicyFactory config, struct fields, and deployment logic from the Rust blockchain provider and SDK config."
+    },
+    {
+      "id": "CHANGE-5",
+      "title": "Move connection pool ownership to SDK struct",
+      "priority": "medium",
+      "go_files": ["sdk/sdk.go"],
+      "target_files": ["src/sdk.rs"],
+      "description": "The gRPC NodeAPIClient field was removed from the SDK struct and replaced with a shared connection pool. The Close method now also closes the pool. The IPC method passes the shared pool to the IPC struct instead of passing the raw gRPC connection. If the Rust SDK manages a per-operation connection pool, move it to a shared field on the SDK struct that is created once and closed when the SDK is dropped."
+    },
+    {
+      "id": "CHANGE-6",
+      "title": "Refactor IPC to use shared connection pool",
+      "priority": "medium",
+      "go_files": ["sdk/sdk_ipc.go"],
+      "target_files": ["src/sdk.rs"],
+      "description": "The IPC struct replaced its raw gRPC connection field with a reference to the shared connection pool. Per-operation pool creation and deferred close calls were removed from Upload, Download, DownloadArchival, and ArchivalMetadata. All internal helpers (uploadChunk, downloadChunkBlocks, downloadChunkBlocks2, resolveBlock, fetchBlockData) no longer accept a pool parameter; they now use the pool stored on the IPC struct. Apply the same pattern in the Rust SDK: replace any per-operation pool creation with references to the shared pool from CHANGE-5."
+    }
+  ],
+  "contract_updates": [
+    {
+      "contract": "Storage",
+      "go_source_file": "private/ipc/contracts/storage.go",
+      "change_type": "updated",
+      "notes": "ABI recompiled as part of v0.4.4 sync"
+    },
+    {
+      "contract": "AccessManager",
+      "go_source_file": "private/ipc/contracts/access_manager.go",
+      "change_type": "updated",
+      "notes": "ABI recompiled as part of v0.4.4 sync"
+    },
+    {
+      "contract": "PolicyFactory",
+      "go_source_file": "private/ipc/contracts/policy_factory.go",
+      "change_type": "removed",
+      "notes": "Contract removed entirely from the Go SDK; remove any equivalent Rust binding if present"
+    }
+  ],
+  "test_updates": [
+    {
+      "id": "TEST-1",
+      "go_test_function": "TestExternalDeleteBucketCommand, TestExternalViewBucketCommand, TestExternalFileInfoCommand",
+      "go_file": "cmd/akavecli/storage_test.go",
+      "type": "integration",
+      "description": "Expected error strings for missing-bucket scenarios changed from 'failed to get bucket: not found' to 'BucketNotFound' to match the new sentinel error names.",
+      "port_instructions": [
+        "Find all integration tests that assert on the error message returned when a bucket does not exist.",
+        "Replace any expected string 'failed to get bucket: not found' or similar with 'BucketNotFound'.",
+        "Confirm that the Rust error matching for this case is driven by the sentinel variant added in CHANGE-3."
+      ],
+      "dependencies": ["CHANGE-3"]
+    },
+    {
+      "id": "TEST-2",
+      "go_test_function": "TestContracts",
+      "go_file": "private/ipc/client_test.go",
+      "type": "integration",
+      "description": "The test that exercises policy deployment was updated: DeployListPolicy was renamed to TestDeployListPolicy and the variable holding the result was renamed from policyFactory to listPolicy. The test now deploys a ListPolicy directly instead of going through the PolicyFactory.",
+      "port_instructions": [
+        "Find any Rust integration test that calls the equivalent of DeployListPolicy.",
+        "Rename the call to TestDeployListPolicy (or the Rust equivalent, e.g., test_deploy_list_policy).",
+        "Update the variable name from policy_factory to list_policy.",
+        "Verify that AssignRole and ValidateAccess are called on the returned ListPolicy instance, not on a PolicyFactory."
+      ],
+      "dependencies": ["CHANGE-4"]
+    }
+  ],
+  "skipped_files": [
+    {"path": "Makefile", "reason": "build"},
+    {"path": "README.md", "reason": "documentation"},
+    {"path": "go.mod", "reason": "dependencies"},
+    {"path": "go.sum", "reason": "dependencies"},
+    {"path": "private/pb/nodeapi.pb.go", "reason": "generated"},
+    {"path": "private/pb/nodeapi.proto", "reason": "generated"},
+    {"path": "private/pb/nodeapi_grpc.pb.go", "reason": "generated"},
+    {"path": "private/testrand/testrand.go", "reason": "other"},
+    {"path": "cmd/akavecli/storage_test.go", "reason": "other"}
+  ]
+}
