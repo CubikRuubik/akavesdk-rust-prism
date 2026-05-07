@@ -8,6 +8,8 @@ pub mod pb_data;
 pub mod peer_id;
 pub mod retry;
 pub mod timestamp;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub mod testrand;
 
 pub fn calculate_bucket_id(bucket_name: &str, address_hex: &str) -> [u8; 32] {
     use web3::signing::keccak256;

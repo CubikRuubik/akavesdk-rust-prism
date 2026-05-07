@@ -48,6 +48,23 @@ sol! {
     error UUPSUnauthorizedCallContext();
     error UUPSUnsupportedProxiableUUID(bytes32 slot);
     error WrongAuthority();
+    // AccessManager errors
+    error BucketNotFound();
+    error FileDoesNotExist();
+    error InvalidAddress();
+    error NoPolicy();
+    error NotBucketOwner();
+    // ListPolicy / storage-signing errors
+    error AlreadyWhitelisted();
+    error NotWhitelisted();
+    error NotSignedByBucketOwner();
+    error NonceAlreadyUsed();
+    // Legacy / cross-contract errors still present in the Go dispatch table
+    error FileNonexists();
+    error NotThePolicyOwner();
+    error CloneArgumentsTooLong();
+    error Create2EmptyBytecode();
+    error MathOverflowedMulDiv();
 }
 
 /// Match the first 4 bytes of `data` against every known error selector and
@@ -110,6 +127,20 @@ pub fn decode_revert_reason(data: &[u8]) -> Option<String> {
         UUPSUnauthorizedCallContext,
         UUPSUnsupportedProxiableUUID,
         WrongAuthority,
+        BucketNotFound,
+        FileDoesNotExist,
+        InvalidAddress,
+        NoPolicy,
+        NotBucketOwner,
+        AlreadyWhitelisted,
+        NotWhitelisted,
+        NotSignedByBucketOwner,
+        NonceAlreadyUsed,
+        FileNonexists,
+        NotThePolicyOwner,
+        CloneArgumentsTooLong,
+        Create2EmptyBytecode,
+        MathOverflowedMulDiv,
     );
 
     // Standard `Error(string)` revert: selector 0x08c379a0
