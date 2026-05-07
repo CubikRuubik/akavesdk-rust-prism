@@ -50,13 +50,16 @@ Before doing anything else, determine whether this PR was created by an automate
 4. Keep changes minimal and avoid unrelated refactors.
 5. If requirements are ambiguous, infer the most conservative implementation and document assumptions in the change summary file.
 6. If the change plan includes deleted, renamed, or refactored files on the Go side, apply the equivalent structural change in Rust — remove or restructure the corresponding Rust code rather than leaving orphaned code behind.
-7. For every `contract_updates[]` entry with `change_type: "updated"`, read the Go source file directly from the Go repository at `meta.source_commit` (see **Accessing Go Source Files** below). Extract the full ABI string from the `ABI:` field inside the `var *MetaData = &bind.MetaData{...}` block and overwrite the corresponding JSON file in `src/blockchain/`. Do not extract ABI values from diff context lines — read from the source file directly.
+7. **Update without Rust equivalent**: If a change adds or updates functionality on the Go side (new function, new test, new feature, updated logic) and no direct Rust equivalent exists yet, do not skip — implement it in Rust from scratch. Read the Go source at `meta.source_commit` to get the final updated version of the code introduced at that commit, and use it as the specification. Create the Rust analog using idiomatic Rust patterns. Document what you implemented and why in the change summary.
+8. **Removal without Rust equivalent**: If a change removes something on the Go side (deleted field, removed function, dropped contract) and no corresponding code exists in the Rust repository, skip the change with a summary note explaining that no Rust equivalent was found and no action was needed.
+9. For every `contract_updates[]` entry with `change_type: "updated"`, read the Go source file directly from the Go repository at `meta.source_commit` (see **Accessing Go Source Files** below). Extract the full ABI string from the `ABI:` field inside the `var *MetaData = &bind.MetaData{...}` block and overwrite the corresponding JSON file in `src/blockchain/`. Do not extract ABI values from diff context lines — read from the source file directly.
 
 ## Accessing Go Source Files
 
 Every change plan contains `meta.source_repo` (e.g. `CubikRuubik/akavesdk-prism`) and `meta.source_commit` (full 40-character hash). When a `changes[]` entry lists `go_files`, those paths are authoritative references into the Go repository at that exact commit.
 
 **When to read Go source:**
+
 - For every `contract_updates[]` entry with `change_type: "updated"` — read the contract file to get the full ABI.
 - When the change plan description alone is insufficient to implement a change (e.g. a new function signature, a struct field type, a selector value).
 - Any time you are uncertain whether a Rust value matches what the Go source expects.
