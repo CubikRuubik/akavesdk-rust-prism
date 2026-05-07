@@ -7,6 +7,7 @@ pub mod io;
 pub mod pb_data;
 pub mod peer_id;
 pub mod retry;
+pub mod testrand;
 pub mod timestamp;
 
 pub fn calculate_bucket_id(bucket_name: &str, address_hex: &str) -> [u8; 32] {

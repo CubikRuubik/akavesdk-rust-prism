@@ -1976,7 +1976,7 @@ mod tests {
                     "--node-address".into(),
                     NODE_ADDRESS.into(),
                 ],
-                expected_output: vec!["file not exists".into()],
+                expected_output: vec!["BucketNotFound".into()],
                 expect_error: true,
             },
             TestCase {
