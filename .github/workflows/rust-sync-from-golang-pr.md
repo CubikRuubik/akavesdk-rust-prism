@@ -137,7 +137,7 @@ Before pushing, stage only intentional source changes. Never stage build artifac
 ```bash
 git add src/ Cargo.toml Cargo.lock README.md
 # Add any other source files explicitly changed — do NOT use `git add .` or `git add -A`
-# Never stage: target/, node_modules/, dist/, build/, pkg/, *.rs.bk, or any downloaded files
+# Never stage: target/, node_modules/, dist/, build/, pkg/, *.rs.bk, *.patch, or any downloaded files
 ```
 
 If files outside of source directories were modified by tooling (e.g., `cargo fmt`), stage only those specific files explicitly.
