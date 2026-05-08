@@ -29,6 +29,7 @@ impl<E: std::fmt::Display> std::fmt::Display for RetryError<E> {
 /// abort the retry loop early, which yields `Err(RetryError::Aborted)`.
 /// Use `tokio::sync::watch::channel(false)` and keep the sender alive for
 /// the lifetime of the call.
+#[derive(Clone)]
 pub struct WithRetry {
     pub max_attempts: usize,
     pub base_delay: Duration,

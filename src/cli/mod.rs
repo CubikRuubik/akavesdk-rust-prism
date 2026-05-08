@@ -637,8 +637,8 @@ async fn file_info(node: &str, a: FileInfoArgs) -> (String, String, bool) {
     match sdk.view_file_info(&a.bucket_name, &a.file_name).await {
         Ok(info) => (
             format!(
-                "File: Name={}, RootCID={}, ActualSize={}, EncodedSize={}\n",
-                info.name, info.root_cid, info.actual_size, info.encoded_size
+                "File: Name={}, RootCID={}, ActualSize={}, EncodedSize={}, IsPublic={}\n",
+                info.name, info.root_cid, info.actual_size, info.encoded_size, info.is_public
             ),
             String::new(),
             true,

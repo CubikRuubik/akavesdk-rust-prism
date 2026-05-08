@@ -241,6 +241,7 @@ pub struct FileViewResponse {
     pub encoded_size: i64,
     pub name: String,
     pub bucket_name: String,
+    pub is_public: bool,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

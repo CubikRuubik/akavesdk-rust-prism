@@ -99,9 +99,10 @@ impl Encryption {
 
         match gcm.encrypt_in_place(nonce_array, b"", &mut buffer) {
             Ok(_) => {
-                let mut result = Vec::with_capacity(buffer.len() + GCM_NONCE_SIZE);
-                result.extend_from_slice(&buffer);
+                // Layout: [nonce 12B | ciphertext | GCM-tag 16B] — matches Go's gcm.Seal(nonce, nonce, data, nil)
+                let mut result = Vec::with_capacity(GCM_NONCE_SIZE + buffer.len());
                 result.extend_from_slice(&nonce);
+                result.extend_from_slice(&buffer);
 
                 Ok(result.into_boxed_slice())
             }
@@ -184,11 +185,11 @@ impl Encryption {
             ));
         }
 
-        let (encrypted_data, nonce) = data.split_at(data.len() - GCM_NONCE_SIZE);
+        // Layout: [nonce 12B | ciphertext | GCM-tag 16B] — matches Go's Decrypt
+        let (nonce, encrypted_data) = data.split_at(GCM_NONCE_SIZE);
         let nonce_array = Nonce::from_slice(nonce);
 
         let mut buffer = encrypted_data.to_vec();
-        // gcm.decrypt_in_place(nonce_array, b"", &mut buffer)?;
 
         match gcm.decrypt_in_place(nonce_array, b"", &mut buffer) {
             Ok(_) => Ok(buffer),

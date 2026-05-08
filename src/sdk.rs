@@ -21,10 +21,7 @@ use std::{
 // ==========================
 use alloy::hex;
 use bytesize::{ByteSize, MB};
-use cid::{
-    multihash::{Code, MultihashDigest},
-    Cid,
-};
+use cid::Cid;
 // ==========================
 // Proto-related imports
 // ==========================
@@ -64,7 +61,7 @@ use crate::{
         BucketId,
     },
     utils,
-    utils::dag::{ChunkDag, DAG_PROTOBUF},
+    utils::dag::{ChunkDag, DagRoot, DAG_PROTOBUF},
     utils::encryption::Encryption,
     utils::erasure::ErasureCode,
     utils::pb_data::PbData,
@@ -95,7 +92,8 @@ mod native_support {
 use native_support::*;
 
 // Constants
-const ENCRYPTION_OVERHEAD: usize = 32;
+// 16-byte AES-GCM tag + 12-byte nonce appended at end (matches Go's EncryptionOverhead = 28)
+const ENCRYPTION_OVERHEAD: usize = 28;
 const BLOCK_SIZE: usize = MB as usize;
 const MIN_BUCKET_NAME_LENGTH: usize = 3;
 const MIN_FILE_SIZE: usize = 127;
@@ -120,6 +118,11 @@ pub struct AkaveSDK {
     max_concurrent_blocks: usize,
     batch_size: usize,
     chain_id: U256,
+    with_retry: crate::utils::retry::WithRetry,
+    #[cfg(not(target_arch = "wasm32"))]
+    connection_pool: Option<Arc<tokio::sync::RwLock<std::collections::HashMap<String, Channel>>>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    http_client: Option<reqwest::Client>,
 }
 
 /// Builder for AkaveSDK
@@ -136,8 +139,13 @@ pub struct AkaveSDKBuilder {
     min_file_size: usize,
     max_concurrent_blocks: usize,
     batch_size: usize,
+    with_retry: crate::utils::retry::WithRetry,
     #[cfg(not(target_arch = "wasm32"))]
     private_key: Option<String>,
+    #[cfg(not(target_arch = "wasm32"))]
+    use_connection_pool: bool,
+    #[cfg(not(target_arch = "wasm32"))]
+    http_client: Option<reqwest::Client>,
 }
 
 impl AkaveSDKBuilder {
@@ -156,9 +164,32 @@ impl AkaveSDKBuilder {
             min_file_size: MIN_FILE_SIZE,
             max_concurrent_blocks: 5,
             batch_size: 1,
+            with_retry: crate::utils::retry::WithRetry {
+                max_attempts: 5,
+                base_delay: std::time::Duration::from_millis(100),
+            },
             #[cfg(not(target_arch = "wasm32"))]
             private_key: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            use_connection_pool: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            http_client: None,
         }
+    }
+
+    /// Configure retry for blockchain write operations (default: 5 attempts, 100ms base delay).
+    pub fn with_retry(mut self, max_attempts: usize, base_delay: std::time::Duration) -> Self {
+        self.with_retry = crate::utils::retry::WithRetry { max_attempts, base_delay };
+        self
+    }
+
+    /// Disable retries for blockchain write operations (useful in tests).
+    pub fn without_retry(mut self) -> Self {
+        self.with_retry = crate::utils::retry::WithRetry {
+            max_attempts: 0,
+            base_delay: std::time::Duration::from_millis(100),
+        };
+        self
     }
 
     /// Set erasure coding parameters
@@ -224,6 +255,20 @@ impl AkaveSDKBuilder {
         self
     }
 
+    /// Reuse gRPC channels across blocks within a file operation (default: false).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_connection_pool(mut self, enable: bool) -> Self {
+        self.use_connection_pool = enable;
+        self
+    }
+
+    /// Inject a custom reqwest HTTP client (used for PDP/archival downloads).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_http_client(mut self, client: reqwest::Client) -> Self {
+        self.http_client = Some(client);
+        self
+    }
+
     /// Build the AkaveSDK instance
     pub async fn build(self) -> Result<AkaveSDK, AkaveError> {
         let erasure_code = match (self.data_blocks, self.parity_blocks) {
@@ -243,8 +288,13 @@ impl AkaveSDKBuilder {
             self.min_file_size,
             self.max_concurrent_blocks,
             self.batch_size,
+            self.with_retry,
             #[cfg(not(target_arch = "wasm32"))]
             self.private_key,
+            #[cfg(not(target_arch = "wasm32"))]
+            self.use_connection_pool,
+            #[cfg(not(target_arch = "wasm32"))]
+            self.http_client,
         )
         .await
     }
@@ -273,6 +323,14 @@ impl AkaveSDK {
             MIN_FILE_SIZE,
             5,
             1,
+            crate::utils::retry::WithRetry {
+                max_attempts: 5,
+                base_delay: std::time::Duration::from_millis(100),
+            },
+            #[cfg(not(target_arch = "wasm32"))]
+            None,
+            #[cfg(not(target_arch = "wasm32"))]
+            false,
             #[cfg(not(target_arch = "wasm32"))]
             None,
         )
@@ -293,7 +351,10 @@ impl AkaveSDK {
         min_file_size: usize,
         max_concurrent_blocks: usize,
         batch_size: usize,
+        with_retry: crate::utils::retry::WithRetry,
         #[cfg(not(target_arch = "wasm32"))] private_key: Option<String>,
+        #[cfg(not(target_arch = "wasm32"))] use_connection_pool: bool,
+        #[cfg(not(target_arch = "wasm32"))] http_client: Option<reqwest::Client>,
     ) -> Result<Self, AkaveError> {
         log_info!(
             "Initializing AkaveSDK with server address: {}",
@@ -345,12 +406,15 @@ impl AkaveSDK {
                 max_concurrent_blocks,
                 batch_size,
                 chain_id,
+                with_retry,
             })
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
             use crate::blockchain::storage::FileStorageContract;
+            #[allow(unused_imports)]
+            use std::collections::HashMap;
 
             let tls_config = ClientTlsConfig::new().with_native_roots();
             let channel = Channel::from_shared(server_address.to_string())
@@ -392,6 +456,12 @@ impl AkaveSDK {
             let chain_id = blockchain_provider.web3_provider.eth().chain_id().await?;
             log_debug!("Chain ID: {}", chain_id);
 
+            let connection_pool = if use_connection_pool {
+                Some(Arc::new(tokio::sync::RwLock::new(HashMap::<String, Channel>::new())))
+            } else {
+                None
+            };
+
             log_info!("AkaveSDK initialized successfully");
             Ok(Self {
                 client,
@@ -408,8 +478,44 @@ impl AkaveSDK {
                 max_concurrent_blocks,
                 batch_size,
                 chain_id,
+                with_retry,
+                connection_pool,
+                http_client,
             })
         }
+    }
+
+    /// Returns true for transient Ethereum RPC errors that warrant retrying.
+    fn is_retryable_tx_error(err: &str) -> bool {
+        err.contains("nonce too low")
+            || err.contains("replacement transaction underpriced")
+            || err.contains("EOF")
+    }
+
+    /// Execute a blockchain transaction operation with the SDK's configured retry policy.
+    async fn retry_tx<F, Fut, T>(&self, mut op: F) -> Result<T, AkaveError>
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = Result<T, AkaveError>>,
+    {
+        let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+        self.with_retry
+            .do_retry(cancel_rx, || {
+                let fut = op();
+                async move {
+                    fut.await.map_err(|e| {
+                        let retryable = Self::is_retryable_tx_error(&e.to_string());
+                        (retryable, e)
+                    })
+                }
+            })
+            .await
+            .map_err(|e| match e {
+                crate::utils::retry::RetryError::Aborted => {
+                    AkaveError::InternalError("retry aborted".into())
+                }
+                crate::utils::retry::RetryError::Failed(e) => e,
+            })
     }
 
     /// List all buckets
@@ -440,7 +546,7 @@ impl AkaveSDK {
                     .maybe_decrypt_metadata(&bucket.name, "bucket")
                     .unwrap_or(bucket.name);
                 BucketListItem {
-                    id: name.clone(),
+                    id: String::new(),
                     name,
                     created_at: bucket.created_at.map(|ts| ts.seconds).unwrap_or(0),
                 }
@@ -582,6 +688,7 @@ impl AkaveSDK {
             encoded_size: response.encoded_size,
             name: decrypted_file,
             bucket_name: decrypted_bucket,
+            is_public: response.is_public,
         };
 
         log_info!(
@@ -608,10 +715,14 @@ impl AkaveSDK {
             return Err(AkaveError::BucketError(error_msg));
         }
         log_info!("Create bucket request to storage: {}", &bucket_name);
-        self.storage
-            .create_bucket(bucket_name.clone())
-            .await
-            .map_err(AkaveError::ProviderError)?;
+        let storage = self.storage.clone();
+        let bn = bucket_name.clone();
+        self.retry_tx(|| {
+            let storage = storage.clone();
+            let bn = bn.clone();
+            async move { storage.create_bucket(bn).await.map_err(AkaveError::ProviderError) }
+        })
+        .await?;
         log_info!("Bucket created successfully: {}", bucket_name);
         let mut resp = self
             .storage
@@ -685,20 +796,6 @@ impl AkaveSDK {
         Ok(())
     }
 
-    async fn create_file_upload(
-        bucket_id: BucketId,
-        file_name: &str,
-        storage: &FileStorageContract,
-    ) -> Result<TransactionReceipt, AkaveError> {
-        storage
-            .create_file(bucket_id, file_name.to_string())
-            .await
-            .map_err(|e| AkaveError::FileOperationError {
-                operation: "create_file".to_string(),
-                file_name: file_name.to_string(),
-                message: format!("Failed to create file entry on blockchain: {}", e),
-            })
-    }
 
     /// Calculate file ID the same way as the smart contract (Keccak256 of bucket_id + filename)
     fn calculate_file_id(bucket_id: &BucketId, file_name: &str) -> [u8; 32] {
@@ -709,18 +806,16 @@ impl AkaveSDK {
         keccak256(&data)
     }
 
-    /// Wait for file to be filled on the blockchain before committing
+    /// Wait for file to be filled on the blockchain before committing.
+    /// Polls indefinitely (1-second intervals) matching Go's context-bounded infinite loop.
     async fn wait_for_file_filled(
         &self,
         file_id: [u8; 32],
         file_name: &str,
     ) -> Result<(), AkaveError> {
-        const MAX_RETRIES: u32 = 30;
-        const RETRY_DELAY_SECS: u64 = 1;
-
         log_debug!("Waiting for file to be filled: {}", file_name);
 
-        for attempt in 1..=MAX_RETRIES {
+        loop {
             let is_filled = self.storage.is_file_filled(file_id).await.map_err(|e| {
                 AkaveError::FileOperationError {
                     operation: "check_file_filled".to_string(),
@@ -730,23 +825,13 @@ impl AkaveSDK {
             })?;
 
             if is_filled {
-                log_debug!("File is filled after {} attempts", attempt);
+                log_debug!("File is filled");
                 return Ok(());
             }
 
-            log_debug!(
-                "File not yet filled, waiting... (attempt {}/{})",
-                attempt,
-                MAX_RETRIES
-            );
-            tokio::time::sleep(tokio::time::Duration::from_secs(RETRY_DELAY_SECS)).await;
+            log_debug!("File not yet filled, waiting...");
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
-
-        Err(AkaveError::FileOperationError {
-            operation: "wait_file_filled".to_string(),
-            file_name: file_name.to_string(),
-            message: format!("File was not filled after {} attempts", MAX_RETRIES),
-        })
     }
 
     // uploads a file to akave network.
@@ -783,7 +868,26 @@ impl AkaveSDK {
 
         let bucket = self.storage.get_bucket_by_name(bucket_name.clone()).await?;
 
-        AkaveSDK::create_file_upload(bucket.id, &file_name, &self.storage).await?;
+        {
+            let storage = self.storage.clone();
+            let fn_ = file_name.to_string();
+            let bid = bucket.id;
+            self.retry_tx(|| {
+                let storage = storage.clone();
+                let fn_ = fn_.clone();
+                async move {
+                    storage
+                        .create_file(bid, fn_.clone())
+                        .await
+                        .map_err(|e| AkaveError::FileOperationError {
+                            operation: "create_file".to_string(),
+                            file_name: fn_,
+                            message: format!("Failed to create file entry on blockchain: {}", e),
+                        })
+                }
+            })
+            .await?;
+        }
 
         log_info!("File created successfully: {}", &file_name);
 
@@ -812,11 +916,9 @@ impl AkaveSDK {
         let buffer_size = self.get_effective_chunk_size(encryption.is_some());
         log_debug!("Buffer size: {}", buffer_size);
 
-        let root_hasher = Code::Sha2_256;
+        let mut dag_root = DagRoot::new();
         let mut encode_file_size: usize = 0;
         let mut actual_file_size: usize = 0;
-        let mut root_hash = None;
-        let mut chunk_cids: Vec<cid::Cid> = Vec::new();
         let mut idx = 0;
         let mut no_data = true;
         let batch_size = self.batch_size.max(1);
@@ -852,7 +954,7 @@ impl AkaveSDK {
 
                 let encrypted_data = match encryption {
                     Some(ref enc) => enc
-                        .encrypt(&buffer[..], format!("block_{}", idx).as_bytes())
+                        .encrypt(&buffer[..], format!("{}", idx).as_bytes())
                         .map_err(AkaveError::EncryptionError)?,
                     None => buffer[..].to_vec().into(),
                 };
@@ -901,31 +1003,68 @@ impl AkaveSDK {
                 batch.iter().map(|p| p.cids.clone()).collect();
             let batch_block_sizes: Vec<Vec<U256>> = batch.iter().map(|p| p.sizes.clone()).collect();
 
-            self.storage
-                .add_file_chunks(
-                    batch_cids,
-                    bucket.id,
-                    file_name.to_string(),
-                    batch_encoded_sizes,
-                    batch_block_cids,
-                    batch_block_sizes,
-                    U256::from(starting_index),
-                )
-                .await
-                .map_err(|e| AkaveError::FileOperationError {
-                    operation: "add_file_chunks".to_string(),
-                    file_name: file_name.to_string(),
-                    message: format!("Failed to register chunk batch on blockchain: {}", e),
-                })?;
+            {
+                let storage = self.storage.clone();
+                let fn_ = file_name.to_string();
+                let bc = batch_cids.clone();
+                let bid = bucket.id;
+                let bes = batch_encoded_sizes.clone();
+                let bbcs = batch_block_cids.clone();
+                let bbss = batch_block_sizes.clone();
+                let si = U256::from(starting_index);
+                self.retry_tx(|| {
+                    let storage = storage.clone();
+                    let fn_ = fn_.clone();
+                    let bc = bc.clone();
+                    let bes = bes.clone();
+                    let bbcs = bbcs.clone();
+                    let bbss = bbss.clone();
+                    async move {
+                        storage
+                            .add_file_chunks(bc, bid, fn_.clone(), bes, bbcs, bbss, si)
+                            .await
+                            .map_err(|e| AkaveError::FileOperationError {
+                                operation: "add_file_chunks".to_string(),
+                                file_name: fn_,
+                                message: format!(
+                                    "Failed to register chunk batch on blockchain: {}",
+                                    e
+                                ),
+                            })
+                    }
+                })
+                .await?;
+            }
 
             // Upload blocks for every chunk in the batch.
             for prepared in &batch {
                 let chunk = &prepared.chunk_upload;
                 let ipc_chunk = &prepared.ipc_chunk;
                 encode_file_size += chunk.encoded_size;
-                root_hash = Some(root_hasher.digest(&chunk.chunk_cid.to_bytes()));
+                dag_root.add_link(
+                    chunk.chunk_cid,
+                    chunk.actual_size as u64,
+                    chunk.encoded_size as u64,
+                );
+
+                // Phase 1: Sign each block sequentially (local crypto, no network I/O).
+                struct SignedBlock {
+                    data: Vec<u8>,
+                    bucket_id: Vec<u8>,
+                    file_name: String,
+                    block_cid: String,
+                    block_index: i64,
+                    signature: String,
+                    node_id_bytes: Vec<u8>,
+                    node_address: String,
+                    nonce_bytes: Vec<u8>,
+                    deadline_secs: i64,
+                    chunk: Option<IpcChunk>,
+                }
 
                 let blocks = chunk.blocks.clone();
+                let mut signed_blocks: Vec<SignedBlock> = Vec::with_capacity(blocks.len());
+
                 for (index, block_1mb) in blocks.iter().enumerate() {
                     let nonce = crate::get_nonce();
                     let deadline_secs = SystemTime::now()
@@ -964,11 +1103,7 @@ impl AkaveSDK {
                     )
                     .map_err(|e| AkaveError::InternalError(e.to_string()))?;
 
-                    log_debug!(
-                        "Signing data for chunk {}, block {}",
-                        ipc_chunk.index,
-                        index
-                    );
+                    log_debug!("Signing data for chunk {}, block {}", ipc_chunk.index, index);
                     let signature = self
                         .storage
                         .client
@@ -977,31 +1112,81 @@ impl AkaveSDK {
                         .map_err(|e| {
                             AkaveError::InternalError(format!("Failed to sign data: {}", e))
                         })?;
-                    log_debug!("Signature: {:?}", signature);
 
-                    let mut bytes = [0u8; 32];
-                    nonce.to_big_endian(&mut bytes);
+                    let mut nonce_bytes = [0u8; 32];
+                    nonce.to_big_endian(&mut nonce_bytes);
 
-                    AkaveSDK::upload_block_segments(
-                        block_1mb.data.clone(),
-                        bucket.id.to_vec(),
-                        file_name.clone(),
-                        block_1mb.cid.to_string(),
-                        index as i64,
+                    signed_blocks.push(SignedBlock {
+                        data: block_1mb.data.clone(),
+                        bucket_id: bucket.id.to_vec(),
+                        file_name: file_name.clone(),
+                        block_cid: block_1mb.cid.to_string(),
+                        block_index: index as i64,
                         signature,
                         node_id_bytes,
-                        block_1mb.node_address.as_str(),
-                        bytes.to_vec(),
-                        deadline_secs as i64,
-                        Some(ipc_chunk.clone()),
-                        block_part_size,
-                    )
-                    .await
-                    .map_err(|e| {
-                        AkaveError::InternalError(format!("Failed to upload block segments: {}", e))
-                    })?;
+                        node_address: block_1mb.node_address.clone(),
+                        nonce_bytes: nonce_bytes.to_vec(),
+                        deadline_secs: deadline_secs as i64,
+                        chunk: Some(ipc_chunk.clone()),
+                    });
                 }
-                chunk_cids.push(chunk.chunk_cid);
+
+                // Phase 2: Upload all signed blocks concurrently (semaphore-bounded).
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(self.max_concurrent_blocks));
+                    let upload_pool = self.connection_pool.clone();
+                    let mut join_set = tokio::task::JoinSet::new();
+                    for sb in signed_blocks {
+                        let permit = semaphore.clone().acquire_owned().await.unwrap();
+                        let pool = upload_pool.clone();
+                        join_set.spawn(async move {
+                            let _permit = permit;
+                            AkaveSDK::upload_block_segments(
+                                sb.data,
+                                sb.bucket_id,
+                                sb.file_name,
+                                sb.block_cid,
+                                sb.block_index,
+                                sb.signature,
+                                sb.node_id_bytes,
+                                &sb.node_address,
+                                sb.nonce_bytes,
+                                sb.deadline_secs,
+                                sb.chunk,
+                                block_part_size,
+                                pool,
+                            )
+                            .await
+                        });
+                    }
+                    while let Some(result) = join_set.join_next().await {
+                        result
+                            .map_err(AkaveError::ThreadJoinError)?
+                            .map_err(|e| AkaveError::InternalError(format!("Failed to upload block segments: {}", e)))?;
+                    }
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    for sb in signed_blocks {
+                        AkaveSDK::upload_block_segments(
+                            sb.data,
+                            sb.bucket_id,
+                            sb.file_name,
+                            sb.block_cid,
+                            sb.block_index,
+                            sb.signature,
+                            sb.node_id_bytes,
+                            &sb.node_address,
+                            sb.nonce_bytes,
+                            sb.deadline_secs,
+                            sb.chunk,
+                            block_part_size,
+                        )
+                        .await
+                        .map_err(|e| AkaveError::InternalError(format!("Failed to upload block segments: {}", e)))?;
+                    }
+                }
             }
 
             if eof {
@@ -1009,21 +1194,12 @@ impl AkaveSDK {
             }
         }
 
-        // Build root CID based on number of chunks
-        let root_cid = if chunk_cids.len() == 1 {
-            // When there's only one chunk, the root CID is the chunk CID itself
-            chunk_cids[0]
-        } else {
-            // For multiple chunks, build a root node with all chunk CIDs as links
-            Cid::new_v1(
-                DAG_PROTOBUF,
-                root_hash.ok_or_else(|| {
-                    AkaveError::InvalidInput(
-                        "No chunks processed, cannot compute root hash".to_string(),
-                    )
-                })?,
-            )
-        };
+        // Build root CID using the proper UnixFS MerkleDAG root (matches Go DAGRoot).
+        // DagRoot::build() returns the single chunk's CID for 1 chunk, or constructs
+        // a canonical dag-pb PBNode with links to all chunk CIDs for multiple chunks.
+        let root_cid = dag_root
+            .build()
+            .map_err(AkaveError::InternalError)?;
 
         // Calculate file ID for blockchain operations
         let file_id = Self::calculate_file_id(&bucket.id, &file_name);
@@ -1032,24 +1208,35 @@ impl AkaveSDK {
         self.wait_for_file_filled(file_id, &file_name).await?;
 
         log_info!("File is filled, committing: {}", &file_name);
+        let storage = self.storage.clone();
+        let fn_commit = file_name.to_string();
+        let rc_bytes = root_cid.to_bytes();
         let receipt = self
-            .storage
-            .commit_file(
-                bucket.id,
-                file_name.to_string(),
-                U256::from(encode_file_size),
-                U256::from(actual_file_size),
-                root_cid.to_bytes(),
-            )
-            .await
-            .map_err(|e| AkaveError::FileOperationError {
-                operation: "commit_file".to_string(),
-                file_name: file_name.to_string(),
-                message: format!(
-                    "Failed to commit file to blockchain. Encoded size: {}, Actual size: {}, Error: {}",
-                    encode_file_size, actual_file_size, e
-                ),
-            })?;
+            .retry_tx(|| {
+                let storage = storage.clone();
+                let fn_ = fn_commit.clone();
+                let rc = rc_bytes.clone();
+                async move {
+                    storage
+                        .commit_file(
+                            bucket.id,
+                            fn_.clone(),
+                            U256::from(encode_file_size),
+                            U256::from(actual_file_size),
+                            rc,
+                        )
+                        .await
+                        .map_err(|e| AkaveError::FileOperationError {
+                            operation: "commit_file".to_string(),
+                            file_name: fn_,
+                            message: format!(
+                                "Failed to commit file to blockchain. Encoded size: {}, Actual size: {}, Error: {}",
+                                encode_file_size, actual_file_size, e
+                            ),
+                        })
+                }
+            })
+            .await?;
 
         log_info!(
             "File uploaded successfully: {} to bucket: {}",
@@ -1117,22 +1304,11 @@ impl AkaveSDK {
             .map_err(|e| AkaveError::GrpcError(Box::new(e)))?
             .into_inner();
 
-        eprintln!(
-            "[CHUNK_CREATE_RESP] chunk_cid={} requested_blocks={} returned_blocks={}",
-            ipc_chunk.cid,
-            ipc_chunk.blocks.len(),
-            chunk_create_response.blocks.len()
-        );
-
         chunk_create_response
             .blocks
             .iter()
             .enumerate()
             .for_each(|(idx, block)| {
-                eprintln!(
-                    "[BLOCK_ASSIGN] idx={} node={} cid={}",
-                    idx, &block.node_address, &block.cid
-                );
                 upload_blocks[idx].node_address = block.node_address.clone();
                 upload_blocks[idx].node_id = block.node_id.clone();
                 upload_blocks[idx].permit = block.permit.clone();
@@ -1176,6 +1352,7 @@ impl AkaveSDK {
         deadline: i64,
         chunk: Option<IpcChunk>,
         block_part_size: usize,
+        #[cfg(not(target_arch = "wasm32"))] pool: Option<Arc<tokio::sync::RwLock<std::collections::HashMap<String, Channel>>>>,
     ) -> Result<(), AkaveError> {
         let data_len = data.len();
         if data_len == 0 {
@@ -1208,11 +1385,7 @@ impl AkaveSDK {
             log_debug!("Uploading block {}", block_index);
             let mut node_client = AkaveSDK::get_client_for_node_address(node_address)
                 .await
-                .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
-            eprintln!(
-                "[UPLOAD] block_cid={} chunk_cid={} chunk_index={} block_index={}",
-                block.cid, ipc_chunk.cid, chunk_index, block_index
-            );
+                .map_err(|e| AkaveError::GrpcError(Box::new(e)))?; // WASM: no pool
             node_client
                 .file_upload_block_unary(block_data)
                 .await
@@ -1224,7 +1397,6 @@ impl AkaveSDK {
                     )))
                 })?
                 .into_inner();
-            eprintln!("got client for node address: {}", node_address);
         }
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -1257,22 +1429,17 @@ impl AkaveSDK {
                 block_index,
                 node_address
             );
-            let mut node_client = AkaveSDK::get_client_for_node_address(node_address)
-                .await
-                .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
+            let mut node_client = if let Some(p) = &pool {
+                AkaveSDK::get_client_via_pool(node_address, p).await
+            } else {
+                AkaveSDK::get_client_for_node_address(node_address).await
+            }
+            .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
             match node_client.file_upload_block(stream).await {
                 Ok(response) => {
-                    eprintln!(
-                        "[BLOCK_STREAM_OK] block_index={} node={}",
-                        block_index, node_address
-                    );
                     response.into_inner();
                 }
                 Err(e) => {
-                    eprintln!(
-                        "[BLOCK_STREAM_ERR] block_index={} node={} err={}",
-                        block_index, node_address, e
-                    );
                     log_error!("Error uploading block: {}", e);
                     return Err(AkaveError::GrpcError(Box::new(e)));
                 }
@@ -1556,12 +1723,16 @@ impl AkaveSDK {
             let original_chunk_size = chunk_download.size as usize;
 
             // --- Concurrent block downloads inside the chunk ---
+            #[cfg(not(target_arch = "wasm32"))]
+            let block_pool = self.connection_pool.clone();
             let mut block_futures = Vec::new();
             for (block_index, block) in chunk_download.blocks.into_iter().enumerate() {
                 let address = address.clone();
                 let chunk_cid = chunk_download.cid.clone();
                 let bucket_name = bucket_name.clone();
                 let file_name = file_name.clone();
+                #[cfg(not(target_arch = "wasm32"))]
+                let block_pool = block_pool.clone();
 
                 block_futures.push(async move {
                     let mut chunk_data = vec![];
@@ -1579,9 +1750,17 @@ impl AkaveSDK {
                         block_index,
                         chunk_index
                     );
-                    eprintln!("[DOWNLOAD] block_cid={} chunk_cid={} chunk_index={} block_index={} node={}",
-                        req.block_cid, req.chunk_cid, req.chunk_index, req.block_index, block.node_address);
-
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let mut node_client = if let Some(pool) = &block_pool {
+                        AkaveSDK::get_client_via_pool(&block.node_address, pool)
+                            .await
+                            .map_err(|e| AkaveError::GrpcError(Box::new(e)))?
+                    } else {
+                        AkaveSDK::get_client_for_node_address(&block.node_address)
+                            .await
+                            .map_err(|e| AkaveError::GrpcError(Box::new(e)))?
+                    };
+                    #[cfg(target_arch = "wasm32")]
                     let mut node_client =
                         AkaveSDK::get_client_for_node_address(&block.node_address)
                             .await
@@ -1613,9 +1792,18 @@ impl AkaveSDK {
             let mut block_results: Vec<BlockData>;
             #[cfg(not(target_arch = "wasm32"))]
             {
+                let semaphore = Arc::new(Semaphore::new(self.max_concurrent_blocks));
                 let mut handles = Vec::new();
                 for fut in block_futures {
-                    handles.push(tokio::spawn(fut));
+                    let permit = semaphore
+                        .clone()
+                        .acquire_owned()
+                        .await
+                        .map_err(|e| AkaveError::InternalError(e.to_string()))?;
+                    handles.push(tokio::spawn(async move {
+                        let _permit = permit;
+                        fut.await
+                    }));
                 }
                 let mut results = Vec::new();
                 for h in handles {
@@ -1647,7 +1835,7 @@ impl AkaveSDK {
                 Some(encryption) => {
                     log_info!("Decrypting chunk: {}", chunk_index);
                     encryption
-                        .decrypt(&processed_data, format!("block_{}", chunk_index).as_bytes())
+                        .decrypt(&processed_data, format!("{}", chunk_index).as_bytes())
                         .map_err(AkaveError::EncryptionError)?
                 }
                 None => processed_data,
@@ -1756,6 +1944,7 @@ impl AkaveSDK {
                     let bucket_name = bucket_name.clone();
                     let file_name = file_name.clone();
                     let semaphore = semaphore.clone();
+                    let sdk = self_clone.clone();
 
                     block_futures.push(async move {
                         // Acquire semaphore permit to limit concurrency
@@ -1778,10 +1967,10 @@ impl AkaveSDK {
                             chunk_index
                         );
 
-                        let mut node_client =
-                            AkaveSDK::get_client_for_node_address(&block.node_address)
-                                .await
-                                .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
+                        let mut node_client = sdk
+                            .get_node_client(&block.node_address)
+                            .await
+                            .map_err(|e| AkaveError::GrpcError(Box::new(e)))?;
 
                         let mut stream = node_client
                             .file_download_block(req)
@@ -1843,7 +2032,7 @@ impl AkaveSDK {
                 Some(encryption) => {
                     log_info!("Decrypting chunk: {}", chunk_index);
                     encryption
-                        .decrypt(&chunk_data, format!("block_{}", chunk_index).as_bytes())
+                        .decrypt(&chunk_data, format!("{}", chunk_index).as_bytes())
                         .map_err(AkaveError::EncryptionError)?
                 }
                 None => chunk_data,
@@ -1903,8 +2092,6 @@ impl AkaveSDK {
             chunk_index: index,
             address: address.to_string(),
         };
-        eprintln!("[CHUNK_CREATE] chunk_cid={}", request.chunk_cid);
-
         let resp = self
             .client
             .clone()
@@ -1935,6 +2122,60 @@ impl AkaveSDK {
             size: chunk.size,
             blocks,
         })
+    }
+
+    /// Returns a gRPC client for the given node address, reusing a cached channel when the
+    /// connection pool is enabled (native only). Falls back to a fresh connection otherwise.
+    async fn get_node_client(
+        &self,
+        node_address: &str,
+    ) -> Result<IpcNodeApiClient<ClientTransport>, AkaveError> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(pool) = &self.connection_pool {
+            return Self::get_client_via_pool(node_address, pool).await;
+        }
+        Self::get_client_for_node_address(node_address).await
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn get_client_via_pool(
+        node_address: &str,
+        pool: &Arc<tokio::sync::RwLock<std::collections::HashMap<String, Channel>>>,
+    ) -> Result<IpcNodeApiClient<ClientTransport>, AkaveError> {
+        let address = if !node_address.starts_with("http://") {
+            format!("http://{}", node_address)
+        } else {
+            node_address.to_string()
+        };
+
+        // Fast path: channel already cached
+        {
+            let guard = pool.read().await;
+            if let Some(ch) = guard.get(&address) {
+                return Ok(IpcNodeApiClient::new(ch.clone())
+                    .max_decoding_message_size(usize::MAX)
+                    .max_encoding_message_size(usize::MAX));
+            }
+        }
+
+        // Slow path: create, cache, return
+        let tls_config = ClientTlsConfig::new().with_native_roots();
+        let channel = Channel::from_shared(address.clone())
+            .map_err(|e| AkaveError::ChannelError(e.to_string()))?
+            .tls_config(tls_config)
+            .map_err(|e| AkaveError::ChannelError(e.to_string()))?
+            .connect()
+            .await
+            .map_err(|e| {
+                AkaveError::GrpcError(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionRefused,
+                    format!("Failed to connect to node {}: {}", address, e),
+                )))
+            })?;
+        pool.write().await.insert(address, channel.clone());
+        Ok(IpcNodeApiClient::new(channel)
+            .max_decoding_message_size(usize::MAX)
+            .max_encoding_message_size(usize::MAX))
     }
 
     async fn get_client_for_node_address(
@@ -2133,10 +2374,13 @@ impl AkaveSDK {
     async fn download_chunk_blocks2(
         &self,
         chunk_download: &FileChunkDownload,
-        file_enc_key: &[u8],
+        encryption: Option<&crate::utils::encryption::Encryption>,
         writer: &mut impl std::io::Write,
     ) -> Result<(), AkaveError> {
-        let http_client = reqwest::Client::new();
+        let http_client = self
+            .http_client
+            .clone()
+            .unwrap_or_else(reqwest::Client::new);
         let semaphore = Arc::new(Semaphore::new(self.max_concurrent_blocks));
         let mut handles = Vec::new();
 
@@ -2178,14 +2422,9 @@ impl AkaveSDK {
             block_data_vecs.concat()
         };
 
-        if !file_enc_key.is_empty() {
-            let enc = crate::utils::encryption::Encryption::new(
-                file_enc_key,
-                format!("{}/{}", chunk_download.cid, chunk_download.index).as_bytes(),
-            )
-            .map_err(AkaveError::EncryptionError)?;
+        if let Some(enc) = encryption {
             data = enc
-                .decrypt(&data, format!("block_{}", chunk_download.index).as_bytes())
+                .decrypt(&data, format!("{}", chunk_download.index).as_bytes())
                 .map_err(AkaveError::EncryptionError)?;
         }
 
@@ -2210,10 +2449,7 @@ impl AkaveSDK {
         let address = self.storage.client.get_hex_address().await?;
         let info = [bucket_name_enc.as_str(), file_name_enc.as_str()].join("/");
 
-        let password = passwd
-            .or(self.default_encryption_key.as_deref())
-            .map(|k| k.as_bytes().to_vec())
-            .unwrap_or_default();
+        let encryption = self.setup_download_encryption(passwd, &info)?;
 
         let file_download = self
             .create_file_download(&address, &bucket_name_enc, &file_name_enc)
@@ -2230,10 +2466,9 @@ impl AkaveSDK {
                     chunk_index as i64,
                 )
                 .await?;
-            self.download_chunk_blocks2(&chunk_download, &password, &mut writer)
+            self.download_chunk_blocks2(&chunk_download, encryption.as_ref(), &mut writer)
                 .await?;
         }
-        drop(info);
         Ok(writer)
     }
 
@@ -2324,6 +2559,13 @@ impl AkaveSDK {
             .balance(address, None)
             .await
             .map_err(AkaveError::BlockchainError)
+    }
+
+    pub fn extract_block_data(cid_str: &str, data: Vec<u8>) -> Result<Vec<u8>, AkaveError> {
+        let cid = cid_str
+            .parse::<cid::Cid>()
+            .map_err(|e| AkaveError::InvalidInput(e.to_string()))?;
+        Self::use_download_codec(cid.codec(), data)
     }
 
     fn use_download_codec(codec: u64, chunk_data: Vec<u8>) -> Result<Vec<u8>, AkaveError> {
