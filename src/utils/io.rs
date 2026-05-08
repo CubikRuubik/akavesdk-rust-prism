@@ -1,5 +1,11 @@
 use std::io::{self, Read};
 
+#[cfg(not(target_arch = "wasm32"))]
+use cid::{
+    multihash::{Code, MultihashDigest},
+    Cid,
+};
+
 pub struct PaddedReader<R: Read> {
     inner: R,
     total: u64,
@@ -78,11 +84,25 @@ pub fn skip_to_position<R: Read>(mut reader: R, n: u64) -> io::Result<R> {
     Ok(reader)
 }
 
+/// Generates an IPFS block of `size` random bytes with a CIDv1 (dag-pb / SHA2-256) content
+/// address.  Returns the raw bytes and the computed CID together as a tuple.
+///
+/// Equivalent to the `testrand.Block` helper in the Go SDK.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn random_block(size: usize) -> Result<(Vec<u8>, Cid), getrandom::Error> {
+    let mut data = vec![0u8; size];
+    getrandom::getrandom(&mut data)?;
+    let mh = Code::Sha2_256.digest(&data);
+    // 0x70 = dag-protobuf codec
+    let cid = Cid::new_v1(0x70, mh);
+    Ok((data, cid))
+}
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use std::io::Read;
 
-    use super::{random_file, skip_to_position, PaddedReader};
+    use super::{random_block, random_file, skip_to_position, PaddedReader};
 
     #[test]
     fn test_padded_reader() {
@@ -139,5 +159,24 @@ mod tests {
 
         let cursor3 = std::io::Cursor::new(vec![1u8, 2, 3]);
         assert!(skip_to_position(cursor3, 10).is_err());
+    }
+
+    #[test]
+    fn test_random_block() {
+        let size = 256;
+        let (data, cid) = random_block(size).expect("random_block should not fail");
+        assert_eq!(
+            data.len(),
+            size,
+            "block data length should match requested size"
+        );
+        // CIDv1 with dag-protobuf codec (0x70)
+        assert_eq!(cid.codec(), 0x70, "CID codec should be dag-protobuf");
+        assert_eq!(cid.version(), cid::Version::V1, "CID should be version 1");
+
+        // Two calls produce different data (with overwhelming probability)
+        let (data2, cid2) = random_block(size).expect("second random_block should not fail");
+        assert_ne!(data, data2, "two random blocks should differ");
+        assert_ne!(cid, cid2, "two random block CIDs should differ");
     }
 }
