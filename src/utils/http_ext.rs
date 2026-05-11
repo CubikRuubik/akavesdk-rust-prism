@@ -1,5 +1,24 @@
 use crate::types::sdk_types::AkaveError;
 
+/// Sentinel wrapper that marks an [`AkaveError`] as transient (safe to retry).
+///
+/// HTTP errors from [`range_download`] that indicate a temporary server condition are
+/// wrapped in this type so callers can distinguish retriable failures from permanent ones.
+#[derive(Debug)]
+pub struct ErrTransient(pub AkaveError);
+
+impl std::fmt::Display for ErrTransient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "transient error: {}", self.0)
+    }
+}
+
+impl std::error::Error for ErrTransient {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn range_download(
     client: &reqwest::Client,
@@ -8,9 +27,7 @@ pub async fn range_download(
     length: i64,
 ) -> Result<Vec<u8>, AkaveError> {
     if length <= 0 {
-        return Err(AkaveError::InvalidInput(
-            "length must be positive".into(),
-        ));
+        return Err(AkaveError::InvalidInput("length must be positive".into()));
     }
     if offset < 0 {
         return Err(AkaveError::InvalidInput(
