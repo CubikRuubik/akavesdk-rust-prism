@@ -1,0 +1,232 @@
+{
+  "meta": {
+    "source_repo": "CubikRuubik/akavesdk-prism",
+    "source_commit": "568cbb400248fb84b26eb0b3246abe7822419a62",
+    "target_repo": "CubikRuubik/akavesdk-rust-prism",
+    "created_at": "2026-05-11T10:32:00Z",
+    "description": "v0.5.5: breaking SDK constructor and option renames, new Upload2 and MultiUpload APIs, streamenc package, erasurecode updates, IPC contract upgrade support"
+  },
+  "execution_order": [
+    "CHANGE-1: Update IPC DeployContracts function signature — apply in this exact sequence",
+    "CHANGE-2: Add Token and StorageImpl fields to ContractsAddresses — apply in this exact sequence",
+    "CHANGE-3: Add UpgradeStorage function — apply in this exact sequence",
+    "CHANGE-4: Update SDK constructor New() signature (remove useConnectionPool, add privateKey positional param) — apply in this exact sequence",
+    "CHANGE-5: Rename and remove SDK option functions — apply in this exact sequence",
+    "CHANGE-6: Remove EncryptionOverhead from SDK package; use encryption.Overhead — apply in this exact sequence",
+    "CHANGE-7: Remove IPC.Upload(); add IPC.Upload2() — apply in this exact sequence",
+    "CHANGE-8: Add MultiUpload type and IPC.MultiUpload() factory — apply in this exact sequence",
+    "CHANGE-9: Remove useConnectionPool; connection pool always active with optimized dial options — apply in this exact sequence",
+    "CHANGE-10: Export CIDBuilder; add BuildLeafNode function — apply in this exact sequence",
+    "CHANGE-11: Update encryption Encrypt/Decrypt/EncryptD info parameter from bytes to string; Encrypt now in-place — apply in this exact sequence",
+    "CHANGE-12: Add streamenc package for streaming encryption — apply in this exact sequence",
+    "CHANGE-13: Update erasurecode: add WrapOverhead constant, SplitStripes function; remove ReconstructAll — apply in this exact sequence",
+    "CHANGE-14: Reimplement ExtractBlockData using raw protowire parsing — apply in this exact sequence",
+    "CHANGE-15: Add httpext.ErrTransient sentinel error — apply in this exact sequence"
+  ],
+  "changes": [
+    {
+      "id": "CHANGE-1",
+      "title": "DeployContracts signature change",
+      "priority": "critical",
+      "go_files": ["private/ipc/client.go"],
+      "target_files": ["src/ipc/client.rs"],
+      "description": "DeployContracts no longer accepts a Config struct. It now takes dialURI and privateKeyHex as separate string positional parameters (context, dialURI string, privateKeyHex string). Any code passing an ipc.Config{DialURI:..., PrivateKey:...} to DeployContracts must be updated to pass the two string values directly."
+    },
+    {
+      "id": "CHANGE-2",
+      "title": "Add Token and StorageImpl to ContractsAddresses",
+      "priority": "high",
+      "go_files": ["private/ipc/client.go"],
+      "target_files": ["src/ipc/client.rs"],
+      "description": "ContractsAddresses now includes two new string fields: Token (address of the deployed AkaveToken contract) and StorageImpl (address of the deployed Storage implementation contract). These are populated by DeployContracts after each respective deployment step. Add these fields to the equivalent Rust struct."
+    },
+    {
+      "id": "CHANGE-3",
+      "title": "New UpgradeStorage function",
+      "priority": "high",
+      "go_files": ["private/ipc/client.go"],
+      "target_files": ["src/ipc/client.rs"],
+      "description": "A new UpgradeStorage function was added to the IPC package. It deploys a new Storage implementation contract and upgrades an existing ERC1967/UUPS proxy to point to it. Parameters are dialURI, privateKey, proxyAddr (existing proxy address), and callDataHex (initializer calldata). Returns the new implementation address. Existing proxy state is preserved. Implement the equivalent in Rust."
+    },
+    {
+      "id": "CHANGE-4",
+      "title": "SDK New() constructor signature change",
+      "priority": "critical",
+      "go_files": ["sdk/sdk.go"],
+      "target_files": ["src/sdk.rs", "src/lib.rs"],
+      "description": "The SDK constructor New() had its fourth positional parameter changed from useConnectionPool (boolean) to privateKey (string). The connection pool is now always enabled; the boolean flag is removed entirely. Any caller must remove the useConnectionPool argument and pass the private key string as the fourth argument instead of as a WithPrivateKey option."
+    },
+    {
+      "id": "CHANGE-5",
+      "title": "Rename and remove SDK option functions",
+      "priority": "critical",
+      "go_files": ["sdk/sdk.go"],
+      "target_files": ["src/sdk.rs", "src/lib.rs"],
+      "description": "Three option functions changed: (1) WithStreamingMaxBlocksInChunk was renamed to WithMaxBlocksInChunk. (2) WithBatchSize was renamed to WithChunkBatchSize. (3) WithPrivateKey was removed entirely — the private key is now a required positional parameter in New(). Update all call sites that use any of these option names."
+    },
+    {
+      "id": "CHANGE-6",
+      "title": "EncryptionOverhead constant removed from SDK package",
+      "priority": "high",
+      "go_files": ["sdk/sdk.go", "private/encryption/encryption.go"],
+      "target_files": ["src/sdk.rs", "src/encryption.rs"],
+      "description": "The EncryptionOverhead constant (value 28: 16 bytes AES-GCM tag + 12 bytes nonce) was removed from the sdk package. The equivalent constant is now exported as encryption.Overhead from the private/encryption package. Any reference to sdk.EncryptionOverhead must be updated to use the encryption package's Overhead constant."
+    },
+    {
+      "id": "CHANGE-7",
+      "title": "IPC.Upload() removed; IPC.Upload2() added",
+      "priority": "critical",
+      "go_files": ["sdk/sdk_ipc.go", "sdk/sdk_ipc_upload_download2.go"],
+      "target_files": ["src/sdk_ipc.rs"],
+      "description": "The Upload method was removed from the IPC type. A new Upload2 method was added in its place. Upload2 requires both erasure coding and encryption to be configured on the SDK instance — it returns an error if either is absent. Upload2 uses streaming encryption (streamenc package) and per-stripe erasure coding. Read sdk_ipc_upload_download2.go at source_commit for the full implementation semantics."
+    },
+    {
+      "id": "CHANGE-8",
+      "title": "New MultiUpload type and IPC.MultiUpload() factory",
+      "priority": "high",
+      "go_files": ["sdk/multi_upload.go", "sdk/sdk_ipc.go"],
+      "target_files": ["src/multi_upload.rs", "src/sdk_ipc.rs"],
+      "description": "A new MultiUpload struct was added to the sdk package. It provides batched parallel file upload operations: CreateFileUploads (creates on-chain file upload records in parallel) and an upload execution method. IPC gained a MultiUpload(fileConcurrency int) factory method that creates a MultiUpload bound to that IPC instance. The fileConcurrency parameter controls how many files are uploaded concurrently (minimum 1). Read sdk/multi_upload.go for the full parameter types and return types."
+    },
+    {
+      "id": "CHANGE-9",
+      "title": "Connection pool always enabled; useConnectionPool removed",
+      "priority": "high",
+      "go_files": ["sdk/connection.go"],
+      "target_files": ["src/connection.rs"],
+      "description": "The useConnectionPool boolean was removed from the IPC struct and the SDK. Connections are now always pooled. The internal methods createIPCClient and createArchivalClient (which had a pooled/non-pooled branch) were replaced with IPCClient and ArchivalClient respectively, which always use the pool. A shared defaultDialOptions was introduced with read/write buffer sizes (128 KiB each) and shared write buffer enabled. Update connection management code to always use pooled connections with these dial options."
+    },
+    {
+      "id": "CHANGE-10",
+      "title": "CIDBuilder exported; BuildLeafNode function added",
+      "priority": "medium",
+      "go_files": ["sdk/dag.go"],
+      "target_files": ["src/dag.rs"],
+      "description": "The internal cidBuilder variable was renamed to CIDBuilder and exported (capitalized). A new BuildLeafNode function was added that wraps raw bytes in a UnixFS TFile ProtoNode, matching the leaf nodes produced by BuildDAG. This can be used to reconstruct individual leaf nodes independently of the full DAG building pipeline. Read sdk/dag.go for the exact node structure."
+    },
+    {
+      "id": "CHANGE-11",
+      "title": "encryption Encrypt/Decrypt/EncryptD info parameter changed to string",
+      "priority": "high",
+      "go_files": ["private/encryption/encryption.go"],
+      "target_files": ["src/encryption.rs"],
+      "description": "The info parameter in Encrypt, EncryptD, and Decrypt was changed from a byte slice to a string. Additionally, Encrypt now performs encryption in-place: the input data buffer must have sufficient capacity for the ciphertext (len(data) + Overhead bytes). It returns a resliced view of the same buffer. A new ErrBufferTooSmall sentinel error is returned when capacity is insufficient. Decrypt also works in-place. Update all call sites to pass string info and pre-allocate buffers with sufficient capacity."
+    },
+    {
+      "id": "CHANGE-12",
+      "title": "New streamenc package for streaming encryption",
+      "priority": "high",
+      "go_files": ["private/encryption/streamenc/streamenc.go"],
+      "target_files": ["src/streamenc.rs"],
+      "description": "A new streamenc package was added implementing a block-based streaming encryption format. It splits plaintext into fixed-size blocks, each independently encrypted with AES-GCM using a derived nonce (counter-based from a random initial nonce). Block 0 contains a header (version byte + initial nonce + plaintext size). Key constants: MaxBlockSize=32KiB total ciphertext block size; HeaderSize=17 bytes; Block0DataSize and BlockNDataSize define plaintext capacity per block. Functions include ParseHeader, NumBlocks, MaxPlaintextSizeForTarget, Seal (encrypt), and Open (decrypt). Implement the equivalent streaming encryption module in Rust."
+    },
+    {
+      "id": "CHANGE-13",
+      "title": "Erasurecode: WrapOverhead constant, SplitStripes function, ReconstructAll removed",
+      "priority": "high",
+      "go_files": ["private/erasurecode/erasure_code.go", "private/erasurecode/stripes.go"],
+      "target_files": ["src/erasurecode.rs"],
+      "description": "Three changes to the erasurecode package: (1) A new exported WrapOverhead constant was added (equals prefix (8) + len(magicSuffix) (4) = 12 bytes), indicating the total overhead added when wrapping data. (2) A new SplitStripes function was added that splits a byte slice into fixed-size stripes (last stripe may be smaller). (3) The ReconstructAll method was removed from ErasureCode. Update any code calling ReconstructAll to use the remaining reconstruction methods; add WrapOverhead and SplitStripes equivalents."
+    },
+    {
+      "id": "CHANGE-14",
+      "title": "ExtractBlockData reimplemented using raw protowire",
+      "priority": "medium",
+      "go_files": ["sdk/sdk.go"],
+      "target_files": ["src/sdk.rs"],
+      "description": "ExtractBlockData was refactored to use raw protobuf wire parsing instead of the IPFS merkledag and unixfs library functions. For DagProtobuf CIDs, it now parses the DAG-PB node directly (field 1 = data) and then parses the UnixFS node (field 2 = data payload) using the protowire library. The external behavior is unchanged — given a CID string and block bytes, it returns the raw data payload. The new implementation avoids IPFS library dependencies for block decoding. If the Rust implementation uses IPFS bindings for this, consider switching to direct protobuf parsing."
+    },
+    {
+      "id": "CHANGE-15",
+      "title": "httpext.ErrTransient sentinel error added",
+      "priority": "low",
+      "go_files": ["private/httpext/httpext.go"],
+      "target_files": ["src/httpext.rs"],
+      "description": "A new exported sentinel error ErrTransient was added to the httpext package. RangeDownload now wraps network and read errors with errors.Join(ErrTransient, ...) so callers can detect transient failures using errors.Is(err, httpext.ErrTransient). Add an equivalent sentinel error in the Rust HTTP utilities and update error wrapping in range download operations."
+    }
+  ],
+  "contract_updates": [],
+  "test_updates": [
+    {
+      "id": "TEST-1",
+      "go_test_function": "TestDAGRootBuildMatchesBuildDAG",
+      "go_file": "sdk/dag_test.go",
+      "type": "unit",
+      "description": "Verifies that building a DAG root node using DAGRoot.Build() produces the same root CID as building via BuildDAG(), across multiple file sizes (142 bytes to 32 MiB). Ensures the two construction paths are consistent.",
+      "port_instructions": [
+        "Create a test that iterates over file sizes: 142 bytes, 1 MB, 5 MiB, 16 MiB, 30 MiB, 32 MiB.",
+        "For each size, generate random bytes.",
+        "Build a DAG using BuildDAG (or equivalent) from a reader over the random bytes, capturing root CID.",
+        "Build the same DAG by feeding leaf nodes manually into a DAGRoot, then call Build() to get the root CID.",
+        "Assert both CIDs are equal.",
+        "Use the same CIDBuilder (CID v1 prefix) for both paths."
+      ],
+      "dependencies": ["CHANGE-10"]
+    },
+    {
+      "id": "TEST-2",
+      "go_test_function": "TestExtractBlockDataDecodeProtobufMatchesProtowire",
+      "go_file": "sdk/sdk_unit_test.go",
+      "type": "unit",
+      "description": "Verifies that the new raw-protowire-based ExtractBlockData produces identical output to the previous IPFS-library-based decoding, for both plain chunks and erasure-coded chunks across various sizes.",
+      "port_instructions": [
+        "For each test size (512 KiB, 1 MiB, 4 MiB, 16 MiB, 32 MiB), generate random payload bytes.",
+        "Build a DAG using BuildDAG over the payload.",
+        "For each block in the DAG, call ExtractBlockData with the block CID and raw block bytes.",
+        "Compare the extracted bytes against the original block payload using an IPFS-library decode path.",
+        "Repeat the test with erasure-coded variants: encode the payload using erasurecode (e.g., 4+4, 8+8, 16+16 data+parity), build a DAG over each stripe, and verify block data extraction for each block."
+      ],
+      "dependencies": ["CHANGE-14", "CHANGE-13"]
+    },
+    {
+      "id": "TEST-3",
+      "go_test_function": "TestMultiUploadCreateFileUploadsInvalidParams",
+      "go_file": "sdk/multi_upload_test.go",
+      "type": "unit",
+      "description": "Validates that MultiUpload.CreateFileUploads returns appropriate errors for invalid inputs: empty params slice, empty bucket name, empty file name, and multiple invalid entries.",
+      "port_instructions": [
+        "Create a MultiUpload instance (without a real IPC backend).",
+        "Test case 1: call CreateFileUploads with an empty slice; expect error containing 'no files to upload'.",
+        "Test case 2: pass a param with empty bucket name; expect error containing 'empty bucket name at index 0'.",
+        "Test case 3: pass a param with empty file name; expect error containing 'empty file name at index 0'.",
+        "Test case 4: pass multiple params with empty bucket names; expect a joined error mentioning all invalid indices.",
+        "Test case 5: pass multiple params with empty file names; same pattern."
+      ],
+      "dependencies": ["CHANGE-8"]
+    },
+    {
+      "id": "TEST-4",
+      "go_test_function": "TestCreateSDKClient",
+      "go_file": "sdk/sdk_test.go",
+      "type": "unit",
+      "description": "Validates SDK constructor error conditions: maxBlocksInChunk < 2, invalid erasure coding config, invalid encryption key length. Updated for the new New() signature (privateKey as positional param, WithMaxBlocksInChunk instead of WithStreamingMaxBlocksInChunk).",
+      "port_instructions": [
+        "Test case 1: construct SDK with maxBlocksInChunk=1 using WithMaxBlocksInChunk(1); expect error 'max blocks in chunk 1 should be >= 2'.",
+        "Test case 2: construct SDK with WithErasureCoding(17) and default maxBlocksInChunk (32); expect error 'parity blocks count 17 should be <= 16'.",
+        "Test case 3: construct SDK with WithErasureCoding(40) and WithMaxBlocksInChunk(64); expect error 'parity blocks count 40 should be <= 32'.",
+        "Test case 4: construct SDK with a 5-byte encryption key; expect error about key length being 32 bytes.",
+        "For all cases pass an empty string as the privateKey positional argument."
+      ],
+      "dependencies": ["CHANGE-4", "CHANGE-5"]
+    }
+  ],
+  "skipped_files": [
+    { "path": "README.md", "reason": "documentation" },
+    { "path": "go.mod", "reason": "dependencies" },
+    { "path": "go.sum", "reason": "dependencies" },
+    { "path": "private/encryption/encryption_test.go", "reason": "other" },
+    { "path": "private/encryption/streamenc/streamenc_test.go", "reason": "other" },
+    { "path": "private/erasurecode/erasure_code_bench_test.go", "reason": "other" },
+    { "path": "private/erasurecode/erasure_code_test.go", "reason": "other" },
+    { "path": "private/erasurecode/stripes_test.go", "reason": "other" },
+    { "path": "private/ipc/batch_client.go", "reason": "other" },
+    { "path": "private/ipc/batch_client_test.go", "reason": "other" },
+    { "path": "private/ipc/client_test.go", "reason": "other" },
+    { "path": "private/ipctest/ipctest.go", "reason": "other" },
+    { "path": "private/version/version.go", "reason": "build" },
+    { "path": "sdk/sdk_bench_test.go", "reason": "other" },
+    { "path": "sdk/sdk_ipc_test.go", "reason": "other" },
+    { "path": "cmd/akavecli/main.go", "reason": "other" },
+    { "path": "cmd/akavecli/storage.go", "reason": "other" }
+  ]
+}
