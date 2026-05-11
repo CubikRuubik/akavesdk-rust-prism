@@ -1,6 +1,12 @@
 use reed_solomon_erasure::{galois_8, ReedSolomon};
 use thiserror::Error;
 
+/// Overhead in bytes added by the wrapping format: 8-byte size prefix + 4-byte magic suffix.
+pub const WRAP_OVERHEAD: usize = 12;
+
+/// Magic suffix appended to wrapped data.
+const WRAP_MAGIC: &[u8; 4] = b"\xDE\xCA\xFB\xAD";
+
 #[derive(Error, Debug)]
 pub enum ErasureCodeError {
     #[error("erasure coding error")]
@@ -139,6 +145,50 @@ impl ErasureCode {
 
         Ok(buffer)
     }
+
+    /// Encodes raw data into shards without any wrapping (raw variant).
+    ///
+    /// Unlike [`encode`] which returns concatenated shards, this returns individual shard vectors.
+    pub fn encode_raw(&self, data: &[u8]) -> Result<Vec<Vec<u8>>, ErasureCodeError> {
+        let total_blocks = self.data_blocks + self.parity_blocks;
+        let shard_size = data.len().div_ceil(self.data_blocks);
+
+        let mut shards = vec![vec![0u8; shard_size]; total_blocks];
+        for (i, chunk) in data.chunks(shard_size).enumerate() {
+            if i >= self.data_blocks {
+                break;
+            }
+            shards[i][..chunk.len()].copy_from_slice(chunk);
+        }
+        self.enc
+            .encode(&mut shards)
+            .map_err(ErasureCodeError::ReedSolomonError)?;
+
+        Ok(shards)
+    }
+
+    /// Extracts original data from raw shards without unwrapping (raw variant).
+    ///
+    /// This is the raw counterpart of [`extract_data`]; it expects shards that were produced
+    /// by [`encode_raw`] and does not perform any unwrapping.
+    pub fn extract_data_raw(
+        &self,
+        blocks: Vec<Vec<u8>>,
+        original_data_size: usize,
+    ) -> Result<Vec<u8>, ErasureCodeError> {
+        self.extract_data(blocks, original_data_size)
+    }
+}
+
+/// Splits `data` into stripes of at most `max_stripe_size` bytes each.
+///
+/// Returns a `Vec` of byte slices that together cover all of `data`.  If `data` is empty or
+/// `max_stripe_size` is zero an empty `Vec` is returned.
+pub fn split_stripes(data: &[u8], max_stripe_size: usize) -> Vec<&[u8]> {
+    if max_stripe_size == 0 || data.is_empty() {
+        return Vec::new();
+    }
+    data.chunks(max_stripe_size).collect()
 }
 
 #[cfg(test)]

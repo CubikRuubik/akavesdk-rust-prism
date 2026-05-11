@@ -102,13 +102,13 @@ impl DagRoot {
     fn encode_pblink(hash: &[u8], tsize: u64) -> Vec<u8> {
         let mut out: Vec<u8> = Vec::new();
         Self::write_bytes_field(&mut out, 1, hash); // Hash
-        Self::write_string_field(&mut out, 2, "");  // Name (empty)
+        Self::write_string_field(&mut out, 2, ""); // Name (empty)
         Self::write_varint_field(&mut out, 3, tsize); // Tsize
         out
     }
 
     /// Append a length-delimited (wire type 2) protobuf field.
-    fn write_bytes_field(buf: &mut Vec<u8>, field_number: u64, value: &[u8]) {
+    pub(crate) fn write_bytes_field(buf: &mut Vec<u8>, field_number: u64, value: &[u8]) {
         Self::write_varint(buf, (field_number << 3) | 2);
         Self::write_varint(buf, value.len() as u64);
         buf.extend_from_slice(value);
@@ -138,6 +138,37 @@ impl DagRoot {
             }
         }
     }
+}
+
+/// Builds a dag-pb UnixFS TFile leaf node from raw bytes, matching the leaf
+/// nodes produced by Go's `BuildLeafNode`.
+///
+/// Returns `(cid, node_bytes)` — the CIDv1 (dag-pb/sha2-256) of the node and
+/// its serialised dag-pb bytes.
+pub fn build_leaf_node(data: &[u8]) -> Result<(Cid, Vec<u8>), String> {
+    use prost::alloc::borrow::Cow;
+    use quick_protobuf::{MessageWrite, Writer};
+
+    // Encode the UnixFS Data message: {type: TFile, data: <raw bytes>}
+    let pb_data = PbData {
+        data_type: mod_Data::DataType::File,
+        data: Some(Cow::Borrowed(data)),
+        ..Default::default()
+    };
+    let mut unixfs_bytes = Vec::new();
+    let mut w = Writer::new(&mut unixfs_bytes);
+    pb_data
+        .write_message(&mut w)
+        .map_err(|e| format!("PbData encode: {e}"))?;
+
+    // Encode the dag-pb PBNode: Data field only (field 1), no links.
+    let mut node_bytes = Vec::new();
+    DagRoot::write_bytes_field(&mut node_bytes, 1, &unixfs_bytes);
+
+    let mh = Code::Sha2_256.digest(&node_bytes);
+    let cid = Cid::new_v1(DAG_PROTOBUF, mh);
+
+    Ok((cid, node_bytes))
 }
 
 #[derive(Debug)]
