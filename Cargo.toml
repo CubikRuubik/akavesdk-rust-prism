@@ -39,7 +39,7 @@ overflow-checks = false  # Remove overflow checks
 [dependencies]
 # Dependencies shared by all targets
 aes-gcm = "0.10.3"
-alloy = "0.11.0"
+alloy = "2.0.0"
 async-stream = "0.3"
 async-trait = "0.1.88"
 bs58 = "0.5"
