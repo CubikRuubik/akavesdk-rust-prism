@@ -39,8 +39,9 @@ Before doing anything else, determine whether this PR was created by an automate
 1. Read and understand the `change_plan_<N>` file attached to the triggering pull request — there is exactly one such file per PR and it contains the complete description of all required changes. Use it as the change plan for what needs to be done.
 2. Read `.github/rust-instructions.md` and follow those Rust-specific conventions for any Rust code you touch.
 3. Apply only the requested Rust-side changes in this repository.
-4. Verify the updated code compiles.
-5. If successful, push the changes directly to the triggering PR branch.
+4. Run **Cross-Verification** (see dedicated section below): confirm each implemented change matches the Go source, has call sites, and leaves no orphaned code from dependency chains.
+5. Verify the updated code compiles.
+6. If successful, push the changes directly to the triggering PR branch.
 
 ## Implementation Rules
 
@@ -90,6 +91,63 @@ rustfmt src/blockchain/storage.rs src/blockchain/ipc_types.rs
 
 Do not run `cargo fmt` or `rustfmt` on any file you did not edit as part of this task.
 
+## Cross-Verification
+
+After implementing all changes and **before** running the build, perform the following verification steps for every entry in the change plan. The goal is to catch three failure classes: signature drift (Rust doesn't match what Go ended up with), dead code (new APIs that nothing calls), and broken dependency chains (a "Done" item whose prerequisite was skipped, leaving it unreachable).
+
+### Step 1 — Signature verification for every "Done" change
+
+For each change you marked **Done**:
+
+1. Read the Go source file(s) listed under `go_files` in the change plan entry directly from the Go repository at `meta.source_commit` (using the same GitHub API method described in **Accessing Go Source Files**).
+2. Extract every public symbol that the change added or modified: function signatures, struct fields, constant values, error variant names.
+3. Locate the Rust counterpart(s) you wrote and compare them symbol-by-symbol:
+   - Function parameter types and order must match the Go source (accounting for idiomatic translation: Go `[]byte` → Rust `&[u8]`, Go `string` → Rust `&str`, Go `error` → `Result<_, E>`, etc.).
+   - Constant values (numeric literals, string literals) must be identical.
+   - Error variant names and their meaning must correspond to the Go errors they replace.
+4. If **any mismatch** is found: fix the Rust code to match the Go source, then re-run this check for the corrected symbol. Do not proceed to validation while a known mismatch remains.
+
+### Step 2 — Call-site check for every new public API
+
+For each change you marked **Done** that introduced a **new** public function, struct, constant, or type in Rust:
+
+1. Collect the exact identifier name(s) you added (e.g. `encode_raw`, `ErrTransient`, `split_stripes`).
+2. For each identifier, run:
+   ```bash
+   grep -rn "<identifier>" src/ --include="*.rs" | grep -v "^src/<defining_file>"
+   ```
+   (Replace `<identifier>` with the actual name and `<defining_file>` with the file where it is defined, so the definition itself is excluded from the count.)
+3. If the grep returns **zero results** (no callers outside the defining file), the item is dead code. Determine why:
+   - **Cause A — dependency was skipped**: Check `execution_order` in the change plan. If the caller that would use this API was in a change entry that was skipped, document this as a dead-code consequence of the skip and add a `#[allow(dead_code)]` attribute with a comment naming the skipped change (e.g. `// used by CHANGE-9 (Upload2), which was skipped`).
+   - **Cause B — implementation error**: The API was implemented but never wired into an existing code path that should use it (e.g. a sentinel error type that the HTTP helper never returns). Fix the wiring — read the Go source to understand how the Go code actually uses the symbol, then apply the equivalent in Rust.
+4. Do not leave Cause-B dead code in place — it means the change was only half-applied.
+
+### Step 3 — Dependency chain check for every "Skipped" change
+
+For each change you marked **Skipped**:
+
+1. Look up its entry in `execution_order`. Identify every other change whose description mentions this skipped entry as a prerequisite (e.g. "apply after CHANGE-X").
+2. For each dependent change that was marked **Done**, run:
+   ```bash
+   grep -rn "<key_symbols_from_done_change>" src/ --include="*.rs"
+   ```
+   If the Done change introduced symbols that exist only to serve the skipped change, mark those symbols as described in Step 2 Cause A.
+3. For the skipped change itself, grep the Rust source for any partial implementation that may have been left behind:
+   ```bash
+   grep -rn "<key_identifier_from_skipped_change>" src/ --include="*.rs"
+   ```
+   If results appear, decide: either complete the implementation (if the skipped change is now considered in scope) or remove the orphaned code entirely.
+
+### Step 4 — Document findings
+
+Add a `## Cross-Verification` section at the bottom of `change_plans/summary_<N>.md` listing:
+
+- For each check that **passed**: one line — `✓ CHANGE-X: <what was verified>`.
+- For each fix applied during verification: `Fixed CHANGE-X: <what was wrong and what was corrected>`.
+- For each intentional dead-code annotation added: `Dead code (Cause A) CHANGE-X: <symbol> — depends on skipped CHANGE-Y`.
+
+If this section is missing from the summary file, the workflow is considered incomplete.
+
 ## Validation
 
 Run these checks after making changes, **in order**:
@@ -126,6 +184,12 @@ Done — Added `fill_chunk_blocks`, `get_block_peers_of_chunk`, and `get_buckets
 ## CHANGE-3
 
 Skipped — `storage.json` ABI artifact already up to date in this repository.
+
+## Cross-Verification
+
+✓ CHANGE-2: signatures match Go source at meta.source_commit; all three new functions have call sites in sdk.rs.
+Fixed CHANGE-3: ExtractData signature was missing the unwrap path — corrected to remove originalSize parameter and delegate to unwrapData header parsing.
+Dead code (Cause A) CHANGE-2: `encode_raw` — depends on skipped CHANGE-9 (Upload2). Added `#[allow(dead_code)]` attribute.
 ```
 
 Include this file in the push.
