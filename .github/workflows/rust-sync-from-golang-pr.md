@@ -8,7 +8,7 @@ permissions: read-all
 tools:
   github:
     toolsets: [default, repos]
-timeout-minutes: 40
+timeout-minutes: 80
 network:
   allowed:
     - defaults
@@ -55,7 +55,7 @@ Before doing anything else, determine whether this PR was created by an automate
    - **Look at the before state, not the after state.** For every change you are considering skipping, identify what the Go code was doing _before_ the change (the pattern being eliminated), then actively search the Rust codebase for that same old pattern. If Rust is still doing what Go stopped doing, the change is applicable — do not skip it. Only skip if Rust neither has the new structure nor exhibits the old pattern being replaced. Example: Go replaced per-operation connection creation with a persistent pool. Before skipping, search Rust for per-operation connection creation — if found, implement the pool even though no pool struct exists yet.
    - **Mandatory search before skipping**: Before you may write "SKIP" for any change that involves removing a pattern or replacing a mechanism (connection handling, pooling, client creation, error wrapping, etc.), you MUST run an explicit grep/search of the Rust source for the old pattern. Document the exact command you ran and its output in your reasoning. A skip is only valid if the search returns zero results. If you cannot determine the old pattern from the change plan alone, read the Go source at the commit _before_ `meta.source_commit` to compare the before and after state.
 8. **Removal without Rust equivalent**: This rule applies only to **pure deletions** — Go removed X and nothing replaced it. If no corresponding code exists in the Rust repository, skip with a summary note explaining that no Rust equivalent was found.
-   - **Replacements and refactors are not pure deletions.** If the Go change removes old code *and* introduces new code in its place (a replacement, refactor, or upgrade of a mechanism), treat it as an update under rule 7: implement the new version in Rust even if neither the old nor the new version exists there yet. The absence of the old code in Rust is not a reason to skip — it means the new version needs to be introduced from scratch.
+   - **Replacements and refactors are not pure deletions.** If the Go change removes old code _and_ introduces new code in its place (a replacement, refactor, or upgrade of a mechanism), treat it as an update under rule 7: implement the new version in Rust even if neither the old nor the new version exists there yet. The absence of the old code in Rust is not a reason to skip — it means the new version needs to be introduced from scratch.
 9. For every `contract_updates[]` entry with `change_type: "updated"`, read the Go source file directly from the Go repository at `meta.source_commit` (see **Accessing Go Source Files** below). Extract the full ABI string from the `ABI:` field inside the `var *MetaData = &bind.MetaData{...}` block and overwrite the corresponding JSON file in `src/blockchain/`. Do not extract ABI values from diff context lines — read from the source file directly.
 
 ## Accessing Go Source Files
