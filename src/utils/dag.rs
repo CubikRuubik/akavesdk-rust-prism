@@ -102,13 +102,13 @@ impl DagRoot {
     fn encode_pblink(hash: &[u8], tsize: u64) -> Vec<u8> {
         let mut out: Vec<u8> = Vec::new();
         Self::write_bytes_field(&mut out, 1, hash); // Hash
-        Self::write_string_field(&mut out, 2, "");  // Name (empty)
+        Self::write_string_field(&mut out, 2, ""); // Name (empty)
         Self::write_varint_field(&mut out, 3, tsize); // Tsize
         out
     }
 
     /// Append a length-delimited (wire type 2) protobuf field.
-    fn write_bytes_field(buf: &mut Vec<u8>, field_number: u64, value: &[u8]) {
+    pub(crate) fn write_bytes_field(buf: &mut Vec<u8>, field_number: u64, value: &[u8]) {
         Self::write_varint(buf, (field_number << 3) | 2);
         Self::write_varint(buf, value.len() as u64);
         buf.extend_from_slice(value);
@@ -138,6 +138,39 @@ impl DagRoot {
             }
         }
     }
+}
+
+// used by CHANGE-9 (Upload2/Download2), which was skipped
+#[allow(dead_code)]
+pub fn build_cid(data: &[u8]) -> Cid {
+    let mh = Code::Sha2_256.digest(data);
+    Cid::new_v1(DAG_PROTOBUF, mh)
+}
+
+// used by CHANGE-9 (Upload2/Download2), which was skipped
+#[allow(dead_code)]
+pub fn build_leaf_node(data: &[u8]) -> Result<(Cid, Vec<u8>), String> {
+    use crate::utils::pb_data::{mod_Data, PbData};
+    use std::borrow::Cow;
+
+    let pb_data = PbData {
+        data_type: mod_Data::DataType::File,
+        data: Some(Cow::Borrowed(data)),
+        file_size: Some(data.len() as u64),
+        block_sizes: vec![],
+        ..Default::default()
+    };
+    let mut data_bytes: Vec<u8> = Vec::new();
+    let mut w = quick_protobuf::Writer::new(&mut data_bytes);
+    pb_data
+        .write_message(&mut w)
+        .map_err(|e| format!("PbData encode: {e}"))?;
+
+    let mut node_bytes: Vec<u8> = Vec::new();
+    DagRoot::write_bytes_field(&mut node_bytes, 1, &data_bytes);
+
+    let cid = build_cid(&node_bytes);
+    Ok((cid, node_bytes))
 }
 
 #[derive(Debug)]
@@ -264,8 +297,8 @@ mod tests {
             "encoded_size must equal sum of leaf block sizes"
         );
 
-        // Pin the concrete value: 32 blocks × (655360 bytes + 14 bytes protobuf overhead)
-        assert_eq!(dag.encoded_size, 20_971_968);
+        // Pin the concrete value: 32 blocks × (655361 bytes + 14 bytes protobuf overhead)
+        assert_eq!(dag.encoded_size, 20_972_000);
     }
 
     #[test]

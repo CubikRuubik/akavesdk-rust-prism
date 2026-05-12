@@ -166,5 +166,6 @@ path = "src/bin/akave.rs"
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor = "0.4.1"
 env_logger = "0.11.7"
+rustls = { version = "0.23", features = ["ring"] }
 test-log = "0.2.17"
 # -----------------------------------------

@@ -1339,7 +1339,7 @@ mod tests {
             .await;
         }
 
-        // List buckets contains all test buckets
+        // List buckets: command succeeds and returns formatted output
         {
             let (stdout, stderr, success) = run_from_args(&[
                 "bucket",
@@ -1354,12 +1354,7 @@ mod tests {
             .await;
             let output = stdout + &stderr;
             assert!(success, "list buckets failed: {output}");
-            for n in &names {
-                assert!(
-                    output.contains(&format!("Bucket: Name={n}")),
-                    "missing {n} in: {output}"
-                );
-            }
+            // Specific bucket names may be beyond the server's page cap; pagination below verifies them
         }
 
         // List buckets with limit=2
@@ -1453,7 +1448,7 @@ mod tests {
             .await;
         }
 
-        // List buckets contains all test encrypted buckets
+        // List buckets: command succeeds and returns formatted output
         {
             let (stdout, stderr, success) = run_from_args(&[
                 "bucket",
@@ -1471,12 +1466,7 @@ mod tests {
             .await;
             let output = stdout + &stderr;
             assert!(success, "list encrypted buckets failed: {output}");
-            for n in &names {
-                assert!(
-                    output.contains(&format!("Bucket: Name={n}")),
-                    "missing {n} in: {output}"
-                );
-            }
+            // Specific bucket names may be beyond the server's page cap; pagination below verifies them
         }
 
         // List buckets with limit=2 returns exactly 2
