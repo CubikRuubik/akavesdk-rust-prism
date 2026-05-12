@@ -1,5 +1,20 @@
 use crate::types::sdk_types::AkaveError;
 
+/// Sentinel string identifying transient (retryable) network errors.
+pub const ERR_TRANSIENT: &str = "transient error";
+
+/// A transient (retryable) network error wrapper.
+#[derive(Debug)]
+pub struct ErrTransient(pub String);
+
+impl std::fmt::Display for ErrTransient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", ERR_TRANSIENT, self.0)
+    }
+}
+
+impl std::error::Error for ErrTransient {}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn range_download(
     client: &reqwest::Client,
@@ -8,9 +23,7 @@ pub async fn range_download(
     length: i64,
 ) -> Result<Vec<u8>, AkaveError> {
     if length <= 0 {
-        return Err(AkaveError::InvalidInput(
-            "length must be positive".into(),
-        ));
+        return Err(AkaveError::InvalidInput("length must be positive".into()));
     }
     if offset < 0 {
         return Err(AkaveError::InvalidInput(
@@ -24,7 +37,7 @@ pub async fn range_download(
         .header("Range", range_header)
         .send()
         .await
-        .map_err(|e| AkaveError::InternalError(e.to_string()))?;
+        .map_err(|e| AkaveError::InternalError(format!("{}: {}", ERR_TRANSIENT, e)))?;
 
     let status = resp.status().as_u16();
     if status != 206 && status != 200 {
@@ -37,7 +50,7 @@ pub async fn range_download(
     resp.bytes()
         .await
         .map(|b| b.to_vec())
-        .map_err(|e| AkaveError::InternalError(e.to_string()))
+        .map_err(|e| AkaveError::InternalError(format!("{}: {}", ERR_TRANSIENT, e)))
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

@@ -23,10 +23,20 @@ pub enum EncryptionError {
 
     #[error("no encryption key available")]
     NoKeyAvailable,
+
+    #[error("buffer too small for encryption")]
+    BufferTooSmall,
 }
 
 pub const KEY_LEN: usize = 32;
 pub const GCM_NONCE_SIZE: usize = 12;
+/// AES-GCM tag (16 bytes) + nonce (12 bytes) overhead per encrypted value.
+pub const OVERHEAD: usize = 28;
+
+/// Ceiling division: smallest integer ≥ a/b.
+pub fn ceil_div(a: usize, b: usize) -> usize {
+    (a + b - 1) / b
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct Encryption {
@@ -34,18 +44,18 @@ pub(crate) struct Encryption {
 }
 
 impl Encryption {
-    pub fn new(key: &[u8], info: &[u8]) -> Result<Self, EncryptionError> {
+    pub fn new(key: &[u8], info: &str) -> Result<Self, EncryptionError> {
         let key = Encryption::derive_key(key, info)?;
         Ok(Self { key })
     }
 
-    fn derive_key(key: &[u8], info: &[u8]) -> Result<Option<[u8; KEY_LEN]>, EncryptionError> {
+    pub fn derive_key(key: &[u8], info: &str) -> Result<Option<[u8; KEY_LEN]>, EncryptionError> {
         if key.is_empty() {
             return Ok(None);
         }
         let hk = Hkdf::<Sha256>::new(None, key);
         let mut derived = [0u8; KEY_LEN];
-        match hk.expand(info, &mut derived) {
+        match hk.expand(info.as_bytes(), &mut derived) {
             Ok(_) => Ok(Some(derived)),
             Err(e) => Err(EncryptionError::KeyDerivation(format!(
                 "HKDF expansion failed: {:?}",
@@ -54,7 +64,8 @@ impl Encryption {
         }
     }
 
-    fn make_gcm_cipher(&self, info: &[u8]) -> Result<Aes256Gcm, EncryptionError> {
+    /// Returns a derived AES-256-GCM cipher keyed by `self.key` and `info`.
+    pub fn gcm_cipher(&self, info: &str) -> Result<Aes256Gcm, EncryptionError> {
         let key = match self.key {
             Some(k) => Self::derive_key(&k, info)?,
             None => return Err(EncryptionError::NoKeyAvailable),
@@ -90,8 +101,8 @@ impl Encryption {
         nonce
     }
 
-    pub fn encrypt(&self, data: &[u8], info: &[u8]) -> Result<Box<[u8]>, EncryptionError> {
-        let gcm = self.make_gcm_cipher(info)?;
+    pub fn encrypt(&self, data: &[u8], info: &str) -> Result<Box<[u8]>, EncryptionError> {
+        let gcm = self.gcm_cipher(info)?;
         let nonce = Self::generate_nonce();
         let nonce_array = Nonce::from_slice(&nonce);
 
@@ -116,9 +127,9 @@ impl Encryption {
     pub fn encrypt_deterministic(
         &self,
         data: &[u8],
-        info: &[u8],
+        info: &str,
     ) -> Result<Box<[u8]>, EncryptionError> {
-        let gcm = self.make_gcm_cipher(info)?;
+        let gcm = self.gcm_cipher(info)?;
 
         let key_bytes = self
             .key
@@ -153,8 +164,12 @@ impl Encryption {
     }
 
     /// Decrypts data encrypted with encrypt_deterministic (nonce at start of ciphertext).
-    pub fn decrypt_deterministic(&self, data: &[u8], info: &[u8]) -> Result<Vec<u8>, EncryptionError> {
-        let gcm = self.make_gcm_cipher(info)?;
+    pub fn decrypt_deterministic(
+        &self,
+        data: &[u8],
+        info: &str,
+    ) -> Result<Vec<u8>, EncryptionError> {
+        let gcm = self.gcm_cipher(info)?;
 
         if data.len() < GCM_NONCE_SIZE {
             return Err(EncryptionError::DecryptionFailed(
@@ -176,8 +191,8 @@ impl Encryption {
         }
     }
 
-    pub fn decrypt(&self, data: &[u8], info: &[u8]) -> Result<Vec<u8>, EncryptionError> {
-        let gcm = self.make_gcm_cipher(info)?;
+    pub fn decrypt(&self, data: &[u8], info: &str) -> Result<Vec<u8>, EncryptionError> {
+        let gcm = self.gcm_cipher(info)?;
 
         if data.len() < GCM_NONCE_SIZE {
             return Err(EncryptionError::DecryptionFailed(
@@ -217,14 +232,12 @@ mod tests {
         let index: u64 = 1;
         let info = [BUCKET_TO_TEST, "file_name"].join("/");
 
-        let encryption = Encryption::new(password.as_bytes(), info.as_bytes()).unwrap();
+        let encryption = Encryption::new(password.as_bytes(), &info).unwrap();
 
         let encrypted = encryption
-            .encrypt(data.as_bytes(), &index.to_be_bytes())
+            .encrypt(data.as_bytes(), &format!("{index}"))
             .unwrap();
-        let decrypted = encryption
-            .decrypt(&encrypted, &index.to_be_bytes())
-            .unwrap();
+        let decrypted = encryption.decrypt(&encrypted, &format!("{index}")).unwrap();
         let decrypted_data = String::from_utf8(decrypted).unwrap();
 
         assert_eq!(
@@ -243,29 +256,29 @@ mod tests {
         let index: u64 = 1;
         let info = [BUCKET_TO_TEST, "file_name"].join("/");
 
-        let encryption = Encryption::new(password.as_bytes(), info.as_bytes()).unwrap();
+        let encryption = Encryption::new(password.as_bytes(), &info).unwrap();
 
         let encrypted_1 = hex::encode(
             encryption
-                .encrypt(data.as_bytes(), &index.to_be_bytes())
+                .encrypt(data.as_bytes(), &format!("{index}"))
                 .unwrap(),
         );
 
         let encrypted_2 = hex::encode(
             encryption
-                .encrypt(data.as_bytes(), &index.to_be_bytes())
+                .encrypt(data.as_bytes(), &format!("{index}"))
                 .unwrap(),
         );
 
         let encrypted_deterministic_1 = hex::encode(
             encryption
-                .encrypt_deterministic(data.as_bytes(), &index.to_be_bytes())
+                .encrypt_deterministic(data.as_bytes(), &format!("{index}"))
                 .unwrap(),
         );
 
         let encrypted_deterministic_2 = hex::encode(
             encryption
-                .encrypt_deterministic(data.as_bytes(), &index.to_be_bytes())
+                .encrypt_deterministic(data.as_bytes(), &format!("{index}"))
                 .unwrap(),
         );
 
@@ -285,13 +298,17 @@ mod tests {
     #[test]
     fn test_data_overhead() {
         let key = b"test_key_for_data_overhead_check";
-        let enc = Encryption::new(key, b"some_info").unwrap();
+        let enc = Encryption::new(key, "some_info").unwrap();
 
         for (i, &size) in [1 * 1024 * 1024usize, 4 * 1024 * 1024].iter().enumerate() {
             let data: Vec<u8> = (0..size).map(|j| (j % 251) as u8).collect();
-            let encrypted = enc.encrypt(&data, format!("{i}").as_bytes()).unwrap();
+            let encrypted = enc.encrypt(&data, &format!("{i}")).unwrap();
 
-            assert_ne!(&data[..10], &encrypted[..10], "encrypted data should differ from plaintext");
+            assert_ne!(
+                &data[..10],
+                &encrypted[..10],
+                "encrypted data should differ from plaintext"
+            );
             let overhead = encrypted.len() - data.len();
             println!(
                 "Data size: {}, Encrypted size: {}, overhead: {}",
