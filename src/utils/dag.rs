@@ -102,7 +102,7 @@ impl DagRoot {
     fn encode_pblink(hash: &[u8], tsize: u64) -> Vec<u8> {
         let mut out: Vec<u8> = Vec::new();
         Self::write_bytes_field(&mut out, 1, hash); // Hash
-        Self::write_string_field(&mut out, 2, "");  // Name (empty)
+        Self::write_string_field(&mut out, 2, ""); // Name (empty)
         Self::write_varint_field(&mut out, 3, tsize); // Tsize
         out
     }
@@ -138,6 +138,19 @@ impl DagRoot {
             }
         }
     }
+}
+
+/// Wraps raw data in a unixfs TFile leaf node, matching the leaf nodes produced by `ChunkDag`.
+/// Returns the CID and serialised PBNode bytes.
+pub fn build_leaf_node(data: Vec<u8>) -> (cid::Cid, Vec<u8>) {
+    let size = data.len();
+    let dag = ChunkDag::new(size, data);
+    let block = dag
+        .blocks
+        .into_iter()
+        .next()
+        .expect("ChunkDag must produce at least one block");
+    (block.cid, block.data)
 }
 
 #[derive(Debug)]
@@ -252,7 +265,7 @@ mod tests {
     fn test_chunk_encoded_size_with_erasure() {
         let raw = vec![0u8; 10 * 1024 * 1024]; // 10 MiB
         let ec = ErasureCode::new(16, 16).unwrap();
-        let encoded = ec.encode(&raw).unwrap();
+        let encoded = ec.encode_raw(&raw).unwrap();
         let block_size = encoded.len() / 32; // one shard per block
 
         let dag = ChunkDag::new(block_size, encoded);

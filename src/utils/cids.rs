@@ -11,8 +11,9 @@ use crate::types::sdk_types::AkaveError;
 const CID_PREFIX: [u8; 4] = [1, 112, 18, 32];
 
 pub fn verify_raw(cid_str: &str, data: &[u8]) -> Result<(), AkaveError> {
-    let c = Cid::from_str(cid_str)
-        .map_err(|e| AkaveError::BlockError(format!("failed to decode CID '{}': {}", cid_str, e)))?;
+    let c = Cid::from_str(cid_str).map_err(|e| {
+        AkaveError::BlockError(format!("failed to decode CID '{}': {}", cid_str, e))
+    })?;
     verify(c, data)
 }
 
