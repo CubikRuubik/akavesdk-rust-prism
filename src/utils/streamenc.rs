@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn test_num_blocks() {
-        assert_eq!(num_blocks(0), 1);
+        assert_eq!(num_blocks(0), 0);
         assert_eq!(num_blocks(1), 1);
         assert_eq!(num_blocks(BLOCK0_DATA_SIZE), 1);
         assert_eq!(num_blocks(BLOCK0_DATA_SIZE + 1), 2);

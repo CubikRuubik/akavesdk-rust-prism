@@ -2624,6 +2624,7 @@ mod tests {
     // This runs before any tests are executed
     #[ctor]
     fn init_test_logger() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         Builder::new()
             .filter_level(LevelFilter::Debug)
             .is_test(true)
@@ -2675,6 +2676,22 @@ mod tests {
             "TEST_BUCKET_{}",
             Uuid::new_v4().to_string().split('-').next().unwrap()
         )
+    }
+
+    async fn list_all_buckets(sdk: &AkaveSDK) -> Vec<crate::types::BucketListItem> {
+        let page_size = 100i64;
+        let mut all = Vec::new();
+        let mut offset = 0i64;
+        loop {
+            let page = sdk.list_buckets(offset, page_size).await.unwrap();
+            let count = page.buckets.len();
+            all.extend(page.buckets);
+            if count < page_size as usize {
+                break;
+            }
+            offset += page_size;
+        }
+        all
     }
 
     const SECRET_KEY: &str = "N1PCdw3M2B1TfJhoaY2mL736p2vCUc47";
@@ -3088,15 +3105,9 @@ mod tests {
 
         let sdk = get_sdk().await.unwrap();
 
-        // 1. List all buckets
+        // 1. List all buckets across all pages
         println!("Listing all buckets to find test buckets...");
-        let buckets = match sdk.list_buckets(0, 100).await {
-            Ok(bucket_list) => bucket_list.buckets,
-            Err(e) => {
-                println!("Error listing buckets: {:?}", e);
-                return;
-            }
-        };
+        let buckets = list_all_buckets(&sdk).await;
 
         let test_buckets: Vec<_> = buckets
             .iter()
@@ -3312,10 +3323,10 @@ mod tests {
             sdk.create_bucket(name).await.unwrap();
         }
 
-        let all = sdk.list_buckets(0, 200).await.unwrap();
-        assert!(all.buckets.len() >= 10, "at least 10 buckets");
+        let all = list_all_buckets(&sdk).await;
+        assert!(all.len() >= 10, "at least 10 buckets");
         assert!(
-            exists_in_buckets(&bucket_names, &all.buckets),
+            exists_in_buckets(&bucket_names, &all),
             "all created buckets visible with plaintext names"
         );
 
@@ -3368,18 +3379,18 @@ mod tests {
                 .unwrap_or_else(|e| panic!("create enc2 bucket {n}: {e}"));
         }
 
-        let list = sdk_enc1.list_buckets(0, 200).await.unwrap();
-        assert!(list.buckets.len() >= 15);
+        let list = list_all_buckets(&sdk_enc1).await;
+        assert!(list.len() >= 15);
         assert!(
-            exists_in_buckets(&names_no_enc, &list.buckets),
+            exists_in_buckets(&names_no_enc, &list),
             "no-enc buckets visible"
         );
         assert!(
-            exists_in_buckets(&names_enc1, &list.buckets),
-            "enc1 buckets decrypted correctly" // In case of revert, need to clear buckets with test_cleanup_manual or restart the node
+            exists_in_buckets(&names_enc1, &list),
+            "enc1 buckets decrypted correctly"
         );
         assert!(
-            !exists_in_buckets(&names_enc2, &list.buckets),
+            !exists_in_buckets(&names_enc2, &list),
             "enc2 names not decryptable with enc1 key"
         );
 
@@ -3491,9 +3502,9 @@ mod tests {
         assert_eq!(view_resp.name, bucket_name);
 
         // ListBuckets: bucket visible with plaintext name
-        let list_resp = sdk.list_buckets(0, 200).await.unwrap();
+        let all_buckets = list_all_buckets(&sdk).await;
         assert!(
-            list_resp.buckets.iter().any(|b| b.name == bucket_name),
+            all_buckets.iter().any(|b| b.name == bucket_name),
             "bucket should appear in list with plaintext name"
         );
 

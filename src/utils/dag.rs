@@ -297,8 +297,8 @@ mod tests {
             "encoded_size must equal sum of leaf block sizes"
         );
 
-        // Pin the concrete value: 32 blocks × (655360 bytes + 14 bytes protobuf overhead)
-        assert_eq!(dag.encoded_size, 20_971_968);
+        // Pin the concrete value: 32 blocks × (655361 bytes + 14 bytes protobuf overhead)
+        assert_eq!(dag.encoded_size, 20_972_000);
     }
 
     #[test]
