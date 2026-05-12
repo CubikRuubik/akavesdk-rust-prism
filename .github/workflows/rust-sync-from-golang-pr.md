@@ -12,7 +12,7 @@ engine:
   id: copilot
   model: claude-sonnet-4-6?temperature=0.0
   mcp:
-    session-timeout: 2h
+    session-timeout: 4h
 timeout-minutes: 80
 network:
   allowed:
