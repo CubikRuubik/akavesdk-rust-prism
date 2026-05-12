@@ -8,9 +8,10 @@ permissions: read-all
 tools:
   github:
     toolsets: [default, repos]
-sandbox:
+engine:
+  id: copilot
   mcp:
-    keepalive-interval: 300
+    session-timeout: 4h
 timeout-minutes: 80
 network:
   allowed:
