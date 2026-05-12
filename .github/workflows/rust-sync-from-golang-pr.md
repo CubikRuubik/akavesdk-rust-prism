@@ -8,6 +8,11 @@ permissions: read-all
 tools:
   github:
     toolsets: [default, repos]
+engine:
+  id: copilot
+  model: claude-sonnet-4-6?temperature=0.0
+  mcp:
+    session-timeout: 2h
 timeout-minutes: 80
 network:
   allowed:
