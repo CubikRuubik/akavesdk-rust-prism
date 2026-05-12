@@ -1,3 +1,4 @@
+pub mod streamenc;
 pub mod cids;
 pub mod dag;
 pub mod encryption;

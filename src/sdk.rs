@@ -143,8 +143,6 @@ pub struct AkaveSDKBuilder {
     #[cfg(not(target_arch = "wasm32"))]
     private_key: Option<String>,
     #[cfg(not(target_arch = "wasm32"))]
-    use_connection_pool: bool,
-    #[cfg(not(target_arch = "wasm32"))]
     http_client: Option<reqwest::Client>,
 }
 
@@ -170,8 +168,6 @@ impl AkaveSDKBuilder {
             },
             #[cfg(not(target_arch = "wasm32"))]
             private_key: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            use_connection_pool: false,
             #[cfg(not(target_arch = "wasm32"))]
             http_client: None,
         }
@@ -243,7 +239,14 @@ impl AkaveSDKBuilder {
     }
 
     /// Set batch size for chunk upload transactions (min 1)
+    #[deprecated(note = "use with_chunk_batch_size instead")]
     pub fn with_batch_size(mut self, batch_size: usize) -> Self {
+        self.batch_size = batch_size.max(1);
+        self
+    }
+
+    /// Set batch size for chunk upload transactions (min 1). Alias for `with_batch_size`.
+    pub fn with_chunk_batch_size(mut self, batch_size: usize) -> Self {
         self.batch_size = batch_size.max(1);
         self
     }
@@ -257,8 +260,8 @@ impl AkaveSDKBuilder {
 
     /// Reuse gRPC channels across blocks within a file operation (default: false).
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn with_connection_pool(mut self, enable: bool) -> Self {
-        self.use_connection_pool = enable;
+    #[deprecated(note = "connection pool is now always enabled")]
+    pub fn with_connection_pool(self, _enable: bool) -> Self {
         self
     }
 
@@ -291,8 +294,6 @@ impl AkaveSDKBuilder {
             self.with_retry,
             #[cfg(not(target_arch = "wasm32"))]
             self.private_key,
-            #[cfg(not(target_arch = "wasm32"))]
-            self.use_connection_pool,
             #[cfg(not(target_arch = "wasm32"))]
             self.http_client,
         )
@@ -330,8 +331,6 @@ impl AkaveSDK {
             #[cfg(not(target_arch = "wasm32"))]
             None,
             #[cfg(not(target_arch = "wasm32"))]
-            false,
-            #[cfg(not(target_arch = "wasm32"))]
             None,
         )
         .await
@@ -353,7 +352,6 @@ impl AkaveSDK {
         batch_size: usize,
         with_retry: crate::utils::retry::WithRetry,
         #[cfg(not(target_arch = "wasm32"))] private_key: Option<String>,
-        #[cfg(not(target_arch = "wasm32"))] use_connection_pool: bool,
         #[cfg(not(target_arch = "wasm32"))] http_client: Option<reqwest::Client>,
     ) -> Result<Self, AkaveError> {
         log_info!(
@@ -456,11 +454,7 @@ impl AkaveSDK {
             let chain_id = blockchain_provider.web3_provider.eth().chain_id().await?;
             log_debug!("Chain ID: {}", chain_id);
 
-            let connection_pool = if use_connection_pool {
-                Some(Arc::new(tokio::sync::RwLock::new(HashMap::<String, Channel>::new())))
-            } else {
-                None
-            };
+            let connection_pool = Some(Arc::new(tokio::sync::RwLock::new(HashMap::<String, Channel>::new())));
 
             log_info!("AkaveSDK initialized successfully");
             Ok(Self {
@@ -903,7 +897,7 @@ impl AkaveSDK {
             Some(key) => {
                 log_debug!("Setting up encryption");
                 Some(
-                    Encryption::new(key.as_bytes(), info.as_bytes())
+                    Encryption::new(key.as_bytes(), &info)
                         .map_err(AkaveError::EncryptionError)?,
                 )
             }
@@ -954,7 +948,7 @@ impl AkaveSDK {
 
                 let encrypted_data = match encryption {
                     Some(ref enc) => enc
-                        .encrypt(&buffer[..], format!("{}", idx).as_bytes())
+                        .encrypt(&buffer[..], &format!("{}", idx))
                         .map_err(AkaveError::EncryptionError)?,
                     None => buffer[..].to_vec().into(),
                 };
@@ -1578,7 +1572,7 @@ impl AkaveSDK {
             Some(key) => {
                 log_debug!("Setting up decryption key");
                 Ok(Some(
-                    Encryption::new(key.as_bytes(), info.as_bytes())
+                    Encryption::new(key.as_bytes(), &info)
                         .map_err(AkaveError::EncryptionError)?,
                 ))
             }
@@ -1825,7 +1819,7 @@ impl AkaveSDK {
 
             // Combine blocks into a chunk
             let processed_data = if let Some(erasure_code) = &self.erasure_code {
-                erasure_code.extract_data(block_data_vecs, original_chunk_size)?
+                erasure_code.extract_data(block_data_vecs)?
             } else {
                 block_data_vecs.concat()
             };
@@ -1835,7 +1829,7 @@ impl AkaveSDK {
                 Some(encryption) => {
                     log_info!("Decrypting chunk: {}", chunk_index);
                     encryption
-                        .decrypt(&processed_data, format!("{}", chunk_index).as_bytes())
+                        .decrypt(&processed_data, &format!("{}", chunk_index))
                         .map_err(AkaveError::EncryptionError)?
                 }
                 None => processed_data,
@@ -2010,7 +2004,7 @@ impl AkaveSDK {
 
                 // Process with erasure coding if enabled
                 let processed_data = if let Some(erasure_code) = &erasure_code {
-                    erasure_code.extract_data(blocks_data.clone(), chunk_size as usize)?
+                    erasure_code.extract_data(blocks_data.clone())?
                 } else {
                     blocks_data.concat()
                 };
@@ -2032,7 +2026,7 @@ impl AkaveSDK {
                 Some(encryption) => {
                     log_info!("Decrypting chunk: {}", chunk_index);
                     encryption
-                        .decrypt(&chunk_data, format!("{}", chunk_index).as_bytes())
+                        .decrypt(&chunk_data, &format!("{}", chunk_index))
                         .map_err(AkaveError::EncryptionError)?
                 }
                 None => chunk_data,
@@ -2270,10 +2264,10 @@ impl AkaveSDK {
         };
         let encrypted_bytes = hex::decode(value)
             .map_err(|e| AkaveError::InvalidInput(format!("hex decode failed: {}", e)))?;
-        let encryption = Encryption::new(key.as_bytes(), derivation_path.as_bytes())
+        let encryption = Encryption::new(key.as_bytes(), derivation_path)
             .map_err(AkaveError::EncryptionError)?;
         let plaintext = encryption
-            .decrypt_deterministic(&encrypted_bytes, derivation_path.as_bytes())
+            .decrypt_deterministic(&encrypted_bytes, derivation_path)
             .map_err(AkaveError::EncryptionError)?;
         String::from_utf8(plaintext)
             .map_err(|e| AkaveError::InvalidInput(format!("utf8 decode failed: {}", e)))
@@ -2296,7 +2290,7 @@ impl AkaveSDK {
             true => {
                 let encryption = match password {
                     Some(key) => Some(
-                        Encryption::new(key.as_bytes(), derivation_path.as_bytes())
+                        Encryption::new(key.as_bytes(), &derivation_path)
                             .map_err(AkaveError::EncryptionError)?,
                     ),
                     None => {
@@ -2307,7 +2301,7 @@ impl AkaveSDK {
                 match encryption {
                     Some(ref encryption) => {
                         let encrypted = encryption
-                            .encrypt_deterministic(value.as_bytes(), derivation_path.as_bytes())
+                            .encrypt_deterministic(value.as_bytes(), &derivation_path)
                             .map_err(AkaveError::EncryptionError)?;
                         Ok(hex::encode(encrypted))
                     }
@@ -2417,14 +2411,14 @@ impl AkaveSDK {
 
         let original_chunk_size = chunk_download.size as usize;
         let mut data = if let Some(ec) = &self.erasure_code {
-            ec.extract_data(block_data_vecs, original_chunk_size)?
+            ec.extract_data(block_data_vecs)?
         } else {
             block_data_vecs.concat()
         };
 
         if let Some(enc) = encryption {
             data = enc
-                .decrypt(&data, format!("{}", chunk_download.index).as_bytes())
+                .decrypt(&data, &format!("{}", chunk_download.index))
                 .map_err(AkaveError::EncryptionError)?;
         }
 
@@ -2687,9 +2681,9 @@ mod tests {
 
     fn encrypt_metadata_hex(value: &str, derivation: &str) -> String {
         use crate::utils::encryption::Encryption;
-        let enc = Encryption::new(SECRET_KEY.as_bytes(), derivation.as_bytes()).unwrap();
+        let enc = Encryption::new(SECRET_KEY.as_bytes(), &derivation).unwrap();
         let encrypted = enc
-            .encrypt_deterministic(value.as_bytes(), derivation.as_bytes())
+            .encrypt_deterministic(value.as_bytes(), &derivation)
             .unwrap();
         hex::encode(encrypted)
     }

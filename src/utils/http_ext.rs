@@ -8,9 +8,7 @@ pub async fn range_download(
     length: i64,
 ) -> Result<Vec<u8>, AkaveError> {
     if length <= 0 {
-        return Err(AkaveError::InvalidInput(
-            "length must be positive".into(),
-        ));
+        return Err(AkaveError::InvalidInput("length must be positive".into()));
     }
     if offset < 0 {
         return Err(AkaveError::InvalidInput(
@@ -24,7 +22,7 @@ pub async fn range_download(
         .header("Range", range_header)
         .send()
         .await
-        .map_err(|e| AkaveError::InternalError(e.to_string()))?;
+        .map_err(|e| AkaveError::Transient(e.to_string()))?;
 
     let status = resp.status().as_u16();
     if status != 206 && status != 200 {
@@ -37,7 +35,7 @@ pub async fn range_download(
     resp.bytes()
         .await
         .map(|b| b.to_vec())
-        .map_err(|e| AkaveError::InternalError(e.to_string()))
+        .map_err(|e| AkaveError::Transient(e.to_string()))
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
