@@ -8,9 +8,6 @@ permissions: read-all
 tools:
   github:
     toolsets: [default, repos]
-engine:
-  id: copilot
-  model: claude-sonnet-4-6?temperature=0.0
 sandbox:
   mcp:
     keepalive-interval: 300
