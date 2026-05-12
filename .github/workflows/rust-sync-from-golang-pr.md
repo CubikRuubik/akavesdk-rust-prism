@@ -11,8 +11,9 @@ tools:
 engine:
   id: copilot
   model: claude-sonnet-4-6?temperature=0.0
+sandbox:
   mcp:
-    session-timeout: 4h
+    keepalive-interval: 300
 timeout-minutes: 80
 network:
   allowed:
