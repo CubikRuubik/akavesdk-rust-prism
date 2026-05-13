@@ -75,6 +75,10 @@ pub enum AkaveError {
 
     #[error("thread join error")]
     ThreadJoinError(#[from] JoinError),
+
+    /// Indicates a transient network error that may be retried.
+    #[error("transient error: {0}")]
+    TransientError(String),
 }
 
 impl From<web3::Error> for AkaveError {

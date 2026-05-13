@@ -1,6 +1,12 @@
 use reed_solomon_erasure::{galois_8, ReedSolomon};
 use thiserror::Error;
 
+/// Overhead bytes added by the wrap format: 8-byte size prefix + 4-byte magic suffix.
+pub const WRAP_OVERHEAD: usize = 12;
+
+const PREFIX_SIZE: usize = 8;
+const MAGIC_SUFFIX: [u8; 4] = [0xDE, 0xAD, 0xBE, 0xEF];
+
 #[derive(Error, Debug)]
 pub enum ErasureCodeError {
     #[error("erasure coding error")]
@@ -16,6 +22,12 @@ pub enum ErasureCodeError {
         "insufficient data for reconstruction: need at least {required} shards, got {available}"
     )]
     InsufficientData { required: usize, available: usize },
+
+    #[error("unwrap error: {0}")]
+    UnwrapError(String),
+
+    #[error("data is corrupted")]
+    DataCorrupted,
 }
 
 /// ErasureCode is a wrapper around the ReedSolomon encoder, providing a more user-friendly interface.
@@ -47,30 +59,26 @@ impl ErasureCode {
         })
     }
 
-    /// Encodes the input data using Reed-Solomon erasure coding, returning the encoded data.
+    /// Encodes the input data using Reed-Solomon erasure coding with wrap overhead.
+    /// The data is wrapped with an 8-byte size prefix and 4-byte magic suffix before
+    /// encoding, matching Go's Encode behavior.
     pub fn encode(&self, data: &[u8]) -> Result<Vec<u8>, ErasureCodeError> {
-        // Split the data into shards
+        let wrapped = wrap_data(data);
         let total_blocks = self.data_blocks + self.parity_blocks;
-        let shard_size = data.len().div_ceil(self.data_blocks);
+        let shard_size = wrapped.len().div_ceil(self.data_blocks);
 
-        // Create shards
         let mut shards = vec![vec![0u8; shard_size]; total_blocks];
-
-        // Fill data shards
-        for (i, chunk) in data.chunks(shard_size).enumerate() {
+        for (i, chunk) in wrapped.chunks(shard_size).enumerate() {
             if i >= self.data_blocks {
                 break;
             }
-            let shard = &mut shards[i];
-            shard[..chunk.len()].copy_from_slice(chunk);
+            shards[i][..chunk.len()].copy_from_slice(chunk);
         }
 
-        // Encode the shards
         self.enc
             .encode(&mut shards)
             .map_err(ErasureCodeError::ReedSolomonError)?;
 
-        // Concatenate all shards into a single byte vector
         let mut result = Vec::with_capacity(shard_size * total_blocks);
         for shard in shards {
             result.extend_from_slice(&shard);
@@ -79,66 +87,195 @@ impl ErasureCode {
         Ok(result)
     }
 
+    /// Encodes the input data using Reed-Solomon erasure coding without wrapping.
+    /// Returns the raw shards (data + parity), suitable for use with `extract_data_raw`.
+    // used by CHANGE-9 (Upload2/Download2), which was skipped
+    #[allow(dead_code)]
+    pub fn encode_raw(&self, data: &[u8]) -> Result<Vec<Vec<u8>>, ErasureCodeError> {
+        let shard_size = data.len().div_ceil(self.data_blocks);
+        let total_blocks = self.data_blocks + self.parity_blocks;
+        let mut shards = vec![vec![0u8; shard_size]; total_blocks];
+
+        for (i, chunk) in data.chunks(shard_size).enumerate() {
+            if i >= self.data_blocks {
+                break;
+            }
+            shards[i][..chunk.len()].copy_from_slice(chunk);
+        }
+
+        self.enc
+            .encode(&mut shards)
+            .map_err(ErasureCodeError::ReedSolomonError)?;
+
+        Ok(shards)
+    }
+
     /// Extracts the original data from the encoded data using Reed-Solomon erasure coding.
-    pub fn extract_data(
+    /// The original size is recovered by unwrapping the size header written by `encode`.
+    pub fn extract_data(&self, blocks: Vec<Vec<u8>>) -> Result<Vec<u8>, ErasureCodeError> {
+        let joined = self.reconstruct_and_join(blocks)?;
+        let data = unwrap_data(&joined)?;
+        Ok(data.to_vec())
+    }
+
+    /// Extracts the original data from raw shards without unwrapping.
+    /// `original_size` must be the exact byte count passed to `encode_raw`.
+    // used by CHANGE-9 (Upload2/Download2), which was skipped
+    #[allow(dead_code)]
+    pub fn extract_data_raw(
         &self,
         blocks: Vec<Vec<u8>>,
-        original_data_size: usize,
+        original_size: usize,
     ) -> Result<Vec<u8>, ErasureCodeError> {
-        // Verify and reconstruct if needed
-        if !self
-            .enc
-            .verify(&blocks)
-            .map_err(ErasureCodeError::ReedSolomonError)?
-        {
-            // Convert empty vectors to None for reconstruction
-            let mut decoder_shards = blocks
+        let reconstructed = self.reconstruct_blocks(blocks)?;
+        let shard_size = reconstructed[0].len();
+        let out_size = self.data_blocks * shard_size;
+        let mut buf = Vec::with_capacity(out_size);
+        for i in 0..self.data_blocks {
+            buf.extend_from_slice(&reconstructed[i]);
+        }
+        buf.truncate(original_size);
+        Ok(buf)
+    }
+
+    /// Reconstructs any missing blocks and joins all data shards into a contiguous buffer.
+    fn reconstruct_and_join(&self, blocks: Vec<Vec<u8>>) -> Result<Vec<u8>, ErasureCodeError> {
+        let reconstructed = self.reconstruct_blocks(blocks)?;
+        let shard_size = reconstructed[0].len();
+        let out_size = self.data_blocks * shard_size;
+        let mut buf = Vec::with_capacity(out_size);
+        for i in 0..self.data_blocks {
+            buf.extend_from_slice(&reconstructed[i]);
+        }
+        Ok(buf)
+    }
+
+    /// Verifies and reconstructs shards if needed. Returns all shards (data + parity).
+    fn reconstruct_blocks(
+        &self,
+        mut blocks: Vec<Vec<u8>>,
+    ) -> Result<Vec<Vec<u8>>, ErasureCodeError> {
+        use reed_solomon_erasure::Error as RSError;
+
+        let ok = match self.enc.verify(&blocks) {
+            Ok(ok) => ok,
+            Err(RSError::EmptyShard)
+            | Err(RSError::InvalidShardFlags)
+            | Err(RSError::IncorrectShardSize) => {
+                // Proceed to reconstruct when shard size issues are detected
+                let blocks_as_option: Vec<Option<Vec<u8>>> = blocks
+                    .into_iter()
+                    .map(|b| {
+                        if b.iter().all(|&x| x == 0) {
+                            None
+                        } else {
+                            Some(b)
+                        }
+                    })
+                    .collect();
+                let mut option_blocks = blocks_as_option;
+                self.enc
+                    .reconstruct(&mut option_blocks)
+                    .map_err(ErasureCodeError::ReedSolomonError)?;
+                let rebuilt: Vec<Vec<u8>> = option_blocks
+                    .into_iter()
+                    .map(|b| b.unwrap_or_default())
+                    .collect();
+                return self.verify_and_return(rebuilt);
+            }
+            Err(e) => return Err(ErasureCodeError::ReedSolomonError(e)),
+        };
+
+        if !ok {
+            // Convert all-zero blocks to None and attempt reconstruction
+            let blocks_as_option: Vec<Option<Vec<u8>>> = blocks
                 .into_iter()
-                .map(|block| {
-                    if block.iter().all(|&x| x == 0) {
+                .map(|b| {
+                    if b.iter().all(|&x| x == 0) {
                         None
                     } else {
-                        Some(block)
+                        Some(b)
                     }
                 })
-                .collect::<Vec<_>>();
-
-            // Reconstruct the shards
+                .collect();
+            let mut option_blocks = blocks_as_option;
             self.enc
-                .reconstruct_data(&mut decoder_shards)
+                .reconstruct(&mut option_blocks)
                 .map_err(ErasureCodeError::ReedSolomonError)?;
-
-            // Join the data blocks
-            let mut buffer = Vec::with_capacity(original_data_size);
-
-            // Only take from data blocks (not parity blocks)
-            for i in 0..self.data_blocks {
-                if i < decoder_shards.len() {
-                    if let Some(block) = &decoder_shards[i] {
-                        buffer.extend_from_slice(block);
-                    }
-                }
-            }
-
-            // Trim to original size
-            buffer.truncate(original_data_size);
-
-            return Ok(buffer);
+            blocks = option_blocks
+                .into_iter()
+                .map(|b| b.unwrap_or_default())
+                .collect();
+            return self.verify_and_return(blocks);
         }
 
-        // If no reconstruction needed, just join the original blocks
-        let mut buffer = Vec::with_capacity(original_data_size);
-        for i in 0..self.data_blocks {
-            if i < blocks.len() {
-                buffer.extend_from_slice(&blocks[i]);
-            }
-        }
-
-        // Trim to original size
-        buffer.truncate(original_data_size);
-
-        Ok(buffer)
+        Ok(blocks)
     }
+
+    fn verify_and_return(&self, blocks: Vec<Vec<u8>>) -> Result<Vec<Vec<u8>>, ErasureCodeError> {
+        let ok = self
+            .enc
+            .verify(&blocks)
+            .map_err(ErasureCodeError::ReedSolomonError)?;
+        if !ok {
+            return Err(ErasureCodeError::DataCorrupted);
+        }
+        Ok(blocks)
+    }
+}
+
+/// Wraps data with an 8-byte big-endian size prefix and 4-byte magic suffix.
+fn wrap_data(data: &[u8]) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(data.len() + WRAP_OVERHEAD);
+    buf.extend_from_slice(&(data.len() as u64).to_be_bytes());
+    buf.extend_from_slice(data);
+    buf.extend_from_slice(&MAGIC_SUFFIX);
+    buf
+}
+
+/// Unwraps data produced by `wrap_data`, validating the size prefix and magic suffix.
+fn unwrap_data(buf: &[u8]) -> Result<&[u8], ErasureCodeError> {
+    if buf.len() < WRAP_OVERHEAD {
+        return Err(ErasureCodeError::UnwrapError(
+            "buffer too short".to_string(),
+        ));
+    }
+    let size = u64::from_be_bytes(
+        buf[..PREFIX_SIZE]
+            .try_into()
+            .map_err(|_| ErasureCodeError::UnwrapError("failed to read size prefix".to_string()))?,
+    ) as usize;
+    let data_end = PREFIX_SIZE + size;
+    let n = data_end + MAGIC_SUFFIX.len();
+    if n > buf.len() {
+        return Err(ErasureCodeError::UnwrapError(
+            "buffer too short".to_string(),
+        ));
+    }
+    if buf[data_end..n] != MAGIC_SUFFIX {
+        return Err(ErasureCodeError::UnwrapError(
+            "missing suffix or corrupted data".to_string(),
+        ));
+    }
+    Ok(&buf[PREFIX_SIZE..data_end])
+}
+
+/// Splits data into stripes of at most `max_stripe_size` bytes each.
+/// The last stripe may be smaller. Matches Go's `SplitStripes`.
+// used by CHANGE-9 (Upload2/Download2), which was skipped
+#[allow(dead_code)]
+pub fn split_stripes(data: &[u8], max_stripe_size: usize) -> Vec<&[u8]> {
+    if max_stripe_size == 0 || data.is_empty() {
+        return Vec::new();
+    }
+    let n = data.len().div_ceil(max_stripe_size);
+    let mut result = Vec::with_capacity(n);
+    for i in 0..n {
+        let start = i * max_stripe_size;
+        let end = (start + max_stripe_size).min(data.len());
+        result.push(&data[start..end]);
+    }
+    result
 }
 
 #[cfg(test)]
@@ -236,7 +373,7 @@ mod tests {
         let blocks = split_into_blocks(&encoded, shard_size);
         println!("Blocks before extraction: {:?}", blocks);
 
-        let extracted = encoder.extract_data(blocks, data.len()).unwrap();
+        let extracted = encoder.extract_data(blocks).unwrap();
         println!("Extracted data: {:?}", extracted);
         assert_eq!(data.to_vec(), extracted);
     }
@@ -264,7 +401,7 @@ mod tests {
             }
             println!("Blocks before extraction (with missing): {:?}", blocks);
 
-            let extracted = encoder.extract_data(blocks, data.len()).unwrap();
+            let extracted = encoder.extract_data(blocks).unwrap();
             println!("Extracted data (with missing): {:?}", extracted);
             assert_eq!(data.to_vec(), extracted);
         }
@@ -288,6 +425,6 @@ mod tests {
             blocks[i] = vec![0u8; shard_size];
         }
         println!("Blocks before extraction (too many missing): {:?}", blocks);
-        assert!(encoder.extract_data(blocks, data.len()).is_err());
+        assert!(encoder.extract_data(blocks).is_err());
     }
 }
