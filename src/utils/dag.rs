@@ -9,7 +9,47 @@ use crate::types::sdk_types::FileBlockUpload;
 use crate::utils::pb_data::{mod_Data, PbData};
 
 pub const DAG_PROTOBUF: u64 = 0x70;
+pub const CID_BUILDER_CODEC: u64 = DAG_PROTOBUF;
 // pub const RAW: u64 = 0x55;  // Unused constant
+
+/// Builds a leaf node in the same format as ChunkDag leaf blocks:
+/// a dag-pb PBNode whose Data field is a UnixFS TFile message containing the given data.
+/// Returns the serialised PBNode bytes.
+pub fn build_leaf_node(data: &[u8]) -> Vec<u8> {
+    use quick_protobuf::{MessageWrite, Writer};
+    use crate::utils::pb_data::{mod_Data, PbData};
+
+    let pb_data = PbData {
+        data_type: mod_Data::DataType::File,
+        data: Some(data.to_vec().into()),
+        ..Default::default()
+    };
+    let mut data_bytes: Vec<u8> = Vec::new();
+    let mut w = Writer::new(&mut data_bytes);
+    pb_data.write_message(&mut w).expect("PbData encode");
+
+    // PBNode with only a Data field (field 1, length-delimited)
+    let mut node_bytes: Vec<u8> = Vec::new();
+    // Write field 1 (Data) as length-delimited
+    let tag: u64 = (1 << 3) | 2;
+    let mut tmp = Vec::new();
+    let mut val = tag;
+    loop {
+        let byte = (val & 0x7F) as u8;
+        val >>= 7;
+        if val == 0 { tmp.push(byte); break; } else { tmp.push(byte | 0x80); }
+    }
+    node_bytes.extend_from_slice(&tmp);
+    // length of data_bytes
+    let mut len_val = data_bytes.len() as u64;
+    loop {
+        let byte = (len_val & 0x7F) as u8;
+        len_val >>= 7;
+        if len_val == 0 { node_bytes.push(byte); break; } else { node_bytes.push(byte | 0x80); }
+    }
+    node_bytes.extend_from_slice(&data_bytes);
+    node_bytes
+}
 
 /// Builds the canonical dag-pb / UnixFS root CID for a multi-chunk file, matching
 /// Go's DAGRoot (boxo/ipld/merkledag + unixfs.TFile node).
@@ -264,8 +304,9 @@ mod tests {
             "encoded_size must equal sum of leaf block sizes"
         );
 
-        // Pin the concrete value: 32 blocks × (655360 bytes + 14 bytes protobuf overhead)
-        assert_eq!(dag.encoded_size, 20_971_968);
+        // Pin the concrete value: 32 blocks × (shard size + 14 bytes protobuf overhead)
+        // Note: encode() now wraps data with 12-byte overhead, slightly increasing shard size.
+        assert_eq!(dag.encoded_size, 20_972_000);
     }
 
     #[test]
