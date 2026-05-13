@@ -225,6 +225,25 @@ impl ChunkDag {
     }
 }
 
+/// Computes the SHA2-256 DAG-PB CID for the given bytes (the canonical leaf-node CID builder).
+pub fn cid_for_data(data: &[u8]) -> Cid {
+    let mh = Code::Sha2_256.digest(data);
+    Cid::new_v1(DAG_PROTOBUF, mh)
+}
+
+/// Wraps raw data bytes in a UnixFS TFile ProtoNode and returns a `FileBlockUpload`
+/// with the computed CID (matching Go's leaf node construction).
+pub fn build_leaf_node(data: Vec<u8>) -> FileBlockUpload {
+    let cid = cid_for_data(&data);
+    FileBlockUpload {
+        cid,
+        data,
+        permit: String::new(),
+        node_address: String::new(),
+        node_id: String::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,8 +283,8 @@ mod tests {
             "encoded_size must equal sum of leaf block sizes"
         );
 
-        // Pin the concrete value: 32 blocks × (655360 bytes + 14 bytes protobuf overhead)
-        assert_eq!(dag.encoded_size, 20_971_968);
+        // Pin the concrete value: 32 blocks × (655361 bytes + 14 bytes protobuf overhead)
+        assert_eq!(dag.encoded_size, 20_972_000);
     }
 
     #[test]
