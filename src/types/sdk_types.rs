@@ -55,6 +55,9 @@ pub enum AkaveError {
     #[error("internal error: {0}")]
     InternalError(String),
 
+    #[error("transient error: {0}")]
+    TransientError(String),
+
     #[error("provider error: {0}")]
     ProviderError(#[from] crate::blockchain::provider::ProviderError),
 

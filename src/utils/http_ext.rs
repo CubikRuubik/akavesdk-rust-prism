@@ -1,5 +1,9 @@
 use crate::types::sdk_types::AkaveError;
 
+/// ErrTransient sentinel: when an AkaveError wraps this message prefix, the error is transient
+/// and the caller may retry.
+pub const ERR_TRANSIENT_PREFIX: &str = "transient error";
+
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn range_download(
     client: &reqwest::Client,
@@ -24,7 +28,7 @@ pub async fn range_download(
         .header("Range", range_header)
         .send()
         .await
-        .map_err(|e| AkaveError::InternalError(e.to_string()))?;
+        .map_err(|e| AkaveError::TransientError(format!("request failed: {}", e)))?;
 
     let status = resp.status().as_u16();
     if status != 206 && status != 200 {
@@ -37,7 +41,12 @@ pub async fn range_download(
     resp.bytes()
         .await
         .map(|b| b.to_vec())
-        .map_err(|e| AkaveError::InternalError(e.to_string()))
+        .map_err(|e| AkaveError::TransientError(format!("url {}, offset {}, end {}: {}", url, offset, end, e)))
+}
+
+/// Returns true if the given error is a transient network error that may be retried.
+pub fn is_transient(err: &AkaveError) -> bool {
+    matches!(err, AkaveError::TransientError(_))
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
