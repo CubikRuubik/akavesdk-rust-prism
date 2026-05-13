@@ -246,6 +246,13 @@ When you finish:
      - Next action required from maintainers
 3. If changes are made and checks pass:
    - Push the changes (including `change_plans/summary_<N>.md`) to the triggering PR branch using `push-to-pull-request-branch`.
+   - Dispatch the reviewer workflow so it runs immediately:
+     ```bash
+     BRANCH=$(git rev-parse --abbrev-ref HEAD)
+     gh workflow run rust-sync-reviewer.lock.yml --ref "$BRANCH"
+     ```
+     This explicit dispatch is required because GitHub suppresses `pull_request: synchronize` events
+     for commits pushed by `GITHUB_TOKEN` — the reviewer will not start on its own.
    - Call `add-comment` on the triggering PR with:
      - A concise summary of implemented changes
      - Validation output summary for `cargo build` and `cargo test`
