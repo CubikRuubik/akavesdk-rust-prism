@@ -1,5 +1,9 @@
 use crate::types::sdk_types::AkaveError;
 
+/// Sentinel: the error (or a wrapping error) is transient and may be retried.
+/// Callers can match on `AkaveError::TransientError` to detect retryable failures.
+pub const ERR_TRANSIENT: &str = "transient error";
+
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn range_download(
     client: &reqwest::Client,
@@ -8,9 +12,7 @@ pub async fn range_download(
     length: i64,
 ) -> Result<Vec<u8>, AkaveError> {
     if length <= 0 {
-        return Err(AkaveError::InvalidInput(
-            "length must be positive".into(),
-        ));
+        return Err(AkaveError::InvalidInput("length must be positive".into()));
     }
     if offset < 0 {
         return Err(AkaveError::InvalidInput(
@@ -24,7 +26,7 @@ pub async fn range_download(
         .header("Range", range_header)
         .send()
         .await
-        .map_err(|e| AkaveError::InternalError(e.to_string()))?;
+        .map_err(|e| AkaveError::TransientError(format!("request failed: {}", e)))?;
 
     let status = resp.status().as_u16();
     if status != 206 && status != 200 {
@@ -34,10 +36,12 @@ pub async fn range_download(
         )));
     }
 
-    resp.bytes()
-        .await
-        .map(|b| b.to_vec())
-        .map_err(|e| AkaveError::InternalError(e.to_string()))
+    resp.bytes().await.map(|b| b.to_vec()).map_err(|e| {
+        AkaveError::TransientError(format!(
+            "url {}, offset {}, end {}: {}",
+            url, offset, end, e
+        ))
+    })
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

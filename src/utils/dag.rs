@@ -102,7 +102,7 @@ impl DagRoot {
     fn encode_pblink(hash: &[u8], tsize: u64) -> Vec<u8> {
         let mut out: Vec<u8> = Vec::new();
         Self::write_bytes_field(&mut out, 1, hash); // Hash
-        Self::write_string_field(&mut out, 2, "");  // Name (empty)
+        Self::write_string_field(&mut out, 2, ""); // Name (empty)
         Self::write_varint_field(&mut out, 3, tsize); // Tsize
         out
     }
@@ -125,6 +125,11 @@ impl DagRoot {
         Self::write_varint(buf, value);
     }
 
+    /// Public wrapper for `write_bytes_field`, used by `build_leaf_node`.
+    pub(crate) fn write_bytes_field_pub(buf: &mut Vec<u8>, field_number: u64, value: &[u8]) {
+        Self::write_bytes_field(buf, field_number, value);
+    }
+
     /// Encode a u64 as a protobuf varint into `buf`.
     fn write_varint(buf: &mut Vec<u8>, mut value: u64) {
         loop {
@@ -138,6 +143,38 @@ impl DagRoot {
             }
         }
     }
+}
+
+/// Builds a leaf node (dag-pb TFile ProtoNode) from raw data, matching the format produced by
+/// `BuildDAG` leaf nodes. Returns `(cid, raw_dag_pb_bytes)`.
+///
+/// Corresponds to Go's `BuildLeafNode`.
+// used by CHANGE-9 (Upload2/Download2), which was skipped
+#[allow(dead_code)]
+pub fn build_leaf_node(data: &[u8]) -> Result<(Cid, Vec<u8>), String> {
+    use crate::utils::pb_data::{mod_Data, PbData};
+    use prost::alloc::borrow::Cow;
+    use quick_protobuf::{MessageWrite, Writer};
+
+    // Build UnixFS Data message: TFile with the given data payload
+    let pb_data = PbData {
+        data_type: mod_Data::DataType::File,
+        data: Some(Cow::Borrowed(data)),
+        ..Default::default()
+    };
+    let mut fs_bytes: Vec<u8> = Vec::new();
+    let mut w = Writer::new(&mut fs_bytes);
+    pb_data
+        .write_message(&mut w)
+        .map_err(|e| format!("PbData encode: {e}"))?;
+
+    // Build dag-pb PBNode: only a Data field (field 1), no Links
+    let mut node_bytes: Vec<u8> = Vec::new();
+    DagRoot::write_bytes_field_pub(&mut node_bytes, 1, &fs_bytes);
+
+    let mh = cid::multihash::Code::Sha2_256.digest(&node_bytes);
+    let cid = Cid::new_v1(DAG_PROTOBUF, mh);
+    Ok((cid, node_bytes))
 }
 
 #[derive(Debug)]
@@ -264,8 +301,9 @@ mod tests {
             "encoded_size must equal sum of leaf block sizes"
         );
 
-        // Pin the concrete value: 32 blocks × (655360 bytes + 14 bytes protobuf overhead)
-        assert_eq!(dag.encoded_size, 20_971_968);
+        // Pin the concrete value: 32 blocks × (655361 bytes + 14 bytes protobuf overhead)
+        // Shard size increased by 1 byte due to WRAP_OVERHEAD=12 in erasure encoding.
+        assert_eq!(dag.encoded_size, 20_972_000);
     }
 
     #[test]
