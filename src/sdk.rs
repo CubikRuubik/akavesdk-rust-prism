@@ -116,7 +116,7 @@ pub struct AkaveSDK {
     block_part_size: usize,
     min_file_size: usize,
     max_concurrent_blocks: usize,
-    batch_size: usize,
+    chunk_batch_size: usize,
     chain_id: U256,
     with_retry: crate::utils::retry::WithRetry,
     #[cfg(not(target_arch = "wasm32"))]
@@ -138,12 +138,10 @@ pub struct AkaveSDKBuilder {
     block_part_size: usize,
     min_file_size: usize,
     max_concurrent_blocks: usize,
-    batch_size: usize,
+    chunk_batch_size: usize,
     with_retry: crate::utils::retry::WithRetry,
     #[cfg(not(target_arch = "wasm32"))]
     private_key: Option<String>,
-    #[cfg(not(target_arch = "wasm32"))]
-    use_connection_pool: bool,
     #[cfg(not(target_arch = "wasm32"))]
     http_client: Option<reqwest::Client>,
 }
@@ -163,15 +161,13 @@ impl AkaveSDKBuilder {
             block_part_size: BLOCK_PART_SIZE,
             min_file_size: MIN_FILE_SIZE,
             max_concurrent_blocks: 5,
-            batch_size: 1,
+            chunk_batch_size: 1,
             with_retry: crate::utils::retry::WithRetry {
                 max_attempts: 5,
                 base_delay: std::time::Duration::from_millis(100),
             },
             #[cfg(not(target_arch = "wasm32"))]
             private_key: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            use_connection_pool: false,
             #[cfg(not(target_arch = "wasm32"))]
             http_client: None,
         }
@@ -243,8 +239,8 @@ impl AkaveSDKBuilder {
     }
 
     /// Set batch size for chunk upload transactions (min 1)
-    pub fn with_batch_size(mut self, batch_size: usize) -> Self {
-        self.batch_size = batch_size.max(1);
+    pub fn with_chunk_batch_size(mut self, batch_size: usize) -> Self {
+        self.chunk_batch_size = batch_size.max(1);
         self
     }
 
@@ -252,13 +248,6 @@ impl AkaveSDKBuilder {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn with_private_key(mut self, private_key: &str) -> Self {
         self.private_key = Some(private_key.to_string());
-        self
-    }
-
-    /// Reuse gRPC channels across blocks within a file operation (default: false).
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn with_connection_pool(mut self, enable: bool) -> Self {
-        self.use_connection_pool = enable;
         self
     }
 
@@ -287,12 +276,10 @@ impl AkaveSDKBuilder {
             self.block_part_size,
             self.min_file_size,
             self.max_concurrent_blocks,
-            self.batch_size,
+            self.chunk_batch_size,
             self.with_retry,
             #[cfg(not(target_arch = "wasm32"))]
             self.private_key,
-            #[cfg(not(target_arch = "wasm32"))]
-            self.use_connection_pool,
             #[cfg(not(target_arch = "wasm32"))]
             self.http_client,
         )
@@ -330,8 +317,6 @@ impl AkaveSDK {
             #[cfg(not(target_arch = "wasm32"))]
             None,
             #[cfg(not(target_arch = "wasm32"))]
-            false,
-            #[cfg(not(target_arch = "wasm32"))]
             None,
         )
         .await
@@ -350,10 +335,9 @@ impl AkaveSDK {
         block_part_size: usize,
         min_file_size: usize,
         max_concurrent_blocks: usize,
-        batch_size: usize,
+        chunk_batch_size: usize,
         with_retry: crate::utils::retry::WithRetry,
         #[cfg(not(target_arch = "wasm32"))] private_key: Option<String>,
-        #[cfg(not(target_arch = "wasm32"))] use_connection_pool: bool,
         #[cfg(not(target_arch = "wasm32"))] http_client: Option<reqwest::Client>,
     ) -> Result<Self, AkaveError> {
         log_info!(
@@ -404,7 +388,7 @@ impl AkaveSDK {
                 block_part_size,
                 min_file_size,
                 max_concurrent_blocks,
-                batch_size,
+                chunk_batch_size,
                 chain_id,
                 with_retry,
             })
@@ -456,11 +440,7 @@ impl AkaveSDK {
             let chain_id = blockchain_provider.web3_provider.eth().chain_id().await?;
             log_debug!("Chain ID: {}", chain_id);
 
-            let connection_pool = if use_connection_pool {
-                Some(Arc::new(tokio::sync::RwLock::new(HashMap::<String, Channel>::new())))
-            } else {
-                None
-            };
+            let connection_pool = Some(Arc::new(tokio::sync::RwLock::new(HashMap::<String, Channel>::new())));
 
             log_info!("AkaveSDK initialized successfully");
             Ok(Self {
@@ -476,7 +456,7 @@ impl AkaveSDK {
                 block_part_size,
                 min_file_size,
                 max_concurrent_blocks,
-                batch_size,
+                chunk_batch_size,
                 chain_id,
                 with_retry,
                 connection_pool,
@@ -903,7 +883,7 @@ impl AkaveSDK {
             Some(key) => {
                 log_debug!("Setting up encryption");
                 Some(
-                    Encryption::new(key.as_bytes(), info.as_bytes())
+                    Encryption::new(key.as_bytes(), &info)
                         .map_err(AkaveError::EncryptionError)?,
                 )
             }
@@ -921,7 +901,7 @@ impl AkaveSDK {
         let mut actual_file_size: usize = 0;
         let mut idx = 0;
         let mut no_data = true;
-        let batch_size = self.batch_size.max(1);
+        let batch_size = self.chunk_batch_size.max(1);
 
         'outer: loop {
             // Collect up to batch_size prepared chunks before calling the contract.
@@ -954,7 +934,7 @@ impl AkaveSDK {
 
                 let encrypted_data = match encryption {
                     Some(ref enc) => enc
-                        .encrypt(&buffer[..], format!("{}", idx).as_bytes())
+                        .encrypt(&buffer[..], &format!("{}", idx))
                         .map_err(AkaveError::EncryptionError)?,
                     None => buffer[..].to_vec().into(),
                 };
@@ -1578,7 +1558,7 @@ impl AkaveSDK {
             Some(key) => {
                 log_debug!("Setting up decryption key");
                 Ok(Some(
-                    Encryption::new(key.as_bytes(), info.as_bytes())
+                    Encryption::new(key.as_bytes(), &info)
                         .map_err(AkaveError::EncryptionError)?,
                 ))
             }
@@ -1717,10 +1697,9 @@ impl AkaveSDK {
             #[cfg(target_arch = "wasm32")]
             let chunk_download = current_future.await?;
 
-            // Capture original chunk size before consuming chunk_download.
-            // chunk_download.size is the pre-erasure/pre-encryption size stored by
-            // the node from the IPCChunk.size field we set during upload.
-            let original_chunk_size = chunk_download.size as usize;
+            // original_chunk_size was previously passed to extract_data; now unused since
+            // extract_data recovers the size from the wrapped format internally.
+            let _original_chunk_size = chunk_download.size as usize;
 
             // --- Concurrent block downloads inside the chunk ---
             #[cfg(not(target_arch = "wasm32"))]
@@ -1825,7 +1804,7 @@ impl AkaveSDK {
 
             // Combine blocks into a chunk
             let processed_data = if let Some(erasure_code) = &self.erasure_code {
-                erasure_code.extract_data(block_data_vecs, original_chunk_size)?
+                erasure_code.extract_data(block_data_vecs)?
             } else {
                 block_data_vecs.concat()
             };
@@ -1835,7 +1814,7 @@ impl AkaveSDK {
                 Some(encryption) => {
                     log_info!("Decrypting chunk: {}", chunk_index);
                     encryption
-                        .decrypt(&processed_data, format!("{}", chunk_index).as_bytes())
+                        .decrypt(&processed_data, &format!("{}", chunk_index))
                         .map_err(AkaveError::EncryptionError)?
                 }
                 None => processed_data,
@@ -1914,7 +1893,8 @@ impl AkaveSDK {
         for (relative_idx, chunk) in file_download.chunks.into_iter().enumerate() {
             let chunk_index = start_chunk + relative_idx as i64;
             let chunk_cid = chunk.cid.clone();
-            let chunk_size = chunk.size;
+            // chunk.size was previously passed to extract_data; now unused.
+            let _chunk_download_size = chunk.size;
 
             let address = address.clone();
             let bucket_name = bucket_name.clone();
@@ -2010,7 +1990,7 @@ impl AkaveSDK {
 
                 // Process with erasure coding if enabled
                 let processed_data = if let Some(erasure_code) = &erasure_code {
-                    erasure_code.extract_data(blocks_data.clone(), chunk_size as usize)?
+                    erasure_code.extract_data(blocks_data.clone())?
                 } else {
                     blocks_data.concat()
                 };
@@ -2032,7 +2012,7 @@ impl AkaveSDK {
                 Some(encryption) => {
                     log_info!("Decrypting chunk: {}", chunk_index);
                     encryption
-                        .decrypt(&chunk_data, format!("{}", chunk_index).as_bytes())
+                        .decrypt(&chunk_data, &format!("{}", chunk_index))
                         .map_err(AkaveError::EncryptionError)?
                 }
                 None => chunk_data,
@@ -2270,10 +2250,10 @@ impl AkaveSDK {
         };
         let encrypted_bytes = hex::decode(value)
             .map_err(|e| AkaveError::InvalidInput(format!("hex decode failed: {}", e)))?;
-        let encryption = Encryption::new(key.as_bytes(), derivation_path.as_bytes())
+        let encryption = Encryption::new(key.as_bytes(), &derivation_path)
             .map_err(AkaveError::EncryptionError)?;
         let plaintext = encryption
-            .decrypt_deterministic(&encrypted_bytes, derivation_path.as_bytes())
+            .decrypt_deterministic(&encrypted_bytes, &derivation_path)
             .map_err(AkaveError::EncryptionError)?;
         String::from_utf8(plaintext)
             .map_err(|e| AkaveError::InvalidInput(format!("utf8 decode failed: {}", e)))
@@ -2296,7 +2276,7 @@ impl AkaveSDK {
             true => {
                 let encryption = match password {
                     Some(key) => Some(
-                        Encryption::new(key.as_bytes(), derivation_path.as_bytes())
+                        Encryption::new(key.as_bytes(), &derivation_path)
                             .map_err(AkaveError::EncryptionError)?,
                     ),
                     None => {
@@ -2307,7 +2287,7 @@ impl AkaveSDK {
                 match encryption {
                     Some(ref encryption) => {
                         let encrypted = encryption
-                            .encrypt_deterministic(value.as_bytes(), derivation_path.as_bytes())
+                            .encrypt_deterministic(value.as_bytes(), &derivation_path)
                             .map_err(AkaveError::EncryptionError)?;
                         Ok(hex::encode(encrypted))
                     }
@@ -2415,16 +2395,17 @@ impl AkaveSDK {
             block_data_vecs.push(block_data);
         }
 
-        let original_chunk_size = chunk_download.size as usize;
+        // original_chunk_size was previously passed to extract_data; now unused.
+        let _original_chunk_size = chunk_download.size as usize;
         let mut data = if let Some(ec) = &self.erasure_code {
-            ec.extract_data(block_data_vecs, original_chunk_size)?
+            ec.extract_data(block_data_vecs)?
         } else {
             block_data_vecs.concat()
         };
 
         if let Some(enc) = encryption {
             data = enc
-                .decrypt(&data, format!("{}", chunk_download.index).as_bytes())
+                .decrypt(&data, &format!("{}", chunk_download.index))
                 .map_err(AkaveError::EncryptionError)?;
         }
 
@@ -2687,9 +2668,9 @@ mod tests {
 
     fn encrypt_metadata_hex(value: &str, derivation: &str) -> String {
         use crate::utils::encryption::Encryption;
-        let enc = Encryption::new(SECRET_KEY.as_bytes(), derivation.as_bytes()).unwrap();
+        let enc = Encryption::new(SECRET_KEY.as_bytes(), &derivation).unwrap();
         let encrypted = enc
-            .encrypt_deterministic(value.as_bytes(), derivation.as_bytes())
+            .encrypt_deterministic(value.as_bytes(), &derivation)
             .unwrap();
         hex::encode(encrypted)
     }
@@ -3455,7 +3436,7 @@ mod tests {
     async fn test_ipc_upload_with_chunks_batch_size() {
         for (file_size_mb, batch_size) in [(128usize, 2usize), (256, 3)] {
             let sdk = AkaveSDKBuilder::new(TEST_AKAVE_ADDRESS)
-                .with_batch_size(batch_size)
+                .with_chunk_batch_size(batch_size)
                 .build()
                 .await
                 .unwrap();
