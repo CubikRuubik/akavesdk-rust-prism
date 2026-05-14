@@ -249,7 +249,7 @@ When you finish:
      - The exact failing check(s)
      - Next action required from maintainers
 3. If changes are made and checks pass:
-   - Push the changes (including `change_plans/summary_<N>.md`) to the current working branch with `git push origin HEAD:"${GITHUB_REF_NAME}"`.
+   - Re-authenticate `origin` with `GITHUB_MCP_SERVER_TOKEN`, then push the changes (including `change_plans/summary_<N>.md`) to the current working branch with `git remote set-url origin "https://x-access-token:${GITHUB_MCP_SERVER_TOKEN}@${GITHUB_SERVER_URL#https://}/${GITHUB_REPOSITORY}.git" && git push origin HEAD:"${GITHUB_REF_NAME}"`.
    - Call `dispatch-workflow` to trigger `rust-sync-reviewer.lock.yml` on the current PR branch.
    - Call `add-comment` on the triggering PR with:
       - A concise summary of implemented changes

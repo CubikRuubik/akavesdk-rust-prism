@@ -213,6 +213,7 @@ Then push and re-trigger the coder:
 ```bash
 git add change_plans/review_<N>.md
 git commit -m "review: <M> issue(s) in iteration <new_iteration> [review-needed]"
+git remote set-url origin "https://x-access-token:${GITHUB_MCP_SERVER_TOKEN}@${GITHUB_SERVER_URL#https://}/${GITHUB_REPOSITORY}.git"
 git push origin HEAD:"${GITHUB_REF_NAME}"
 ```
 
