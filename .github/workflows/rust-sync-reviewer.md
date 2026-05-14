@@ -18,6 +18,9 @@ safe-outputs:
   push-to-pull-request-branch:
   add-comment:
     max: 2
+  dispatch-workflow:
+    workflows: [rust-sync-from-golang-pr]
+    max: 1
   noop:
 ---
 
@@ -215,15 +218,9 @@ git commit -m "review: <M> issue(s) in iteration <new_iteration> [review-needed]
 
 Use `push-to-pull-request-branch` to push.
 
-Then dispatch the coder to pick up the review document:
-
-```bash
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
-gh workflow run rust-sync-from-golang-pr.lock.yml --ref "$BRANCH"
-```
-
-This explicit dispatch is required because GitHub suppresses `pull_request: synchronize` events
-for commits pushed by `GITHUB_TOKEN`, so the coder will not wake up on its own.
+Then call `dispatch-workflow` to trigger `rust-sync-from-golang-pr` on the current PR branch.
+This is required because GitHub suppresses `pull_request: synchronize` events for commits
+pushed by `GITHUB_TOKEN` — the coder will not wake up on its own.
 
 ## Reviewer Principles
 

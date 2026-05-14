@@ -20,6 +20,9 @@ safe-outputs:
   push-to-pull-request-branch:
   add-comment:
     max: 1
+  dispatch-workflow:
+    workflows: [rust-sync-reviewer]
+    max: 1
   noop:
 ---
 
@@ -40,6 +43,7 @@ Before doing anything else, determine whether this PR was created by an automate
    ```bash
    git log -1 --format=%s HEAD
    ```
+
    - If it contains `[coder-complete]`: the coder has already submitted its work and is waiting for the reviewer. Call `noop` with "Coder already ran — awaiting reviewer." and stop.
    - Otherwise: continue.
 
@@ -61,6 +65,7 @@ ls change_plans/review_<N>.md 2>/dev/null && echo "exists" || echo "not found"
 ```
 
 **If it exists**: read it fully. For every `CHANGE-X` section the reviewer marked `ISSUES FOUND`:
+
 - Each `### Issue` entry contains a **Required fix** block — apply that fix exactly as written. The reviewer has already traced the Go source and determined the correct code; do not re-derive it independently.
 - Do not re-implement sections the review marks as `APPROVED`; they are already correct.
 - After applying all fixes, append a `## Fix Iteration <M>` section to `change_plans/summary_<N>.md` (do not overwrite existing content) listing each fix applied and which file it touched.
@@ -246,13 +251,7 @@ When you finish:
      - Next action required from maintainers
 3. If changes are made and checks pass:
    - Push the changes (including `change_plans/summary_<N>.md`) to the triggering PR branch using `push-to-pull-request-branch`.
-   - Dispatch the reviewer workflow so it runs immediately:
-     ```bash
-     BRANCH=$(git rev-parse --abbrev-ref HEAD)
-     gh workflow run rust-sync-reviewer.lock.yml --ref "$BRANCH"
-     ```
-     This explicit dispatch is required because GitHub suppresses `pull_request: synchronize` events
-     for commits pushed by `GITHUB_TOKEN` — the reviewer will not start on its own.
+   - Call `dispatch-workflow` to trigger `rust-sync-reviewer.lock.yml` on the current PR branch.
    - Call `add-comment` on the triggering PR with:
      - A concise summary of implemented changes
      - Validation output summary for `cargo build` and `cargo test`
