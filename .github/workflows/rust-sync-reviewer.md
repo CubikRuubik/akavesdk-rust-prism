@@ -214,7 +214,7 @@ Then push and re-trigger the coder:
 git add change_plans/review_<N>.md
 git commit -m "review: <M> issue(s) in iteration <new_iteration> [review-needed]"
 AUTH_HEADER="$(printf 'x-access-token:%s' "${GITHUB_MCP_SERVER_TOKEN}" | base64 | tr -d '\n')"
-git config "http.${GITHUB_SERVER_URL}/.extraheader" "AUTHORIZATION: basic ${AUTH_HEADER}"
+git config "http.${GITHUB_SERVER_URL}/.extraheader" "Authorization: basic ${AUTH_HEADER}"
 git push origin HEAD:"${GITHUB_REF_NAME}"
 ```
 
