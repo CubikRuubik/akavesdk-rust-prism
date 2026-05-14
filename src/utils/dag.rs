@@ -9,6 +9,7 @@ use crate::types::sdk_types::FileBlockUpload;
 use crate::utils::pb_data::{mod_Data, PbData};
 
 pub const DAG_PROTOBUF: u64 = 0x70;
+pub const CID_BUILDER_CODEC: u64 = DAG_PROTOBUF;
 // pub const RAW: u64 = 0x55;  // Unused constant
 
 /// Builds the canonical dag-pb / UnixFS root CID for a multi-chunk file, matching
@@ -102,7 +103,7 @@ impl DagRoot {
     fn encode_pblink(hash: &[u8], tsize: u64) -> Vec<u8> {
         let mut out: Vec<u8> = Vec::new();
         Self::write_bytes_field(&mut out, 1, hash); // Hash
-        Self::write_string_field(&mut out, 2, "");  // Name (empty)
+        Self::write_string_field(&mut out, 2, ""); // Name (empty)
         Self::write_varint_field(&mut out, 3, tsize); // Tsize
         out
     }
@@ -140,7 +141,29 @@ impl DagRoot {
     }
 }
 
-#[derive(Debug)]
+/// BuildLeafNode wraps raw data in a UnixFS TFile dag-pb node, matching the leaf nodes
+/// produced by `ChunkDag`. Returns `(cid, serialised_node_bytes)`.
+pub fn build_leaf_node(data: &[u8]) -> Result<(Cid, Vec<u8>), String> {
+    let pb_data = PbData {
+        data_type: mod_Data::DataType::File,
+        data: Some(std::borrow::Cow::Owned(data.to_vec())),
+        ..Default::default()
+    };
+    let mut data_bytes = Vec::new();
+    let mut w = Writer::new(&mut data_bytes);
+    pb_data
+        .write_message(&mut w)
+        .map_err(|e| format!("PbData encode: {e}"))?;
+
+    // PBNode with only a Data field (no links): write field 1 (Data) as length-delimited.
+    let mut node_bytes = Vec::new();
+    DagRoot::write_bytes_field(&mut node_bytes, 1, &data_bytes);
+
+    let mh = Code::Sha2_256.digest(&node_bytes);
+    let cid = Cid::new_v1(DAG_PROTOBUF, mh);
+    Ok((cid, node_bytes))
+}
+
 pub(crate) struct ChunkDag {
     pub cid: Cid,
     pub encoded_size: usize,
@@ -252,8 +275,14 @@ mod tests {
     fn test_chunk_encoded_size_with_erasure() {
         let raw = vec![0u8; 10 * 1024 * 1024]; // 10 MiB
         let ec = ErasureCode::new(16, 16).unwrap();
-        let encoded = ec.encode(&raw).unwrap();
-        let block_size = encoded.len() / 32; // one shard per block
+        // Use encode_raw so the block layout matches the old flat encoding without the
+        // 12-byte wrap header.
+        let shards = ec.encode_raw(&raw).unwrap();
+        let block_size = shards[0].len();
+        let mut encoded = Vec::with_capacity(block_size * shards.len());
+        for s in shards {
+            encoded.extend_from_slice(&s);
+        }
 
         let dag = ChunkDag::new(block_size, encoded);
 

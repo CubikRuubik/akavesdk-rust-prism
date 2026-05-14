@@ -7,7 +7,11 @@ fn test_exit_code() {
         .args(["bucket", "create"])
         .output()
         .expect("failed to spawn akave binary");
-    assert_ne!(output.status.code(), Some(0), "missing args should exit non-zero");
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "missing args should exit non-zero"
+    );
 
     // All args valid but node is unreachable — port 0 is reserved and never assigned.
     let output = std::process::Command::new(bin)
