@@ -1830,7 +1830,7 @@ impl AkaveSDK {
 
             // Combine blocks into a chunk
             let processed_data = if let Some(erasure_code) = &self.erasure_code {
-                erasure_code.extract_data(block_data_vecs, original_chunk_size)?
+                erasure_code.extract_data_raw(block_data_vecs, original_chunk_size)?
             } else {
                 block_data_vecs.concat()
             };
@@ -2015,7 +2015,7 @@ impl AkaveSDK {
 
                 // Process with erasure coding if enabled
                 let processed_data = if let Some(erasure_code) = &erasure_code {
-                    erasure_code.extract_data(blocks_data.clone(), chunk_size as usize)?
+                    erasure_code.extract_data_raw(blocks_data.clone(), chunk_size as usize)?
                 } else {
                     blocks_data.concat()
                 };
@@ -2421,7 +2421,7 @@ impl AkaveSDK {
 
         let original_chunk_size = chunk_download.size as usize;
         let mut data = if let Some(ec) = &self.erasure_code {
-            ec.extract_data(block_data_vecs, original_chunk_size)?
+            ec.extract_data_raw(block_data_vecs, original_chunk_size)?
         } else {
             block_data_vecs.concat()
         };

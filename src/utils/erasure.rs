@@ -102,14 +102,25 @@ impl ErasureCode {
     }
 
     /// Encode the input data using Reed-Solomon erasure coding, returning the concatenated
-    /// encoded bytes.  The data is first wrapped with a 12-byte length header so that the
-    /// original size can be recovered without an out-of-band parameter.
+    /// encoded bytes. The data is wrapped with a 12-byte length header so that the original
+    /// size can be recovered without an out-of-band parameter using [`ErasureCode::extract_data`].
     pub fn encode(&self, data: &[u8]) -> Result<Vec<u8>, ErasureCodeError> {
-        let wrapped = wrap_data(data);
-        let shards = self.encode_raw(&wrapped)?;
+        let total_blocks = self.data_blocks + self.parity_blocks;
+        let shard_size = data.len().div_ceil(self.data_blocks);
 
-        let shard_size = shards[0].len();
-        let mut result = Vec::with_capacity(shard_size * shards.len());
+        let mut shards = vec![vec![0u8; shard_size]; total_blocks];
+        for (i, chunk) in data.chunks(shard_size).enumerate() {
+            if i >= self.data_blocks {
+                break;
+            }
+            shards[i][..chunk.len()].copy_from_slice(chunk);
+        }
+
+        self.enc
+            .encode(&mut shards)
+            .map_err(ErasureCodeError::ReedSolomonError)?;
+
+        let mut result = Vec::with_capacity(shard_size * total_blocks);
         for shard in shards {
             result.extend_from_slice(&shard);
         }
@@ -164,26 +175,30 @@ impl ErasureCode {
         Ok(buffer)
     }
 
-    /// Extracts the original data from the encoded data, unwrapping the length header added by
-    /// `encode`.  The `original_data_size` must equal the total wrapped size
-    /// (`data.len() + WRAP_OVERHEAD`) to reconstruct correctly.
-    pub fn extract_data(
-        &self,
-        blocks: Vec<Vec<u8>>,
-        original_data_size: usize,
-    ) -> Result<Vec<u8>, ErasureCodeError> {
-        let wrapped_size = original_data_size + WRAP_OVERHEAD;
-        let wrapped = self.extract_data_raw(blocks, wrapped_size)?;
+    /// Extracts the original data from erasure-coded shards, unwrapping the length header
+    /// that was added by [`ErasureCode::encode`] (Go: `ExtractData`).
+    pub fn extract_data(&self, blocks: Vec<Vec<u8>>) -> Result<Vec<u8>, ErasureCodeError> {
+        if blocks.is_empty() {
+            return Err(ErasureCodeError::InvalidBlockCount);
+        }
+        let shard_size = blocks
+            .iter()
+            .filter(|b| !b.is_empty())
+            .map(|b| b.len())
+            .max()
+            .unwrap_or(0);
+        let total_size = self.data_blocks * shard_size;
+        let wrapped = self.extract_data_raw(blocks, total_size)?;
         unwrap_data(&wrapped)
     }
 
-    /// Split a flat encoded buffer into individual shard vectors.
-    pub fn split_stripes(encoded: &[u8]) -> Vec<Vec<u8>> {
-        let total_blocks = encoded.len();
-        if total_blocks == 0 {
+    /// Split `data` into stripes of at most `max_stripe_size` bytes each.
+    /// The last stripe may be smaller. (Go: `SplitStripes`)
+    pub fn split_stripes(data: &[u8], max_stripe_size: usize) -> Vec<&[u8]> {
+        if data.is_empty() || max_stripe_size == 0 {
             return Vec::new();
         }
-        encoded.chunks(1).map(|c| c.to_vec()).collect()
+        data.chunks(max_stripe_size).collect()
     }
 }
 
@@ -282,7 +297,7 @@ mod tests {
         let blocks = split_into_blocks(&encoded, shard_size);
         println!("Blocks before extraction: {:?}", blocks);
 
-        let extracted = encoder.extract_data(blocks, data.len()).unwrap();
+        let extracted = encoder.extract_data_raw(blocks, data.len()).unwrap();
         println!("Extracted data: {:?}", extracted);
         assert_eq!(data.to_vec(), extracted);
     }
@@ -310,7 +325,7 @@ mod tests {
             }
             println!("Blocks before extraction (with missing): {:?}", blocks);
 
-            let extracted = encoder.extract_data(blocks, data.len()).unwrap();
+            let extracted = encoder.extract_data_raw(blocks, data.len()).unwrap();
             println!("Extracted data (with missing): {:?}", extracted);
             assert_eq!(data.to_vec(), extracted);
         }
@@ -334,6 +349,6 @@ mod tests {
             blocks[i] = vec![0u8; shard_size];
         }
         println!("Blocks before extraction (too many missing): {:?}", blocks);
-        assert!(encoder.extract_data(blocks, data.len()).is_err());
+        assert!(encoder.extract_data_raw(blocks, data.len()).is_err());
     }
 }

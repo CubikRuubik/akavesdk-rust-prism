@@ -141,7 +141,29 @@ impl DagRoot {
     }
 }
 
-#[derive(Debug)]
+/// BuildLeafNode wraps raw data in a UnixFS TFile dag-pb node, matching the leaf nodes
+/// produced by `ChunkDag`. Returns `(cid, serialised_node_bytes)`.
+pub fn build_leaf_node(data: &[u8]) -> Result<(Cid, Vec<u8>), String> {
+    let pb_data = PbData {
+        data_type: mod_Data::DataType::File,
+        data: Some(std::borrow::Cow::Owned(data.to_vec())),
+        ..Default::default()
+    };
+    let mut data_bytes = Vec::new();
+    let mut w = Writer::new(&mut data_bytes);
+    pb_data
+        .write_message(&mut w)
+        .map_err(|e| format!("PbData encode: {e}"))?;
+
+    // PBNode with only a Data field (no links): write field 1 (Data) as length-delimited.
+    let mut node_bytes = Vec::new();
+    DagRoot::write_bytes_field(&mut node_bytes, 1, &data_bytes);
+
+    let mh = Code::Sha2_256.digest(&node_bytes);
+    let cid = Cid::new_v1(DAG_PROTOBUF, mh);
+    Ok((cid, node_bytes))
+}
+
 pub(crate) struct ChunkDag {
     pub cid: Cid,
     pub encoded_size: usize,
