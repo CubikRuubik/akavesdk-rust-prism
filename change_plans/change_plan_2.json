@@ -1,0 +1,198 @@
+{
+  "meta": {
+    "source_repo": "CubikRuubik/akavesdk-prism",
+    "source_commit": "568cbb400248fb84b26eb0b3246abe7822419a62",
+    "target_repo": "CubikRuubik/akavesdk-rust-prism",
+    "created_at": "2026-05-11T11:05:43Z",
+    "description": "v0.5.5: new streaming encryption format (streamenc), Upload2/Download2 with per-stripe erasure coding, MultiUpload helper, breaking API changes to SDK constructor and encryption/erasure coding, removal of connection-pool flag"
+  },
+  "execution_order": [
+    "CHANGE-1: Update encryption primitives (in-place Encrypt/Decrypt, string info, exported GCMCipher, CeilDiv, ErrBufferTooSmall) — apply first, all other changes depend on it",
+    "CHANGE-2: Add streamenc package — apply after encryption primitives are updated",
+    "CHANGE-3: Update erasure coding API (ExtractData drops originalSize, new EncodeRaw/ExtractDataRaw, WrapOverhead, SplitStripes) — apply after CHANGE-1",
+    "CHANGE-4: Update httpext with ErrTransient sentinel — apply independently",
+    "CHANGE-5: Update ipc.Client — new ContractsAddresses fields, DeployContracts signature, new UpgradeStorage function — apply after CHANGE-1",
+    "CHANGE-6: Update SDK constructor (New signature: privateKey replaces useConnectionPool; rename options; remove EncryptionOverhead) — apply after CHANGE-1 and CHANGE-3",
+    "CHANGE-7: Update connection pool — remove pooled flag, always pool, add buffer-sized dial options — apply after CHANGE-6",
+    "CHANGE-8: Add MultiUpload type — apply after CHANGE-6",
+    "CHANGE-9: Add Upload2/Download2 (sdk_ipc_upload_download2) — apply after CHANGE-2, CHANGE-3, CHANGE-8",
+    "CHANGE-10: Update IPC.Upload to delegate to MultiUpload — apply after CHANGE-8",
+    "CHANGE-11: Update DAG utilities (export CIDBuilder, add BuildLeafNode, move ChunkDAG to top) — apply after CHANGE-6",
+    "CHANGE-12: Update version module — commit now derived from module version, not vcs.revision — apply independently",
+    "CHANGE-13: Update ipctest error matching to use string contains instead of typed errors — apply independently",
+    "TEST-1: Port streamenc encrypt/decrypt round-trip test — apply after CHANGE-2",
+    "TEST-2: Port stripes split tests — apply after CHANGE-3",
+    "TEST-3: Port MultiUpload integration tests — apply after CHANGE-8",
+    "TEST-4: Port ExtractBlockData protowire parity test — apply after CHANGE-6"
+  ],
+  "changes": [
+    {
+      "id": "CHANGE-1",
+      "title": "Encryption API: in-place operations, string info parameter, new exports",
+      "priority": "critical",
+      "go_files": ["private/encryption/encryption.go"],
+      "target_files": ["src/encryption.rs"],
+      "description": "The encryption package received several breaking changes. The Encrypt function now operates in-place on the input buffer, which must have sufficient extra capacity (Overhead = 28 bytes) at the end; it returns a resliced view of the same buffer rather than a new allocation. The Decrypt function similarly now decrypts in-place and returns a resliced view. Both functions, along with EncryptD, had their info parameter type changed from a byte slice to a string. The internal GCM cipher factory (previously makeGCMCipher) is now exported as GCMCipher and accepts a string info. DeriveKey likewise now takes a string info. A new exported integer constant Overhead (28) replaces the old EncryptionOverhead in the sdk package. A new exported error ErrBufferTooSmall is returned when the input buffer lacks capacity for in-place encryption. A generic CeilDiv utility function was added."
+    },
+    {
+      "id": "CHANGE-2",
+      "title": "Add streamenc package: block-based streaming encryption format",
+      "priority": "critical",
+      "go_files": ["private/encryption/streamenc/streamenc.go"],
+      "target_files": ["src/streamenc.rs"],
+      "description": "A new streaming encryption package was added. It splits plaintext into fixed-size blocks (MaxBlockSize = 32 KiB each) and encrypts each block independently using AES-GCM with a nonce derived from a single random initial nonce incremented per block. Block 0 carries a header containing the format version (1 byte), initial nonce (12 bytes), and total plaintext size (4 bytes, big-endian uint32). The last block is zero-padded to a multiple of 16 bytes so that total ciphertext length is always divisible by 16 (required for downstream erasure coding). Key public functions: Encrypt (in-place, returns bytes written), DecryptAllBlocks (in-place, returns plaintext byte count), DecryptBlock (single block), ParseHeader (reads version/nonce/plaintext-size from block 0), BlockNonce (derives per-block nonce), NumBlocks, BlockDataSize, EncryptedBlock, Overhead, MaxPlaintextSizeForTarget. Read the source at meta.source_commit for all constant values and the precise algorithm."
+    },
+    {
+      "id": "CHANGE-3",
+      "title": "Erasure coding API updates: ExtractData drops originalSize, new raw encode/decode, SplitStripes",
+      "priority": "critical",
+      "go_files": [
+        "private/erasurecode/erasure_code.go",
+        "private/erasurecode/stripes.go"
+      ],
+      "target_files": ["src/erasure_code.rs"],
+      "description": "ExtractData no longer accepts an originalSize parameter; it now always calls unwrapData to recover the original length from the wrapped format. Callers that previously passed a non-zero originalSize (relying on the old wrapped-or-raw duality) must now use the new ExtractDataRaw method instead. ExtractDataRaw takes the shards and an explicit originalSize and returns data without unwrapping — it is used by the new Upload2/Download2 path. A new EncodeRaw method encodes data without wrapping (no size prefix or magic suffix), producing shards suitable for use with ExtractDataRaw. The WrapOverhead constant (prefix 8 + magic suffix 4 = 12) is now exported. Error handling in both ExtractData and ExtractDataRaw was improved: reedsolomon.ErrShardSize triggers reconstruction; all other errors propagate directly. A new SplitStripes function was added to split a byte slice into stripes of at most maxStripeSize bytes."
+    },
+    {
+      "id": "CHANGE-4",
+      "title": "httpext: add ErrTransient sentinel and wrap transient errors",
+      "priority": "medium",
+      "go_files": ["private/httpext/httpext.go"],
+      "target_files": ["src/httpext.rs"],
+      "description": "A new exported error sentinel ErrTransient was added to the httpext package. RangeDownload now wraps HTTP request failures and body read failures with ErrTransient so callers can distinguish transient network errors (which may be retried) from permanent ones. Previously these errors were plain formatted strings. The error message format for body read failures was also updated to include URL, offset, and end byte for easier diagnosis."
+    },
+    {
+      "id": "CHANGE-5",
+      "title": "ipc.Client: new ContractsAddresses fields, DeployContracts signature, new UpgradeStorage",
+      "priority": "high",
+      "go_files": ["private/ipc/client.go"],
+      "target_files": ["src/ipc/client.rs"],
+      "description": "ContractsAddresses gained two new string fields: Token (address of the deployed AkaveToken contract) and StorageImpl (address of the new Storage implementation before proxying). DeployContracts now populates both fields and its signature changed from accepting a Config struct to taking dialURI and privateKeyHex as separate string parameters. A new exported function UpgradeStorage was added; it deploys a new Storage implementation contract and calls upgradeToAndCall on the existing UUPS proxy, optionally passing call data encoded as a hex string. Error returns in WaitForTx were changed from zeebo/errs to stdlib errors.New."
+    },
+    {
+      "id": "CHANGE-6",
+      "title": "SDK constructor: privateKey replaces useConnectionPool, option renames, EncryptionOverhead removed",
+      "priority": "critical",
+      "go_files": ["sdk/sdk.go"],
+      "target_files": ["src/sdk.rs"],
+      "description": "The SDK constructor (New) now takes a privateKey string as its fourth positional parameter instead of useConnectionPool bool. The private key is stored directly on the SDK struct and forwarded to IPC; it is no longer passed via a WithPrivateKey option. The WithPrivateKey option was removed. WithStreamingMaxBlocksInChunk was renamed to WithMaxBlocksInChunk. WithBatchSize was renamed to WithChunkBatchSize. The internal struct field streamingMaxBlocksInChunk was renamed to maxBlocksInChunk and batchSize was renamed to chunkBatchSize. The EncryptionOverhead constant was removed from this package (it is now encryption.Overhead). A new maxBlockSize constant (1 MiB) was added. ExtractBlockData was refactored to use direct protowire parsing instead of the merkledag/unixfs libraries; the logic and output are identical. encryptionKey() now returns the parent key itself (rather than nil) when the parent key is empty, avoiding a nil panic in callers that check len() rather than nil equality. WithChunkBuffer now clamps negative values to zero. A new readUpTo helper reads from a reader without treating ErrUnexpectedEOF as an error (returns partial data). The IPC() factory no longer passes useConnectionPool."
+    },
+    {
+      "id": "CHANGE-7",
+      "title": "Connection pool: remove pooled flag, always pool, add read/write buffer options",
+      "priority": "high",
+      "go_files": ["sdk/connection.go"],
+      "target_files": ["src/connection.rs"],
+      "description": "The connection pool methods createIPCClient and createArchivalClient previously accepted a pooled bool; when false they created a one-off connection that the caller was responsible for closing. Both methods have been renamed (IPCClient and ArchivalClient) and the pooled parameter was removed — connections are now always pooled. Accordingly, the returned cleanup function is always nil. A new package-level defaultDialOptions slice was added containing gRPC options for transport credentials, read buffer size (128 KiB), write buffer size (128 KiB), and shared write buffer; this slice is applied to all new connections created by the pool."
+    },
+    {
+      "id": "CHANGE-8",
+      "title": "Add MultiUpload type for parallel/batched file uploads",
+      "priority": "high",
+      "go_files": ["sdk/multi_upload.go"],
+      "target_files": ["src/multi_upload.rs"],
+      "description": "A new MultiUpload type was added, obtainable via IPC.MultiUpload(fileConcurrency int). It provides two methods: CreateFileUploads, which creates on-chain file records for multiple files concurrently up to fileConcurrency goroutines, and Upload, which uploads multiple files concurrently. Both methods return per-file results (including per-file errors) rather than failing the entire batch on the first error. New public types added: CreateFileUploadParam (bucket name + file name), UploadParam (IPCFileUpload pointer + io.Reader), CreateFileUploadResult (bucket name, file name, IPCFileUpload pointer, error), UploadResult (bucket name, file name, IPCFileMetaV2 pointer, error). IPC.Upload now delegates internally to MultiUpload(1).Upload, providing identical single-file behaviour."
+    },
+    {
+      "id": "CHANGE-9",
+      "title": "Add Upload2/Download2: streamenc + per-stripe erasure coding upload/download",
+      "priority": "high",
+      "go_files": ["sdk/sdk_ipc_upload_download2.go"],
+      "target_files": ["src/sdk_ipc_upload_download2.rs"],
+      "description": "Two new methods were added to IPC: Upload2 and Download2. Both require erasure coding and encryption to be configured. Upload2 reads the file in chunks whose plaintext size is determined by MaxPlaintextSizeForTarget(16 MiB), encrypts each chunk with streamenc.Encrypt, splits the resulting ciphertext into stripes of at most 2 MiB each, encodes each stripe into shards using ErasureCode.EncodeRaw, then interleaves the shards column-major into a single byte slice before building the DAG. Download2 reverses the process: it fetches blocks concurrently, reads the streamenc header to learn the plaintext size, slices blocks into per-stripe shard segments, calls ErasureCode.ExtractDataRaw per stripe to recover ciphertext, then calls streamenc.DecryptAllBlocks to recover plaintext. The constants targetCiphertextSize (16 MiB) and maxStripeSize (2 MiB) govern chunk and stripe sizing. Read sdk_ipc_upload_download2.go at meta.source_commit for the precise algorithm."
+    },
+    {
+      "id": "CHANGE-10",
+      "title": "IPC.Upload refactored to delegate to MultiUpload",
+      "priority": "medium",
+      "go_files": ["sdk/sdk_ipc.go"],
+      "target_files": ["src/sdk_ipc.rs"],
+      "description": "The Upload method on IPC was rewritten as a thin wrapper that creates a MultiUpload with concurrency 1 and forwards the call. The previous inline upload implementation (reading, building chunk transactions, waiting, committing) was moved into MultiUpload.uploadSingleFile. Externally the method signature and behaviour are unchanged. The IPC struct field batchSize was renamed to chunkBatchSize, matching sdk.go. The useConnectionPool field was removed."
+    },
+    {
+      "id": "CHANGE-11",
+      "title": "DAG utilities: export CIDBuilder, add BuildLeafNode, reorder types",
+      "priority": "medium",
+      "go_files": ["sdk/dag.go"],
+      "target_files": ["src/dag.rs"],
+      "description": "The package-level variable cidBuilder was renamed to CIDBuilder (exported). ChunkDAG was moved to the top of the file (before DAGRoot) for readability; its fields are unchanged. A new exported function BuildLeafNode was added; it wraps raw data in a unixfs TFile ProtoNode using the same format as the leaf nodes produced by BuildDAG, enabling callers to reconstruct individual leaf nodes for verification or testing. BuildDAG and NewDAGRoot were updated to reference CIDBuilder."
+    },
+    {
+      "id": "CHANGE-12",
+      "title": "Version: commit now derived from module version, not vcs.revision",
+      "priority": "low",
+      "go_files": ["private/version/version.go"],
+      "target_files": [],
+      "description": "The version Info() function now reads the commit field from debug.BuildInfo.Main.Version (the Go module version string, e.g. v0.5.5) instead of the vcs.revision build setting. The vcs.time setting is still read for the timestamp field. This is an internal change with no external API impact on dependent language SDKs."
+    },
+    {
+      "id": "CHANGE-13",
+      "title": "ipctest: replace typed error checks with string matching",
+      "priority": "low",
+      "go_files": ["private/ipctest/ipctest.go"],
+      "target_files": [],
+      "description": "The test helper NewFundedAccount previously compared errors with typed sentinels (go-ethereum core.ErrNonceTooLow and txpool.ErrReplaceUnderpriced). It now uses strings.Contains to match the error message text. This avoids importing go-ethereum internal packages and is more resilient to library version changes. This is a test-infrastructure change with no impact on dependent language SDKs."
+    }
+  ],
+  "contract_updates": [],
+  "test_updates": [
+    {
+      "id": "TEST-1",
+      "go_test_function": "TestEncryptDecryptRoundtrip",
+      "go_file": "private/encryption/streamenc/streamenc_test.go",
+      "type": "unit",
+      "description": "Verifies that encrypting arbitrary-length plaintext with streamenc.Encrypt and then decrypting with DecryptAllBlocks recovers the original bytes exactly, for several plaintext sizes ranging from small to multi-block.",
+      "port_instructions": "1. Import or re-implement the streamenc constants (MaxBlockSize, HeaderSize, Version, Block0DataSize, BlockNDataSize). 2. Generate a random key (32 bytes) and random plaintext of several sizes (1 byte, Block0DataSize, Block0DataSize+1, 3*MaxBlockSize). 3. For each size: allocate a buffer with sufficient capacity (plaintext size + Overhead(plaintext size)), copy plaintext in, call Encrypt, call DecryptAllBlocks, assert the decrypted bytes match the original plaintext. 4. Read the test file at meta.source_commit for exact sizes and assertions.",
+      "dependencies": ["CHANGE-2"]
+    },
+    {
+      "id": "TEST-2",
+      "go_test_function": "TestSplitStripesPreservesData",
+      "go_file": "private/erasurecode/stripes_test.go",
+      "type": "unit",
+      "description": "Verifies that concatenating all stripes returned by SplitStripes reproduces the original input exactly, for various data lengths and stripe sizes.",
+      "port_instructions": "1. Create test data of various lengths (0, 1, maxStripeSize-1, maxStripeSize, maxStripeSize+1, 3*maxStripeSize). 2. For each: call SplitStripes with a fixed maxStripeSize. 3. Concatenate all returned stripes and assert equality to the original. 4. Also check that each stripe (except the last) has exactly maxStripeSize bytes and the last stripe has len(data) % maxStripeSize bytes (or maxStripeSize if divisible). 5. Read stripes_test.go at meta.source_commit for all edge cases.",
+      "dependencies": ["CHANGE-3"]
+    },
+    {
+      "id": "TEST-3",
+      "go_test_function": "TestIPCMultiUploadWithEncryptionAndErasureCoding",
+      "go_file": "sdk/multi_upload_test.go",
+      "type": "integration",
+      "description": "Integration test that verifies MultiUpload correctly uploads multiple files concurrently with encryption and erasure coding enabled, then downloads each file and verifies content integrity.",
+      "port_instructions": "1. Start a local test node (or mock IPC) configured with the same parameters as ipctest. 2. Create an SDK instance with erasure coding and encryption. 3. Call IPC.MultiUpload(2) to get a MultiUpload helper. 4. Prepare 3 small files (in-memory byte slices). 5. Call CreateFileUploads for all three, assert no errors. 6. Call Upload for all three, assert all UploadResult.Error are nil and Meta is non-nil. 7. Download each file and assert content matches what was uploaded. 8. Read multi_upload_test.go at meta.source_commit for exact setup and assertions.",
+      "dependencies": ["CHANGE-6", "CHANGE-8"]
+    },
+    {
+      "id": "TEST-4",
+      "go_test_function": "TestExtractBlockDataDecodeProtobufMatchesProtowire",
+      "go_file": "sdk/sdk_unit_test.go",
+      "type": "unit",
+      "description": "Verifies that the new protowire-based ExtractBlockData returns identical bytes to the old merkledag/unixfs decoding path for a set of real DAG-PB encoded test vectors.",
+      "port_instructions": "1. Obtain several DAG-PB encoded test vectors covering single-block and multi-block cases (read from sdk_unit_test.go at meta.source_commit). 2. Decode each vector using the legacy path (merkledag + unixfs if your test environment has those libraries). 3. Decode using the new ExtractBlockData equivalent. 4. Assert both outputs are byte-equal. 5. This test is mainly relevant if the target SDK has its own DAG block decoder.",
+      "dependencies": ["CHANGE-6"]
+    }
+  ],
+  "skipped_files": [
+    {"path": "README.md", "reason": "documentation"},
+    {"path": "go.mod", "reason": "dependencies"},
+    {"path": "go.sum", "reason": "dependencies"},
+    {"path": "cmd/akavecli/main.go", "reason": "build"},
+    {"path": "cmd/akavecli/storage.go", "reason": "build"},
+    {"path": "private/encryption/encryption_test.go", "reason": "generated"},
+    {"path": "private/encryption/streamenc/streamenc_test.go", "reason": "generated"},
+    {"path": "private/erasurecode/erasure_code_bench_test.go", "reason": "generated"},
+    {"path": "private/erasurecode/erasure_code_test.go", "reason": "generated"},
+    {"path": "private/erasurecode/stripes_test.go", "reason": "generated"},
+    {"path": "private/ipc/batch_client.go", "reason": "other"},
+    {"path": "private/ipc/batch_client_test.go", "reason": "generated"},
+    {"path": "private/ipc/client_test.go", "reason": "generated"},
+    {"path": "private/ipctest/ipctest.go", "reason": "generated"},
+    {"path": "sdk/dag_test.go", "reason": "generated"},
+    {"path": "sdk/multi_upload_test.go", "reason": "generated"},
+    {"path": "sdk/sdk_bench_test.go", "reason": "generated"},
+    {"path": "sdk/sdk_ipc_test.go", "reason": "generated"},
+    {"path": "sdk/sdk_test.go", "reason": "generated"},
+    {"path": "sdk/sdk_unit_test.go", "reason": "generated"}
+  ]
+}
