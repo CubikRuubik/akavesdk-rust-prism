@@ -17,7 +17,6 @@ network:
     - defaults
     - rust
 safe-outputs:
-  push-to-pull-request-branch:
   add-comment:
     max: 1
   dispatch-workflow:
@@ -250,10 +249,10 @@ When you finish:
      - The exact failing check(s)
      - Next action required from maintainers
 3. If changes are made and checks pass:
-   - Push the changes (including `change_plans/summary_<N>.md`) to the triggering PR branch using `push-to-pull-request-branch`.
+   - Push the changes (including `change_plans/summary_<N>.md`) to the current working branch with `git push origin HEAD:"${GITHUB_REF_NAME}"`.
    - Call `dispatch-workflow` to trigger `rust-sync-reviewer.lock.yml` on the current PR branch.
    - Call `add-comment` on the triggering PR with:
-     - A concise summary of implemented changes
+      - A concise summary of implemented changes
      - Validation output summary for `cargo build` and `cargo test`
 
 ## Safety

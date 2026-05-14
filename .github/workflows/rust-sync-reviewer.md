@@ -15,7 +15,6 @@ network:
     - defaults
     - rust
 safe-outputs:
-  push-to-pull-request-branch:
   add-comment:
     max: 2
   dispatch-workflow:
@@ -214,9 +213,8 @@ Then push and re-trigger the coder:
 ```bash
 git add change_plans/review_<N>.md
 git commit -m "review: <M> issue(s) in iteration <new_iteration> [review-needed]"
+git push origin HEAD:"${GITHUB_REF_NAME}"
 ```
-
-Use `push-to-pull-request-branch` to push.
 
 Then call `dispatch-workflow` to trigger `rust-sync-from-golang-pr` on the current PR branch.
 This is required because GitHub suppresses `pull_request: synchronize` events for commits
