@@ -13,7 +13,10 @@ pub struct BucketIndexResult {
 impl Detokenize for BucketIndexResult {
     fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
         if let [Token::Uint(index), Token::Bool(exists)] = tokens.as_slice() {
-            Ok(Self { index: *index, exists: *exists })
+            Ok(Self {
+                index: *index,
+                exists: *exists,
+            })
         } else {
             Err(web3::contract::Error::InterfaceUnsupported)
         }
@@ -29,7 +32,10 @@ pub struct FileIndexResult {
 impl Detokenize for FileIndexResult {
     fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
         if let [Token::Uint(index), Token::Bool(exists)] = tokens.as_slice() {
-            Ok(Self { index: *index, exists: *exists })
+            Ok(Self {
+                index: *index,
+                exists: *exists,
+            })
         } else {
             Err(web3::contract::Error::InterfaceUnsupported)
         }

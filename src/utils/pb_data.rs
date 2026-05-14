@@ -278,7 +278,10 @@ mod tests {
             DataType::Symlink,
             DataType::HAMTShard,
         ] {
-            let original = PbData { data_type: dt, ..Default::default() };
+            let original = PbData {
+                data_type: dt,
+                ..Default::default()
+            };
             let encoded = encode(&original);
             let decoded = decode(&encoded);
             assert_eq!(decoded.data_type, dt, "DataType {:?} roundtrip failed", dt);

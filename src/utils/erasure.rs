@@ -16,6 +16,41 @@ pub enum ErasureCodeError {
         "insufficient data for reconstruction: need at least {required} shards, got {available}"
     )]
     InsufficientData { required: usize, available: usize },
+
+    #[error("wrapped data too short")]
+    WrappedDataTooShort,
+
+    #[error("wrapped data length mismatch")]
+    WrappedDataLengthMismatch,
+}
+
+/// Number of bytes added by `wrap_data` (8-byte original length + 4-byte magic).
+pub const WRAP_OVERHEAD: usize = 12;
+
+const WRAP_MAGIC: u32 = 0xAC4E_5200;
+
+/// Prepend a 12-byte header to `data`:
+/// bytes 0..4  = magic (big-endian u32)
+/// bytes 4..12 = original data length (big-endian u64)
+fn wrap_data(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(WRAP_OVERHEAD + data.len());
+    out.extend_from_slice(&WRAP_MAGIC.to_be_bytes());
+    out.extend_from_slice(&(data.len() as u64).to_be_bytes());
+    out.extend_from_slice(data);
+    out
+}
+
+/// Recover the original data from a wrapped buffer produced by `wrap_data`.
+fn unwrap_data(data: &[u8]) -> Result<Vec<u8>, ErasureCodeError> {
+    if data.len() < WRAP_OVERHEAD {
+        return Err(ErasureCodeError::WrappedDataTooShort);
+    }
+    let _magic = u32::from_be_bytes(data[0..4].try_into().unwrap());
+    let orig_len = u64::from_be_bytes(data[4..12].try_into().unwrap()) as usize;
+    if data.len() < WRAP_OVERHEAD + orig_len {
+        return Err(ErasureCodeError::WrappedDataLengthMismatch);
+    }
+    Ok(data[WRAP_OVERHEAD..WRAP_OVERHEAD + orig_len].to_vec())
 }
 
 /// ErasureCode is a wrapper around the ReedSolomon encoder, providing a more user-friendly interface.
@@ -25,11 +60,9 @@ pub struct ErasureCode {
     pub data_blocks: usize,
     /// Number of parity blocks
     pub parity_blocks: usize,
-    // #[cfg(not(target_arch = "wasm32"))]
     enc: ReedSolomon<galois_8::Field>,
 }
 
-// #[cfg(not(target_arch = "wasm32"))]
 impl ErasureCode {
     /// Creates a new ErasureCode instance with the specified number of data and parity blocks.
     pub fn new(data_blocks: usize, parity_blocks: usize) -> Result<Self, ErasureCodeError> {
@@ -47,51 +80,53 @@ impl ErasureCode {
         })
     }
 
-    /// Encodes the input data using Reed-Solomon erasure coding, returning the encoded data.
-    pub fn encode(&self, data: &[u8]) -> Result<Vec<u8>, ErasureCodeError> {
-        // Split the data into shards
+    /// Encode the input data into individual shards (data + parity), without wrapping.
+    pub fn encode_raw(&self, data: &[u8]) -> Result<Vec<Vec<u8>>, ErasureCodeError> {
         let total_blocks = self.data_blocks + self.parity_blocks;
         let shard_size = data.len().div_ceil(self.data_blocks);
 
-        // Create shards
         let mut shards = vec![vec![0u8; shard_size]; total_blocks];
 
-        // Fill data shards
         for (i, chunk) in data.chunks(shard_size).enumerate() {
             if i >= self.data_blocks {
                 break;
             }
-            let shard = &mut shards[i];
-            shard[..chunk.len()].copy_from_slice(chunk);
+            shards[i][..chunk.len()].copy_from_slice(chunk);
         }
 
-        // Encode the shards
         self.enc
             .encode(&mut shards)
             .map_err(ErasureCodeError::ReedSolomonError)?;
 
-        // Concatenate all shards into a single byte vector
-        let mut result = Vec::with_capacity(shard_size * total_blocks);
+        Ok(shards)
+    }
+
+    /// Encode the input data using Reed-Solomon erasure coding, returning the concatenated
+    /// encoded bytes.  The data is first wrapped with a 12-byte length header so that the
+    /// original size can be recovered without an out-of-band parameter.
+    pub fn encode(&self, data: &[u8]) -> Result<Vec<u8>, ErasureCodeError> {
+        let wrapped = wrap_data(data);
+        let shards = self.encode_raw(&wrapped)?;
+
+        let shard_size = shards[0].len();
+        let mut result = Vec::with_capacity(shard_size * shards.len());
         for shard in shards {
             result.extend_from_slice(&shard);
         }
-
         Ok(result)
     }
 
-    /// Extracts the original data from the encoded data using Reed-Solomon erasure coding.
-    pub fn extract_data(
+    /// Extract and reconstruct shards without unwrapping.
+    pub fn extract_data_raw(
         &self,
         blocks: Vec<Vec<u8>>,
         original_data_size: usize,
     ) -> Result<Vec<u8>, ErasureCodeError> {
-        // Verify and reconstruct if needed
         if !self
             .enc
             .verify(&blocks)
             .map_err(ErasureCodeError::ReedSolomonError)?
         {
-            // Convert empty vectors to None for reconstruction
             let mut decoder_shards = blocks
                 .into_iter()
                 .map(|block| {
@@ -103,15 +138,11 @@ impl ErasureCode {
                 })
                 .collect::<Vec<_>>();
 
-            // Reconstruct the shards
             self.enc
                 .reconstruct_data(&mut decoder_shards)
                 .map_err(ErasureCodeError::ReedSolomonError)?;
 
-            // Join the data blocks
             let mut buffer = Vec::with_capacity(original_data_size);
-
-            // Only take from data blocks (not parity blocks)
             for i in 0..self.data_blocks {
                 if i < decoder_shards.len() {
                     if let Some(block) = &decoder_shards[i] {
@@ -119,25 +150,40 @@ impl ErasureCode {
                     }
                 }
             }
-
-            // Trim to original size
             buffer.truncate(original_data_size);
-
             return Ok(buffer);
         }
 
-        // If no reconstruction needed, just join the original blocks
         let mut buffer = Vec::with_capacity(original_data_size);
         for i in 0..self.data_blocks {
             if i < blocks.len() {
                 buffer.extend_from_slice(&blocks[i]);
             }
         }
-
-        // Trim to original size
         buffer.truncate(original_data_size);
-
         Ok(buffer)
+    }
+
+    /// Extracts the original data from the encoded data, unwrapping the length header added by
+    /// `encode`.  The `original_data_size` must equal the total wrapped size
+    /// (`data.len() + WRAP_OVERHEAD`) to reconstruct correctly.
+    pub fn extract_data(
+        &self,
+        blocks: Vec<Vec<u8>>,
+        original_data_size: usize,
+    ) -> Result<Vec<u8>, ErasureCodeError> {
+        let wrapped_size = original_data_size + WRAP_OVERHEAD;
+        let wrapped = self.extract_data_raw(blocks, wrapped_size)?;
+        unwrap_data(&wrapped)
+    }
+
+    /// Split a flat encoded buffer into individual shard vectors.
+    pub fn split_stripes(encoded: &[u8]) -> Vec<Vec<u8>> {
+        let total_blocks = encoded.len();
+        if total_blocks == 0 {
+            return Vec::new();
+        }
+        encoded.chunks(1).map(|c| c.to_vec()).collect()
     }
 }
 

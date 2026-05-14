@@ -1,5 +1,17 @@
 use crate::types::sdk_types::AkaveError;
 
+pub const ERR_TRANSIENT_PREFIX: &str = "transient: ";
+
+/// Returns true if the error message indicates a transient (retryable) failure.
+pub fn is_transient_error(msg: &str) -> bool {
+    msg.starts_with(ERR_TRANSIENT_PREFIX)
+}
+
+/// Wrap an error message as transient so callers can identify retryable failures.
+pub fn transient_error(msg: impl std::fmt::Display) -> AkaveError {
+    AkaveError::InternalError(format!("{}{}", ERR_TRANSIENT_PREFIX, msg))
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn range_download(
     client: &reqwest::Client,
@@ -8,9 +20,7 @@ pub async fn range_download(
     length: i64,
 ) -> Result<Vec<u8>, AkaveError> {
     if length <= 0 {
-        return Err(AkaveError::InvalidInput(
-            "length must be positive".into(),
-        ));
+        return Err(AkaveError::InvalidInput("length must be positive".into()));
     }
     if offset < 0 {
         return Err(AkaveError::InvalidInput(

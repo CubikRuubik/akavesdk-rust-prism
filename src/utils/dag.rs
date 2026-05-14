@@ -9,6 +9,7 @@ use crate::types::sdk_types::FileBlockUpload;
 use crate::utils::pb_data::{mod_Data, PbData};
 
 pub const DAG_PROTOBUF: u64 = 0x70;
+pub const CID_BUILDER_CODEC: u64 = DAG_PROTOBUF;
 // pub const RAW: u64 = 0x55;  // Unused constant
 
 /// Builds the canonical dag-pb / UnixFS root CID for a multi-chunk file, matching
@@ -102,7 +103,7 @@ impl DagRoot {
     fn encode_pblink(hash: &[u8], tsize: u64) -> Vec<u8> {
         let mut out: Vec<u8> = Vec::new();
         Self::write_bytes_field(&mut out, 1, hash); // Hash
-        Self::write_string_field(&mut out, 2, "");  // Name (empty)
+        Self::write_string_field(&mut out, 2, ""); // Name (empty)
         Self::write_varint_field(&mut out, 3, tsize); // Tsize
         out
     }
@@ -252,8 +253,14 @@ mod tests {
     fn test_chunk_encoded_size_with_erasure() {
         let raw = vec![0u8; 10 * 1024 * 1024]; // 10 MiB
         let ec = ErasureCode::new(16, 16).unwrap();
-        let encoded = ec.encode(&raw).unwrap();
-        let block_size = encoded.len() / 32; // one shard per block
+        // Use encode_raw so the block layout matches the old flat encoding without the
+        // 12-byte wrap header.
+        let shards = ec.encode_raw(&raw).unwrap();
+        let block_size = shards[0].len();
+        let mut encoded = Vec::with_capacity(block_size * shards.len());
+        for s in shards {
+            encoded.extend_from_slice(&s);
+        }
 
         let dag = ChunkDag::new(block_size, encoded);
 

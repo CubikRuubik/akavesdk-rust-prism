@@ -118,7 +118,11 @@ impl AkaveWebSDK {
     }
 
     #[wasm_bindgen(js_name = "listBuckets")]
-    pub async fn list_buckets(&self, offset: i64, limit: i64) -> Result<BucketListResponse, JsError> {
+    pub async fn list_buckets(
+        &self,
+        offset: i64,
+        limit: i64,
+    ) -> Result<BucketListResponse, JsError> {
         log_debug!("Listing buckets");
         let response = self.sdk.list_buckets(offset, limit).await;
         match response {
@@ -175,7 +179,12 @@ impl AkaveWebSDK {
     }
 
     #[wasm_bindgen(js_name = "listFiles")]
-    pub async fn list_files(&self, bucket_name: &str, offset: i64, limit: i64) -> Result<FileListResponse, JsError> {
+    pub async fn list_files(
+        &self,
+        bucket_name: &str,
+        offset: i64,
+        limit: i64,
+    ) -> Result<FileListResponse, JsError> {
         log_debug!("Listing files in bucket: {}", bucket_name,);
         let response = self.sdk.list_files(bucket_name, offset, limit).await;
 
